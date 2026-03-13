@@ -9,6 +9,8 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,14 +19,32 @@ import uvicorn
 from rich.console import Console
 from rich.table import Table
 
+from autocontext.agents.orchestrator import AgentOrchestrator
 from autocontext.config import load_settings
 from autocontext.config.presets import VALID_PRESET_NAMES
 from autocontext.config.settings import AppSettings
+from autocontext.execution.improvement_loop import ImprovementLoop
 from autocontext.loop.generation_runner import GenerationRunner
-from autocontext.storage import SQLiteStore
+from autocontext.scenarios import SCENARIO_REGISTRY
+from autocontext.scenarios.agent_task import AgentTaskInterface
+from autocontext.storage import ArtifactStore, SQLiteStore
 
 if TYPE_CHECKING:
+    from autocontext.providers.base import LLMProvider
     from autocontext.training.runner import TrainingConfig, TrainingResult
+
+
+@dataclass(slots=True)
+class AgentTaskRunSummary:
+    """Result summary for an agent-task execution via the CLI."""
+
+    run_id: str
+    scenario: str
+    best_score: float
+    best_output: str
+    total_rounds: int
+    met_threshold: bool
+    termination_reason: str
 
 app = typer.Typer(help="AutoContext control-plane CLI")
 console = Console()
@@ -44,6 +64,23 @@ def _runner(preset: str | None = None) -> GenerationRunner:
     runner = GenerationRunner(settings)
     runner.migrate(Path(__file__).resolve().parents[2] / "migrations")
     return runner
+
+
+def _sqlite_from_settings(settings: AppSettings) -> SQLiteStore:
+    sqlite = SQLiteStore(settings.db_path)
+    sqlite.migrate(Path(__file__).resolve().parents[2] / "migrations")
+    return sqlite
+
+
+def _artifacts_from_settings(settings: AppSettings) -> ArtifactStore:
+    return ArtifactStore(
+        settings.runs_root,
+        settings.knowledge_root,
+        settings.skills_root,
+        settings.claude_skills_path,
+        max_playbook_versions=settings.playbook_max_versions,
+        enable_buffered_writes=True,
+    )
 
 
 def _resolve_export_artifact_roots(
@@ -99,6 +136,130 @@ def _write_json_stderr(message: str) -> None:
     sys.stderr.write(json.dumps({"error": message}) + "\n")
 
 
+def _is_agent_task(scenario_name: str) -> bool:
+    """Check if a scenario name maps to an AgentTaskInterface class."""
+    cls = SCENARIO_REGISTRY.get(scenario_name)
+    if cls is None:
+        return False
+    return isinstance(cls, type) and issubclass(cls, AgentTaskInterface)
+
+
+def _resolve_agent_task_runtime(settings: AppSettings, scenario_name: str) -> tuple[LLMProvider, str]:
+    """Resolve the effective competitor runtime for direct agent-task execution."""
+    from autocontext.providers.callable_wrapper import CallableProvider
+
+    sqlite = _sqlite_from_settings(settings)
+    artifacts = _artifacts_from_settings(settings)
+    orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
+    client, model = orchestrator.resolve_role_execution(
+        "competitor",
+        generation=1,
+        scenario_name=scenario_name,
+    )
+    resolved_model = model or settings.model_competitor or settings.agent_default_model
+
+    def _llm_fn(system_prompt: str, user_prompt: str) -> str:
+        response = client.generate(
+            model=resolved_model,
+            prompt=f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt,
+            max_tokens=4096,
+            temperature=0.0,
+            role="competitor",
+        )
+        return response.text
+
+    return CallableProvider(_llm_fn, model_name=resolved_model), resolved_model
+
+
+def _run_agent_task(
+    scenario_name: str,
+    settings: AppSettings,
+    max_rounds: int,
+    run_id: str | None,
+) -> AgentTaskRunSummary:
+    """Execute an agent-task scenario through ImprovementLoop."""
+    sqlite = _sqlite_from_settings(settings)
+    cls = SCENARIO_REGISTRY[scenario_name]
+    instance = cls()
+    # Runtime-validated: _is_agent_task() already confirmed this
+    task: AgentTaskInterface = instance  # type: ignore[assignment]
+
+    provider, provider_model = _resolve_agent_task_runtime(settings, scenario_name)
+    state = task.prepare_context(task.initial_state())
+    context_errors = task.validate_context(state)
+    if context_errors:
+        raise ValueError(f"Context validation failed: {'; '.join(context_errors)}")
+    prompt = task.get_task_prompt(state)
+
+    initial_output = provider.complete(
+        system_prompt="Complete the task precisely.",
+        user_prompt=prompt,
+        model=provider_model,
+    ).text
+
+    loop = ImprovementLoop(task=task, max_rounds=max_rounds)
+    active_run_id = run_id or f"task_{uuid.uuid4().hex[:12]}"
+    sqlite.create_run(
+        active_run_id,
+        scenario_name,
+        1,
+        "agent_task",
+        agent_provider=settings.agent_provider,
+    )
+    sqlite.upsert_generation(
+        active_run_id,
+        1,
+        mean_score=0.0,
+        best_score=0.0,
+        elo=0.0,
+        wins=0,
+        losses=0,
+        gate_decision="running",
+        status="running",
+    )
+    sqlite.append_agent_output(active_run_id, 1, "competitor_initial", initial_output)
+
+    try:
+        result = loop.run(initial_output=initial_output, state=state)
+    except Exception:
+        sqlite.upsert_generation(
+            active_run_id,
+            1,
+            mean_score=0.0,
+            best_score=0.0,
+            elo=0.0,
+            wins=0,
+            losses=0,
+            gate_decision="failed",
+            status="failed",
+        )
+        raise
+
+    sqlite.append_agent_output(active_run_id, 1, "competitor", result.best_output)
+    sqlite.upsert_generation(
+        active_run_id,
+        1,
+        mean_score=result.best_score,
+        best_score=result.best_score,
+        elo=0.0,
+        wins=0,
+        losses=0,
+        gate_decision=result.termination_reason,
+        status="completed",
+        duration_seconds=(result.duration_ms / 1000.0) if result.duration_ms is not None else None,
+    )
+
+    return AgentTaskRunSummary(
+        run_id=active_run_id,
+        scenario=scenario_name,
+        best_score=result.best_score,
+        best_output=result.best_output,
+        total_rounds=result.total_rounds,
+        met_threshold=result.met_threshold,
+        termination_reason=result.termination_reason,
+    )
+
+
 @app.command()
 def run(
     scenario: str = typer.Option("grid_ctf", "--scenario"),
@@ -119,6 +280,49 @@ def run(
 
     if preset and not json_output:
         console.print(f"[dim]Active preset: {preset}[/dim]")
+
+    # Agent-task scenario detection (AC-231)
+    if _is_agent_task(scenario):
+        if serve:
+            msg = "--serve is not supported for agent-task scenarios"
+            if json_output:
+                _write_json_stderr(msg)
+            else:
+                console.print(f"[red]{msg}[/red]")
+            raise typer.Exit(code=2)
+
+        _apply_preset_env(preset)
+        settings = load_settings()
+        try:
+            task_summary = _run_agent_task(scenario, settings, max_rounds=gens, run_id=run_id)
+        except KeyboardInterrupt:
+            if json_output:
+                _write_json_stderr("run interrupted")
+            raise typer.Exit(code=1) from None
+        except Exception as exc:
+            if json_output:
+                _write_json_stderr(str(exc))
+            raise typer.Exit(code=1) from exc
+        if json_output:
+            _write_json_stdout(dataclasses.asdict(task_summary))
+        else:
+            table = Table(title="Agent Task Result")
+            table.add_column("Run ID")
+            table.add_column("Scenario")
+            table.add_column("Best Score")
+            table.add_column("Rounds")
+            table.add_column("Threshold Met")
+            table.add_column("Termination")
+            table.add_row(
+                task_summary.run_id,
+                task_summary.scenario,
+                f"{task_summary.best_score:.4f}",
+                str(task_summary.total_rounds),
+                str(task_summary.met_threshold),
+                task_summary.termination_reason,
+            )
+            console.print(table)
+        return
 
     if serve:
         from autocontext.loop.controller import LoopController
