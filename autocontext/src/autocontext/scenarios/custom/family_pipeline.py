@@ -310,6 +310,87 @@ class SimulationPipeline(FamilyPipeline):
         )
 
 
+class ArtifactEditingPipeline(FamilyPipeline):
+    """Pipeline for artifact_editing family scenarios."""
+
+    @property
+    def family_name(self) -> str:
+        return "artifact_editing"
+
+    def required_spec_fields(self) -> set[str]:
+        return {"task_description", "artifacts", "validation_rules", "rubric"}
+
+    def validate_spec(self, spec: dict[str, Any]) -> list[str]:
+        from autocontext.scenarios.custom.artifact_editing_spec import (
+            ArtifactEditingSpec,
+            ArtifactSpecModel,
+        )
+
+        errors = _check_required_fields(spec, self.required_spec_fields())
+        if errors:
+            return errors
+
+        artifacts = spec.get("artifacts")
+        if isinstance(artifacts, list):
+            if len(artifacts) == 0:
+                errors.append("artifacts must not be empty")
+            else:
+                for i, artifact in enumerate(artifacts):
+                    if not isinstance(artifact, dict):
+                        errors.append(f"artifacts[{i}] must be a dict")
+                    else:
+                        if "path" not in artifact:
+                            errors.append(f"artifacts[{i}] missing 'path'")
+                        if "content" not in artifact:
+                            errors.append(f"artifacts[{i}] missing 'content'")
+                        if "content_type" not in artifact:
+                            errors.append(f"artifacts[{i}] missing 'content_type'")
+
+        rules = spec.get("validation_rules")
+        if isinstance(rules, list) and len(rules) == 0:
+            errors.append("validation_rules must not be empty")
+
+        if errors:
+            return errors
+
+        try:
+            ArtifactEditingSpec(
+                task_description=str(spec["task_description"]),
+                rubric=str(spec["rubric"]),
+                validation_rules=[str(rule) for rule in spec["validation_rules"]],
+                artifacts=[
+                    ArtifactSpecModel(
+                        path=str(artifact["path"]),
+                        content=str(artifact["content"]),
+                        content_type=str(artifact["content_type"]),
+                        metadata=artifact.get("metadata", {}) if isinstance(artifact, dict) else {},
+                    )
+                    for artifact in spec["artifacts"]
+                ],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return [f"invalid artifact_editing spec: {exc}"]
+
+        return errors
+
+    def validate_source(self, source: str) -> list[str]:
+        return _check_source_for_class(source, "ArtifactEditingInterface")
+
+    def validate_contract(self, source: str) -> list[str]:
+        return _check_required_methods(
+            source,
+            "ArtifactEditingInterface",
+            {
+                "describe_task",
+                "get_rubric",
+                "initial_artifacts",
+                "get_edit_prompt",
+                "validate_artifact",
+                "evaluate_edits",
+            },
+        )
+
+
 # ---------------------------------------------------------------------------
 # Built-in pipeline registration
 # ---------------------------------------------------------------------------
@@ -317,6 +398,7 @@ class SimulationPipeline(FamilyPipeline):
 def _register_builtins() -> None:
     register_pipeline(AgentTaskPipeline())
     register_pipeline(SimulationPipeline())
+    register_pipeline(ArtifactEditingPipeline())
 
 
 _register_builtins()
