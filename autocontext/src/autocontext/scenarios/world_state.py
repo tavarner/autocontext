@@ -14,6 +14,7 @@ import copy
 import json
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -146,7 +147,9 @@ class StateDelta:
     """A single change within a state transition.
 
     Delta types: entity_created, entity_updated, entity_removed,
-    resource_changed, variable_revealed, dependency_added, dependency_removed.
+    resource_created, resource_changed, resource_removed,
+    variable_added, variable_revealed, variable_updated, variable_removed,
+    dependency_added, dependency_removed.
     """
 
     delta_type: str
@@ -305,6 +308,16 @@ class WorldStateManager:
                         delta_type="entity_updated", target_id=eid,
                         field=key, old_value=old_val, new_value=new_val,
                     ))
+            if a_ent.name != b_ent.name:
+                deltas.append(StateDelta(
+                    delta_type="entity_updated", target_id=eid,
+                    field="name", old_value=a_ent.name, new_value=b_ent.name,
+                ))
+            if a_ent.entity_type != b_ent.entity_type:
+                deltas.append(StateDelta(
+                    delta_type="entity_updated", target_id=eid,
+                    field="entity_type", old_value=a_ent.entity_type, new_value=b_ent.entity_type,
+                ))
             # Check status change
             if a_ent.status != b_ent.status:
                 deltas.append(StateDelta(
@@ -322,22 +335,124 @@ class WorldStateManager:
         a_resources = {r.resource_id: r for r in state_a.resources}
         b_resources = {r.resource_id: r for r in state_b.resources}
 
-        for rid in set(a_resources) | set(b_resources):
+        for rid, b_res in b_resources.items():
             a_res = a_resources.get(rid)
-            b_res = b_resources.get(rid)
-            if a_res is not None and b_res is not None:
-                if a_res.quantity != b_res.quantity:
+            if a_res is None:
+                deltas.append(StateDelta(
+                    delta_type="resource_created", target_id=rid,
+                    field=None, old_value=None, new_value=b_res.to_dict(),
+                ))
+                continue
+            for field_name in ("quantity", "capacity", "owner_entity_id", "name", "resource_type"):
+                old_val = getattr(a_res, field_name)
+                new_val = getattr(b_res, field_name)
+                if old_val != new_val:
                     deltas.append(StateDelta(
                         delta_type="resource_changed", target_id=rid,
-                        field="quantity", old_value=a_res.quantity,
-                        new_value=b_res.quantity,
+                        field=field_name, old_value=old_val, new_value=new_val,
                     ))
+
+        for rid in set(a_resources) - set(b_resources):
+            deltas.append(StateDelta(
+                delta_type="resource_removed", target_id=rid,
+                field=None, old_value=a_resources[rid].to_dict(), new_value=None,
+            ))
+
+        # Dependency diffs
+        a_dependencies = {self._dependency_key(dep): dep for dep in state_a.dependencies}
+        b_dependencies = {self._dependency_key(dep): dep for dep in state_b.dependencies}
+
+        for dep_key in set(b_dependencies) - set(a_dependencies):
+            dep = b_dependencies[dep_key]
+            deltas.append(StateDelta(
+                delta_type="dependency_added", target_id=dep.target_entity_id,
+                field=None, old_value=None, new_value=dep.to_dict(),
+            ))
+
+        for dep_key in set(a_dependencies) - set(b_dependencies):
+            dep = a_dependencies[dep_key]
+            deltas.append(StateDelta(
+                delta_type="dependency_removed", target_id=dep.target_entity_id,
+                field=None, old_value=dep.to_dict(), new_value=None,
+            ))
+
+        # Hidden-variable diffs
+        a_variables = {var.variable_id: var for var in state_a.hidden_variables}
+        b_variables = {var.variable_id: var for var in state_b.hidden_variables}
+
+        for variable_id, b_var in b_variables.items():
+            a_var = a_variables.get(variable_id)
+            if a_var is None:
+                deltas.append(StateDelta(
+                    delta_type="variable_added", target_id=variable_id,
+                    field=None, old_value=None, new_value=b_var.to_dict(),
+                ))
+                continue
+            if not a_var.revealed and b_var.revealed:
+                deltas.append(StateDelta(
+                    delta_type="variable_revealed", target_id=variable_id,
+                    field="revealed", old_value=False, new_value=True,
+                ))
+            elif a_var.revealed != b_var.revealed:
+                deltas.append(StateDelta(
+                    delta_type="variable_updated", target_id=variable_id,
+                    field="revealed", old_value=a_var.revealed, new_value=b_var.revealed,
+                ))
+            for field_name in ("name", "value", "reveal_condition"):
+                old_val = getattr(a_var, field_name)
+                new_val = getattr(b_var, field_name)
+                if old_val != new_val:
+                    deltas.append(StateDelta(
+                        delta_type="variable_updated", target_id=variable_id,
+                        field=field_name, old_value=old_val, new_value=new_val,
+                    ))
+
+        for variable_id in set(a_variables) - set(b_variables):
+            deltas.append(StateDelta(
+                delta_type="variable_removed", target_id=variable_id,
+                field=None, old_value=a_variables[variable_id].to_dict(), new_value=None,
+            ))
 
         return deltas
 
     def to_event_payload(self) -> dict[str, Any]:
         """Convert current state to a payload compatible with the canonical event model."""
-        return self._state.to_dict()
+        metadata = self._state.metadata
+        actor_id = str(metadata.get("actor_entity_id") or metadata.get("actor_id") or "world_state_manager")
+        actor_name = str(metadata.get("actor_name") or actor_id)
+        actor_type = str(metadata.get("actor_type") or "system")
+        return {
+            "event_id": str(metadata.get("event_id") or f"world-state-{self._state.state_id}"),
+            "run_id": str(metadata.get("run_id", "")),
+            "generation_index": int(metadata.get("generation_index", 0) or 0),
+            "sequence_number": int(metadata.get("sequence_number", self._state.step_index)),
+            "timestamp": str(metadata.get("timestamp") or datetime.now(UTC).isoformat()),
+            "category": str(metadata.get("category", "checkpoint")),
+            "event_type": str(metadata.get("event_type", "world_state_snapshot")),
+            "actor": {
+                "actor_type": actor_type,
+                "actor_id": actor_id,
+                "actor_name": actor_name,
+            },
+            "resources": self._resource_refs(),
+            "summary": str(
+                metadata.get("summary")
+                or f"World-state snapshot for {self._state.scenario_name} at step {self._state.step_index}"
+            ),
+            "detail": self._state.to_dict(),
+            "parent_event_id": metadata.get("parent_event_id"),
+            "cause_event_ids": self._coerce_list(metadata.get("cause_event_ids")),
+            "evidence_ids": self._coerce_list(metadata.get("evidence_ids")),
+            "severity": str(metadata.get("severity", "info")),
+            "stage": str(metadata.get("stage", "match")),
+            "outcome": metadata.get("outcome"),
+            "duration_ms": metadata.get("duration_ms"),
+            "metadata": {
+                **metadata,
+                "scenario_name": self._state.scenario_name,
+                "world_state_id": self._state.state_id,
+            },
+        }
 
     # --- private ---
 
@@ -349,6 +464,10 @@ class WorldStateManager:
             if entity is not None and delta.field is not None:
                 if delta.field == "status":
                     entity.status = delta.new_value  # type: ignore[misc]
+                elif delta.field == "name":
+                    entity.name = delta.new_value  # type: ignore[misc]
+                elif delta.field == "entity_type":
+                    entity.entity_type = delta.new_value  # type: ignore[misc]
                 else:
                     entity.properties[delta.field] = delta.new_value
 
@@ -360,16 +479,57 @@ class WorldStateManager:
         elif dt == "entity_removed":
             self._entity_map.pop(delta.target_id, None)
 
+        elif dt == "resource_created":
+            if isinstance(delta.new_value, dict):
+                new_resource = WorldResource.from_dict(delta.new_value)
+                self._resource_map[new_resource.resource_id] = new_resource
+
         elif dt == "resource_changed":
             resource = self._resource_map.get(delta.target_id)
-            if resource is not None and delta.field == "quantity":
-                resource.quantity = delta.new_value  # type: ignore[misc]
+            if resource is not None and delta.field is not None:
+                if delta.field == "quantity":
+                    resource.quantity = delta.new_value  # type: ignore[misc]
+                elif delta.field == "capacity":
+                    resource.capacity = delta.new_value  # type: ignore[misc]
+                elif delta.field == "owner_entity_id":
+                    resource.owner_entity_id = delta.new_value  # type: ignore[misc]
+                elif delta.field == "name":
+                    resource.name = delta.new_value  # type: ignore[misc]
+                elif delta.field == "resource_type":
+                    resource.resource_type = delta.new_value  # type: ignore[misc]
+
+        elif dt == "resource_removed":
+            self._resource_map.pop(delta.target_id, None)
 
         elif dt == "variable_revealed":
             for var in self._state.hidden_variables:
                 if var.variable_id == delta.target_id:
                     var.revealed = True  # type: ignore[misc]
                     break
+
+        elif dt == "variable_added":
+            if isinstance(delta.new_value, dict):
+                self._state.hidden_variables.append(HiddenVariable.from_dict(delta.new_value))
+
+        elif dt == "variable_updated":
+            for var in self._state.hidden_variables:
+                if var.variable_id != delta.target_id or delta.field is None:
+                    continue
+                if delta.field == "revealed":
+                    var.revealed = delta.new_value  # type: ignore[misc]
+                elif delta.field == "name":
+                    var.name = delta.new_value  # type: ignore[misc]
+                elif delta.field == "value":
+                    var.value = delta.new_value
+                elif delta.field == "reveal_condition":
+                    var.reveal_condition = delta.new_value  # type: ignore[misc]
+                break
+
+        elif dt == "variable_removed":
+            self._state.hidden_variables = [  # type: ignore[misc]
+                var for var in self._state.hidden_variables
+                if var.variable_id != delta.target_id
+            ]
 
         elif dt == "dependency_added":
             if isinstance(delta.new_value, dict):
@@ -388,6 +548,42 @@ class WorldStateManager:
         """Sync internal maps back to state lists."""
         self._state.entities = list(self._entity_map.values())  # type: ignore[misc]
         self._state.resources = list(self._resource_map.values())  # type: ignore[misc]
+
+    @staticmethod
+    def _coerce_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return []
+
+    @staticmethod
+    def _dependency_key(edge: DependencyEdge) -> tuple[str, str, str, str]:
+        return (
+            edge.source_entity_id,
+            edge.target_entity_id,
+            edge.dependency_type,
+            json.dumps(edge.metadata, sort_keys=True, default=str),
+        )
+
+    def _resource_refs(self) -> list[dict[str, Any]]:
+        entity_refs = [
+            {
+                "resource_type": "scenario_entity",
+                "resource_id": entity.entity_id,
+                "resource_name": entity.name,
+                "resource_path": f"{self._state.scenario_name}/entities/{entity.entity_id}",
+            }
+            for entity in self._state.entities
+        ]
+        resource_refs = [
+            {
+                "resource_type": resource.resource_type,
+                "resource_id": resource.resource_id,
+                "resource_name": resource.name,
+                "resource_path": f"{self._state.scenario_name}/resources/{resource.resource_id}",
+            }
+            for resource in self._state.resources
+        ]
+        return [*entity_refs, *resource_refs]
 
 
 class WorldStateStore:

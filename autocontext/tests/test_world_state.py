@@ -533,17 +533,107 @@ class TestWorldStateManager:
         assert qty_delta.old_value == 100.0
         assert qty_delta.new_value == 50.0
 
+    def test_diff_detects_dependency_and_hidden_variable_changes(self) -> None:
+        import copy
+
+        from autocontext.scenarios.world_state import WorldState, WorldStateManager
+
+        state_a = _make_world_state()
+        mgr = WorldStateManager(state_a)
+
+        state_b_dict = copy.deepcopy(state_a.to_dict())
+        state_b_dict["state_id"] = "ws-4"
+        state_b_dict["dependencies"].append(
+            {
+                "source_entity_id": "agent-2",
+                "target_entity_id": "agent-1",
+                "dependency_type": "blocks",
+                "metadata": {},
+            }
+        )
+        state_b_dict["hidden_variables"][0]["revealed"] = True
+        state_b_dict["hidden_variables"][0]["value"] = {"location": [4, 4], "damage": 75}
+        state_b = WorldState.from_dict(state_b_dict)
+
+        deltas = mgr.diff(state_a, state_b)
+        assert any(delta.delta_type == "dependency_added" for delta in deltas)
+        assert any(
+            delta.delta_type == "variable_revealed" and delta.target_id == "trap-1"
+            for delta in deltas
+        )
+        assert any(
+            delta.delta_type == "variable_updated" and delta.field == "value"
+            for delta in deltas
+        )
+
+    def test_diff_detects_resource_lifecycle_and_metadata_changes(self) -> None:
+        import copy
+
+        from autocontext.scenarios.world_state import WorldState, WorldStateManager
+
+        state_a = _make_world_state()
+        mgr = WorldStateManager(state_a)
+
+        state_b_dict = copy.deepcopy(state_a.to_dict())
+        state_b_dict["state_id"] = "ws-5"
+        state_b_dict["resources"][0]["capacity"] = 750.0
+        state_b_dict["resources"][0]["owner_entity_id"] = "agent-2"
+        state_b_dict["resources"] = [
+            resource for resource in state_b_dict["resources"]
+            if resource["resource_id"] != "wood-1"
+        ]
+        state_b_dict["resources"].append(
+            {
+                "resource_id": "energy-1",
+                "resource_type": "energy",
+                "name": "Power",
+                "quantity": 20.0,
+                "capacity": 100.0,
+                "owner_entity_id": "agent-1",
+            }
+        )
+        state_b = WorldState.from_dict(state_b_dict)
+
+        deltas = mgr.diff(state_a, state_b)
+        assert any(
+            delta.delta_type == "resource_changed"
+            and delta.target_id == "gold-1"
+            and delta.field == "capacity"
+            for delta in deltas
+        )
+        assert any(
+            delta.delta_type == "resource_changed"
+            and delta.target_id == "gold-1"
+            and delta.field == "owner_entity_id"
+            for delta in deltas
+        )
+        assert any(delta.delta_type == "resource_removed" and delta.target_id == "wood-1" for delta in deltas)
+        assert any(delta.delta_type == "resource_created" and delta.target_id == "energy-1" for delta in deltas)
+
     def test_to_event_payload(self) -> None:
         from autocontext.scenarios.world_state import WorldStateManager
 
-        mgr = WorldStateManager(_make_world_state())
+        world_state = _make_world_state()
+        world_state.metadata = {
+            "run_id": "run-123",
+            "generation_index": 2,
+            "sequence_number": 7,
+            "actor_entity_id": "agent-1",
+            "actor_name": "Agent Alpha",
+            "stage": "match",
+        }
+        mgr = WorldStateManager(world_state)
         payload = mgr.to_event_payload()
 
-        assert "state_id" in payload
-        assert "entities" in payload
-        assert "resources" in payload
-        assert "step_index" in payload
-        assert isinstance(payload["entities"], list)
+        assert payload["event_id"] == "world-state-ws-1"
+        assert payload["run_id"] == "run-123"
+        assert payload["generation_index"] == 2
+        assert payload["category"] == "checkpoint"
+        assert payload["event_type"] == "world_state_snapshot"
+        assert payload["actor"]["actor_id"] == "agent-1"
+        assert payload["stage"] == "match"
+        assert payload["detail"]["state_id"] == "ws-1"
+        assert isinstance(payload["resources"], list)
 
 
 # ===========================================================================
