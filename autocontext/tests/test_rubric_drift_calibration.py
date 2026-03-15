@@ -344,6 +344,7 @@ class TestRubricDriftMonitor:
         assert snap.mean_score > 0
         assert snap.min_score <= snap.max_score
         assert snap.window_start <= snap.window_end
+        assert snap.metadata["scenarios"] == ["grid_ctf", "othello"]
 
     def test_detect_score_inflation(self) -> None:
         """Drift facets have rising scores over time — should detect inflation."""
@@ -449,6 +450,20 @@ class TestRubricDriftMonitor:
 
         assert snap.run_count == 5
         assert len(warnings) > 0
+
+    def test_warnings_carry_snapshot_scenarios(self) -> None:
+        from autocontext.analytics.rubric_drift import (
+            DriftThresholds,
+            RubricDriftMonitor,
+        )
+
+        facets = _make_drift_facets()
+        monitor = RubricDriftMonitor(thresholds=DriftThresholds(max_perfect_rate=0.4))
+        snapshot, warnings = monitor.analyze(facets)
+
+        assert warnings
+        assert any(warning.affected_scenarios for warning in warnings)
+        assert warnings[0].affected_scenarios == ["grid_ctf", "othello"]
 
     def test_empty_facets(self) -> None:
         from autocontext.analytics.rubric_drift import RubricDriftMonitor
@@ -807,6 +822,7 @@ class TestSpotCheckSampler:
         # Anthropic grid_ctf runs in v1.1.0 should have boosted risk
         anthropic_samples = [s for s in samples if s.agent_provider == "anthropic"]
         assert len(anthropic_samples) > 0
+        assert any("drift_warning_match" in sample.risk_reasons for sample in anthropic_samples)
 
     def test_sample_max_limit(self) -> None:
         from autocontext.analytics.calibration import SpotCheckSampler

@@ -176,12 +176,16 @@ class SpotCheckSampler:
         now = datetime.now(UTC).isoformat()
         warnings = drift_warnings or []
 
-        # Build set of (scenario, provider, release) combos flagged by warnings
-        flagged: set[tuple[str, str]] = set()
+        # Build set of (scenario, provider, release) combos flagged by warnings.
+        # Release is part of the scope so the same provider/family in a different
+        # release window does not get boosted accidentally.
+        flagged: set[tuple[str, str, str]] = set()
         for w in warnings:
             for scenario in getattr(w, "affected_scenarios", []):
                 for provider in getattr(w, "affected_providers", []):
-                    flagged.add((scenario, provider))
+                    releases = getattr(w, "affected_releases", []) or [""]
+                    for release in releases:
+                        flagged.add((scenario, provider, str(release)))
 
         scored: list[tuple[float, CalibrationSample]] = []
         for facet in facets:
@@ -213,7 +217,11 @@ class SpotCheckSampler:
                 risk_reasons.append("rollback_present")
 
             # Boost if this run's scenario+provider is flagged by warnings
-            if (facet.scenario, facet.agent_provider) in flagged:
+            facet_release = str(facet.metadata.get("release", ""))
+            if (
+                (facet.scenario, facet.agent_provider, facet_release) in flagged
+                or (facet.scenario, facet.agent_provider, "") in flagged
+            ):
                 risk_score += 0.3
                 risk_reasons.append("drift_warning_match")
 

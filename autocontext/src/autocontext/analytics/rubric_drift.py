@@ -174,6 +174,7 @@ class RubricDriftMonitor:
         agent_provider: str = "",
     ) -> RubricSnapshot:
         now = datetime.now(UTC).isoformat()
+        scenarios = sorted({facet.scenario for facet in facets if facet.scenario})
 
         if not facets:
             return RubricSnapshot(
@@ -195,6 +196,7 @@ class RubricDriftMonitor:
                 release=release,
                 scenario_family=scenario_family,
                 agent_provider=agent_provider,
+                metadata={"scenarios": scenarios},
             )
 
         scores = [f.best_score for f in facets]
@@ -254,6 +256,7 @@ class RubricDriftMonitor:
             release=release,
             scenario_family=scenario_family,
             agent_provider=agent_provider,
+            metadata={"scenarios": scenarios},
         )
 
     def detect_drift(
@@ -268,10 +271,12 @@ class RubricDriftMonitor:
         now = datetime.now(UTC).isoformat()
         warnings: list[DriftWarning] = []
 
-        scenarios = sorted({
-            s for s in [current.metadata.get("scenario", "")]
-            if s
-        }) or []
+        raw_scenarios = current.metadata.get("scenarios", [])
+        if isinstance(raw_scenarios, list):
+            scenarios = sorted({str(s) for s in raw_scenarios if s})
+        else:
+            scenario = current.metadata.get("scenario", "")
+            scenarios = [scenario] if scenario else []
         providers = [current.agent_provider] if current.agent_provider else []
         releases = [current.release] if current.release else []
 
