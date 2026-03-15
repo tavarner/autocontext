@@ -70,7 +70,9 @@ def build_prompt_bundle(
     session_reports: str = "",
     constraint_mode: bool = False,
     context_budget_tokens: int = 0,
+    notebook_contexts: dict[str, str] | None = None,
 ) -> PromptBundle:
+    _nb = dict(notebook_contexts or {})
     if context_budget_tokens > 0:
         budget = ContextBudget(max_tokens=context_budget_tokens)
         budgeted = budget.apply({
@@ -84,6 +86,10 @@ def build_prompt_bundle(
             "dead_ends": dead_ends,
             "research_protocol": research_protocol,
             "session_reports": session_reports,
+            "notebook_competitor": _nb.get("competitor", ""),
+            "notebook_analyst": _nb.get("analyst", ""),
+            "notebook_coach": _nb.get("coach", ""),
+            "notebook_architect": _nb.get("architect", ""),
         })
         current_playbook = budgeted["playbook"]
         score_trajectory = budgeted["trajectory"]
@@ -95,6 +101,12 @@ def build_prompt_bundle(
         dead_ends = budgeted["dead_ends"]
         research_protocol = budgeted["research_protocol"]
         session_reports = budgeted["session_reports"]
+        _nb = {
+            "competitor": budgeted["notebook_competitor"],
+            "analyst": budgeted["notebook_analyst"],
+            "coach": budgeted["notebook_coach"],
+            "architect": budgeted["notebook_architect"],
+        }
 
     lessons_block = (
         f"Operational lessons (from prior generations):\n{operational_lessons}\n\n"
@@ -176,18 +188,33 @@ def build_prompt_bundle(
     analyst_constraint = _ANALYST_CONSTRAINT_SUFFIX if constraint_mode else ""
     coach_constraint = _COACH_CONSTRAINT_SUFFIX if constraint_mode else ""
     architect_constraint = _ARCHITECT_CONSTRAINT_SUFFIX if constraint_mode else ""
+    competitor_nb = (
+        f"Session notebook context:\n{_nb['competitor']}\n\n" if _nb.get("competitor") else ""
+    )
+    analyst_nb = (
+        f"Session notebook context:\n{_nb['analyst']}\n\n" if _nb.get("analyst") else ""
+    )
+    coach_nb = (
+        f"Session notebook context:\n{_nb['coach']}\n\n" if _nb.get("coach") else ""
+    )
+    architect_nb = (
+        f"Session notebook context:\n{_nb['architect']}\n\n" if _nb.get("architect") else ""
+    )
     return PromptBundle(
         competitor=base_context
         + hints_block
+        + competitor_nb
         + competitor_constraint
         + "Describe your strategy reasoning and recommend specific parameter values.",
         analyst=base_context
+        + analyst_nb
         + analyst_constraint
         + (
             "Analyze strengths/failures and return markdown with sections: "
             "Findings, Root Causes, Actionable Recommendations."
         ),
         coach=base_context
+        + coach_nb
         + coach_constraint
         + (
             "You are the playbook coach. Produce THREE structured sections:\n\n"
@@ -209,6 +236,7 @@ def build_prompt_bundle(
             "<!-- COMPETITOR_HINTS_END -->"
         ),
         architect=base_context
+        + architect_nb
         + architect_constraint
         + (
             "Propose infrastructure/tooling improvements in markdown with sections: "
