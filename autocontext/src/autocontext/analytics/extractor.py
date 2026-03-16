@@ -38,15 +38,15 @@ class FacetExtractor:
         rollbacks = sum(1 for g in generations if g.get("gate_decision") == "rollback")
 
         # Best score/elo
-        best_score = max((g.get("best_score", 0.0) for g in generations), default=0.0)
-        best_elo = max((g.get("elo", 0.0) for g in generations), default=0.0)
+        best_score = max((g.get("best_score") or 0.0 for g in generations), default=0.0)
+        best_elo = max((g.get("elo") or 0.0 for g in generations), default=0.0)
 
         # Duration
-        total_duration = sum(g.get("duration_seconds", 0.0) for g in generations)
+        total_duration = sum(g.get("duration_seconds") or 0.0 for g in generations)
 
         # Token totals
         total_tokens = sum(
-            m.get("input_tokens", 0) + m.get("output_tokens", 0)
+            (m.get("input_tokens") or 0) + (m.get("output_tokens") or 0)
             for m in role_metrics
         )
 
@@ -57,7 +57,7 @@ class FacetExtractor:
 
         # Consultations
         consultation_count = len(consultations)
-        consultation_cost = sum(c.get("cost_usd", 0.0) for c in consultations)
+        consultation_cost = sum(c.get("cost_usd") or 0.0 for c in consultations)
 
         # Scenario family detection (best-effort from run metadata)
         scenario_family = run.get("scenario_family", "")
@@ -160,8 +160,12 @@ class FacetExtractor:
 
         # Strong improvement: large score jumps between consecutive generations
         for i in range(1, len(generations)):
-            prev_score = generations[i - 1].get("best_score", 0.0)
-            curr_score = generations[i].get("best_score", 0.0)
+            prev_raw = generations[i - 1].get("best_score")
+            curr_raw = generations[i].get("best_score")
+            if prev_raw is None or curr_raw is None:
+                continue
+            prev_score = prev_raw
+            curr_score = curr_raw
             if curr_score - prev_score >= 0.2:
                 signals.append(DelightSignal(
                     signal_type="strong_improvement",
