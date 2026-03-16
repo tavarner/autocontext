@@ -160,8 +160,12 @@ class FacetExtractor:
 
         # Strong improvement: large score jumps between consecutive generations
         for i in range(1, len(generations)):
-            prev_score = generations[i - 1].get("best_score") or 0.0
-            curr_score = generations[i].get("best_score") or 0.0
+            prev_raw = generations[i - 1].get("best_score")
+            curr_raw = generations[i].get("best_score")
+            if prev_raw is None or curr_raw is None:
+                continue
+            prev_score = prev_raw
+            curr_score = curr_raw
             if curr_score - prev_score >= 0.2:
                 signals.append(DelightSignal(
                     signal_type="strong_improvement",

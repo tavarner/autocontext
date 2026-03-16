@@ -456,6 +456,40 @@ class TestFacetExtractor:
         assert facet.total_tokens == 500
         assert facet.consultation_cost_usd == 0.0
 
+    def test_missing_best_score_does_not_create_strong_improvement(self) -> None:
+        from autocontext.analytics.extractor import FacetExtractor
+
+        data = {
+            "run": {
+                "run_id": "missing-score-run",
+                "scenario": "grid_ctf",
+                "agent_provider": "deterministic",
+                "executor_mode": "local",
+                "status": "completed",
+            },
+            "generations": [
+                {
+                    "generation_index": 1,
+                    "best_score": None,
+                    "gate_decision": "advance",
+                },
+                {
+                    "generation_index": 2,
+                    "best_score": 0.5,
+                    "gate_decision": "advance",
+                },
+            ],
+            "role_metrics": [],
+            "staged_validations": [],
+            "consultations": [],
+            "recovery": [],
+        }
+        extractor = FacetExtractor()
+        facet = extractor.extract(data)
+
+        delight_types = {signal.signal_type for signal in facet.delight_signals}
+        assert "strong_improvement" not in delight_types
+
 
 # ===========================================================================
 # AC-255: FacetStore
