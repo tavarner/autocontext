@@ -6,6 +6,9 @@ ImprovementLoop unchanged_output prevention.
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import patch
+
 # ===========================================================================
 # build_revision_prompt — pure function tests
 # ===========================================================================
@@ -72,6 +75,8 @@ class TestBuildRevisionPrompt:
             revision_prompt="Focus on improving citations and evidence.",
         )
         assert "improving citations and evidence" in prompt
+        assert "## Original Task" in prompt
+        assert "Task." in prompt
 
     def test_includes_task_prompt_when_no_revision_prompt(self) -> None:
         from autocontext.scenarios.agent_task import AgentTaskResult
@@ -121,8 +126,8 @@ class TestBuildRevisionPrompt:
 
 
 class TestGeneratedReviseOutputTemplate:
-    def test_generated_code_has_provider_call_in_revise_output(self) -> None:
-        """The generated revise_output method should contain provider.complete()."""
+    def test_generated_code_uses_shared_runtime_helper(self) -> None:
+        """The generated revise_output method should call the shared runtime helper."""
         from autocontext.scenarios.custom.agent_task_codegen import generate_agent_task_class
         from autocontext.scenarios.custom.agent_task_spec import AgentTaskSpec
 
@@ -134,13 +139,11 @@ class TestGeneratedReviseOutputTemplate:
         )
         source = generate_agent_task_class(spec, "essay_task")
 
-        # The generated revise_output should call build_revision_prompt
-        assert "build_revision_prompt" in source
-        # Should call provider.complete
-        assert "provider.complete" in source or "complete(" in source
+        assert "revise_generated_output" in source
 
     def test_generated_code_single_round_still_noop(self) -> None:
         """When max_rounds=1 and no revision_prompt, revise_output should still no-op."""
+        from autocontext.scenarios.agent_task import AgentTaskResult
         from autocontext.scenarios.custom.agent_task_codegen import generate_agent_task_class
         from autocontext.scenarios.custom.agent_task_spec import AgentTaskSpec
 
@@ -151,8 +154,12 @@ class TestGeneratedReviseOutputTemplate:
             revision_prompt=None,
         )
         source = generate_agent_task_class(spec, "haiku_task")
-        # Should still have the early-return guard for single-round no-revision tasks
-        assert "return output" in source
+        ns: dict[str, object] = {}
+        exec(compile(source, "<test>", "exec"), ns)  # noqa: S102
+        cls = ns["HaikuTaskAgentTask"]
+        task = cls()
+        revised = task.revise_output("original", AgentTaskResult(score=0.4, reasoning="weak"), {})
+        assert revised == "original"
 
     def test_generated_revise_output_imports_revision_module(self) -> None:
         """Generated code should import build_revision_prompt."""
@@ -165,4 +172,118 @@ class TestGeneratedReviseOutputTemplate:
             max_rounds=5,
         )
         source = generate_agent_task_class(spec, "analysis_task")
-        assert "agent_task_revision" in source or "build_revision_prompt" in source
+        assert "agent_task_revision" in source or "revise_generated_output" in source
+
+
+class TestLegacyGeneratedTaskUpgrade:
+    def test_registry_patches_legacy_generated_agent_task(self, tmp_path: Path) -> None:
+        from autocontext.scenarios.agent_task import AgentTaskResult
+        from autocontext.scenarios.custom.registry import load_all_custom_scenarios
+
+        scenario_dir = tmp_path / "_custom_scenarios" / "legacy_task"
+        scenario_dir.mkdir(parents=True)
+        (scenario_dir / "scenario_type.txt").write_text("agent_task", encoding="utf-8")
+        (scenario_dir / "agent_task.py").write_text(
+            """
+from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
+
+
+class LegacyTaskAgentTask(AgentTaskInterface):
+    name = "legacy_task"
+    _revision_prompt = "Improve the answer."
+    _max_rounds = 3
+    _judge_model = "test-model"
+    _rubric = "test rubric"
+
+    def get_task_prompt(self, state: dict) -> str:
+        return "Do the task."
+
+    def evaluate_output(self, output: str, state: dict, **kwargs) -> AgentTaskResult:
+        return AgentTaskResult(score=0.5, reasoning="needs work")
+
+    def get_rubric(self) -> str:
+        return self._rubric
+
+    def initial_state(self, seed: int | None = None) -> dict:
+        return {}
+
+    def describe_task(self) -> str:
+        return "legacy"
+
+    def revise_output(self, output: str, judge_result: AgentTaskResult, state: dict) -> str:
+        if not self._revision_prompt and self._max_rounds <= 1:
+            return output
+        # Default revision: return original (llm_fn must be injected at runtime)
+        return output
+""",
+            encoding="utf-8",
+        )
+
+        loaded = load_all_custom_scenarios(tmp_path)
+        cls = loaded["legacy_task"]
+        task = cls()
+
+        with patch(
+            "autocontext.scenarios.custom.agent_task_revision.revise_generated_output",
+            return_value="revised output",
+        ) as mock_reviser:
+            revised = task.revise_output(
+                "original",
+                AgentTaskResult(score=0.4, reasoning="weak"),
+                {},
+            )
+
+        assert revised == "revised output"
+        mock_reviser.assert_called_once()
+
+    def test_registry_preserves_custom_revise_output(self, tmp_path: Path) -> None:
+        from autocontext.scenarios.agent_task import AgentTaskResult
+        from autocontext.scenarios.custom.registry import load_all_custom_scenarios
+
+        scenario_dir = tmp_path / "_custom_scenarios" / "custom_task"
+        scenario_dir.mkdir(parents=True)
+        (scenario_dir / "scenario_type.txt").write_text("agent_task", encoding="utf-8")
+        (scenario_dir / "agent_task.py").write_text(
+            """
+from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
+
+
+class CustomTaskAgentTask(AgentTaskInterface):
+    name = "custom_task"
+
+    def get_task_prompt(self, state: dict) -> str:
+        return "Do the custom task."
+
+    def evaluate_output(self, output: str, state: dict, **kwargs) -> AgentTaskResult:
+        return AgentTaskResult(score=0.5, reasoning="ok")
+
+    def get_rubric(self) -> str:
+        return "test rubric"
+
+    def initial_state(self, seed: int | None = None) -> dict:
+        return {}
+
+    def describe_task(self) -> str:
+        return "custom"
+
+    def revise_output(self, output: str, judge_result: AgentTaskResult, state: dict) -> str:
+        return output + " manual"
+""",
+            encoding="utf-8",
+        )
+
+        loaded = load_all_custom_scenarios(tmp_path)
+        task = loaded["custom_task"]()
+
+        with patch(
+            "autocontext.scenarios.custom.agent_task_revision.revise_generated_output",
+            return_value="unexpected",
+        ) as mock_reviser:
+            revised = task.revise_output(
+                "original",
+                AgentTaskResult(score=0.4, reasoning="weak"),
+                {},
+            )
+
+        assert revised == "original manual"
+        mock_reviser.assert_not_called()

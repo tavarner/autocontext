@@ -1,13 +1,17 @@
-"""Revision prompt builder for generated agent tasks (AC-280).
-
-Pure function that constructs a revision prompt from judge feedback,
-weak dimensions, and the original task prompt. Used by generated
-revise_output() methods to request substantive LLM-based revisions.
-"""
+"""Revision helpers for generated agent tasks (AC-280)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+from autocontext.config import load_settings
+from autocontext.providers.registry import get_provider
 from autocontext.scenarios.agent_task import AgentTaskResult
+
+_LEGACY_NOOP_REVISION_MARKER = (
+    "# Default revision: return original (llm_fn must be injected at runtime)"
+)
 
 
 def build_revision_prompt(
@@ -47,12 +51,11 @@ def build_revision_prompt(
         dim_lines = "\n".join(f"- {dim}: {score:.2f}" for dim, score in sorted(weak_dims.items(), key=lambda x: x[1]))
         sections.append(f"\n## Weak Dimensions (need improvement)\n{dim_lines}")
 
+    sections.append(f"\n## Original Task\n{task_prompt}")
     sections.append(f"\n## Original Output\n{original_output}")
 
     if revision_prompt:
         sections.append(f"\n## Revision Instructions\n{revision_prompt}")
-    else:
-        sections.append(f"\n## Original Task\n{task_prompt}")
 
     sections.append(
         "\n## Your Task\n"
@@ -62,3 +65,53 @@ def build_revision_prompt(
     )
 
     return "\n".join(sections)
+
+
+def revise_generated_output(
+    task: Any,
+    output: str,
+    judge_result: AgentTaskResult,
+    state: dict,
+) -> str:
+    """Shared revise_output runtime for generated agent tasks."""
+    if not task._revision_prompt and task._max_rounds <= 1:
+        return output
+
+    settings = load_settings()
+    provider = get_provider(settings)
+    model = task._judge_model or settings.judge_model or provider.default_model()
+    prompt = build_revision_prompt(
+        original_output=output,
+        judge_result=judge_result,
+        task_prompt=task.get_task_prompt(state),
+        revision_prompt=task._revision_prompt,
+        rubric=task._rubric,
+    )
+    result = provider.complete(
+        "You are a helpful revision assistant.",
+        prompt,
+        model=model,
+    )
+    revised = result.text.strip()
+    return revised if revised else output
+
+
+def patch_legacy_generated_revise_output(
+    cls: type[Any],
+    source_path: Path,
+) -> type[Any]:
+    """Upgrade legacy generated agent_task classes that still no-op on revision."""
+    source = source_path.read_text(encoding="utf-8")
+    if _LEGACY_NOOP_REVISION_MARKER not in source:
+        return cls
+
+    def _patched_revise_output(
+        self: Any,
+        output: str,
+        judge_result: AgentTaskResult,
+        state: dict,
+    ) -> str:
+        return revise_generated_output(self, output, judge_result, state)
+
+    cls.revise_output = _patched_revise_output  # type: ignore[method-assign]
+    return cls

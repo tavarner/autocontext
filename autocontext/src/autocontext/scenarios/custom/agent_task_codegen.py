@@ -144,24 +144,8 @@ def generate_agent_task_class(spec: AgentTaskSpec, name: str = "custom_agent_tas
                 judge_result: AgentTaskResult,
                 state: dict,
             ) -> str:
-                if not self._revision_prompt and self._max_rounds <= 1:
-                    return output
-                from autocontext.config import load_settings
-                from autocontext.providers.registry import get_provider
-                from autocontext.scenarios.custom.agent_task_revision import build_revision_prompt
+                from autocontext.scenarios.custom.agent_task_revision import revise_generated_output
 
-                settings = load_settings()
-                provider = get_provider(settings)
-                model = self._judge_model or settings.judge_model or provider.default_model()
-                prompt = build_revision_prompt(
-                    original_output=output,
-                    judge_result=judge_result,
-                    task_prompt=self.get_task_prompt(state),
-                    revision_prompt=self._revision_prompt,
-                    rubric=self._rubric,
-                )
-                result = provider.complete("You are a helpful revision assistant.", prompt, model=model)
-                revised = result.text.strip()
-                return revised if revised else output
+                return revise_generated_output(self, output, judge_result, state)
     ''')
     return source
