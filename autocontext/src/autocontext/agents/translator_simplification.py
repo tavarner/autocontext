@@ -239,6 +239,7 @@ def compare_role_outputs(
     token_savings = two_role.total_tokens - consolidated.total_tokens
     latency_savings = two_role.total_latency_ms - consolidated.total_latency_ms
     findings_delta = consolidated.findings_count - two_role.findings_count
+    root_causes_delta = consolidated.root_causes_count - two_role.root_causes_count
     recs_delta = consolidated.recommendations_count - two_role.recommendations_count
     lessons_delta = consolidated.lessons_count - two_role.lessons_count
 
@@ -246,6 +247,8 @@ def compare_role_outputs(
     quality_checks = []
     if two_role.findings_count > 0:
         quality_checks.append(consolidated.findings_count / two_role.findings_count >= 0.7)
+    if two_role.root_causes_count > 0:
+        quality_checks.append(consolidated.root_causes_count / two_role.root_causes_count >= 0.7)
     if two_role.recommendations_count > 0:
         quality_checks.append(consolidated.recommendations_count / two_role.recommendations_count >= 0.7)
     if two_role.lessons_count > 0:
@@ -266,6 +269,7 @@ def compare_role_outputs(
         "token_savings": token_savings,
         "latency_savings_ms": latency_savings,
         "findings_delta": findings_delta,
+        "root_causes_delta": root_causes_delta,
         "recommendations_delta": recs_delta,
         "lessons_delta": lessons_delta,
         "quality_retained": quality_retained,

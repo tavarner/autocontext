@@ -279,6 +279,7 @@ class TestCompareRoleOutputs:
         assert comparison["token_savings"] == 7000
         assert comparison["latency_savings_ms"] == 4000
         assert comparison["findings_delta"] == -1
+        assert comparison["root_causes_delta"] == -1
         assert comparison["recommendation"] in ("consolidated_viable", "two_role_preferred", "inconclusive")
 
     def test_consolidated_viable_when_quality_close(self) -> None:
@@ -325,4 +326,27 @@ class TestCompareRoleOutputs:
         )
 
         comparison = compare_role_outputs(two_role, consolidated)
+        assert comparison["recommendation"] == "two_role_preferred"
+
+    def test_two_role_preferred_when_root_causes_drop_below_threshold(self) -> None:
+        from autocontext.agents.translator_simplification import (
+            RoleBenchmarkResult,
+            compare_role_outputs,
+        )
+
+        two_role = RoleBenchmarkResult(
+            mode="two_role",
+            findings_count=5, root_causes_count=5, recommendations_count=4,
+            playbook_length=500, lessons_count=3, hints_count=2,
+            total_tokens=15000, total_latency_ms=8000,
+        )
+        consolidated = RoleBenchmarkResult(
+            mode="consolidated",
+            findings_count=5, root_causes_count=2, recommendations_count=4,
+            playbook_length=480, lessons_count=3, hints_count=2,
+            total_tokens=8000, total_latency_ms=4000,
+        )
+
+        comparison = compare_role_outputs(two_role, consolidated)
+        assert comparison["quality_retained"] is False
         assert comparison["recommendation"] == "two_role_preferred"

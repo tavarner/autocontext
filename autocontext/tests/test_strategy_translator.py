@@ -146,3 +146,31 @@ class TestStrategyTranslator:
         )
 
         assert result == {"aggression": 0.6, "defense": 0.5, "path_bias": 0.4}
+
+    def test_translate_uses_deterministic_extraction_for_matching_json(self) -> None:
+        raw_json = '{"aggression": 0.58, "defense": 0.57, "path_bias": 0.54}'
+        runtime = _make_runtime('{"unused": 1}')
+        translator = StrategyTranslator(runtime, model="test-model")
+
+        result, execution = translator.translate(
+            raw_output=raw_json,
+            strategy_interface=GRID_CTF_INTERFACE,
+        )
+
+        assert result == {"aggression": 0.58, "defense": 0.57, "path_bias": 0.54}
+        assert execution.subagent_id == "deterministic-extract"
+        assert execution.usage.input_tokens == 0
+        runtime.run_task.assert_not_called()
+
+    def test_translate_falls_back_for_abbreviated_keys(self) -> None:
+        runtime = _make_runtime('{"mobility_weight": 0.25, "corner_weight": 0.6, "stability_weight": 0.15}')
+        translator = StrategyTranslator(runtime, model="test-model")
+
+        result, execution = translator.translate(
+            raw_output='{"mobility": 0.25, "corner": 0.60, "stability": 0.15}',
+            strategy_interface=OTHELLO_INTERFACE,
+        )
+
+        assert result == {"mobility_weight": 0.25, "corner_weight": 0.6, "stability_weight": 0.15}
+        assert execution.subagent_id == "translator-abc123"
+        runtime.run_task.assert_called_once()
