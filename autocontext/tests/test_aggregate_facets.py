@@ -411,6 +411,51 @@ class TestFacetExtractor:
         assert facet.friction_signals == []
         assert facet.delight_signals == []
 
+    def test_extract_none_duration_seconds(self) -> None:
+        """AC-271: duration_seconds=None should not crash the extractor."""
+        from autocontext.analytics.extractor import FacetExtractor
+
+        data = {
+            "run": {
+                "run_id": "none-dur-run",
+                "scenario": "grid_ctf",
+                "agent_provider": "deterministic",
+                "executor_mode": "local",
+                "status": "completed",
+            },
+            "generations": [
+                {
+                    "generation_index": 1,
+                    "best_score": 0.5,
+                    "elo": 1050.0,
+                    "gate_decision": "advance",
+                    "duration_seconds": None,
+                },
+                {
+                    "generation_index": 2,
+                    "best_score": None,
+                    "elo": None,
+                    "gate_decision": "advance",
+                    "duration_seconds": 10.0,
+                },
+            ],
+            "role_metrics": [
+                {"role": "competitor", "input_tokens": None, "output_tokens": 500},
+            ],
+            "staged_validations": [],
+            "consultations": [
+                {"cost_usd": None},
+            ],
+            "recovery": [],
+        }
+        extractor = FacetExtractor()
+        facet = extractor.extract(data)
+
+        assert facet.total_duration_seconds == 10.0
+        assert facet.best_score == 0.5
+        assert facet.total_tokens == 500
+        assert facet.consultation_cost_usd == 0.0
+
 
 # ===========================================================================
 # AC-255: FacetStore
