@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Docs and examples
+    url: https://github.com/greyhaven-ai/autocontext/tree/main/docs
+    about: Start with the docs overview, package guides, and copy-paste examples.
   - name: Usage and support
     url: https://github.com/greyhaven-ai/autocontext/blob/main/SUPPORT.md
     about: Read the support guidance before opening an issue.

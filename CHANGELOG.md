@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Session notebook context now flows into runtime prompts and cockpit views for active runs.
+- World-state abstractions now support stateful scenario families and workflow-style scenarios.
+
+### Changed
+- Agent-task scaffolding and execution now use separate phased budgets.
+- Public repo docs now include a docs landing page, package-selection guidance, an analytics/adoption guide, a release checklist, and copy-paste integration examples for CLI, MCP, Python SDK, and TypeScript usage.
+
+### Fixed
+- Python package fallback version metadata now matches the published `0.2.0` package version.
+
 ## [0.2.0] - 2026-03-15
 
 ### Added
@@ -33,4 +44,3 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Initial trusted publishing flow for PyPI and npm.
-

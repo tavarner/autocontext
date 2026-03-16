@@ -105,7 +105,7 @@ Returns an array of run summaries:
 
 #### Monitoring long-running work
 
-The CLI does not currently expose a dedicated `wait` command. For now, external agents should poll `autoctx status --json` (and related read surfaces such as `list --json`) until the desired condition is visible.
+For run completion, external agents should still poll `autoctx status --json` (and related read surfaces such as `list --json`) until the desired condition is visible.
 
 Simple polling pattern:
 
@@ -120,7 +120,33 @@ while true; do
 done
 ```
 
-If you need event-driven waiting today, prefer the Python SDK / monitor layer or REST/MCP monitoring surfaces rather than assuming a CLI `wait` subcommand exists.
+If you are waiting on a monitor condition instead of a run status transition, the Python CLI also exposes `autoctx wait`:
+
+```bash
+autoctx wait <condition_id> --timeout 30 --json
+```
+
+JSON output shape on success:
+
+```json
+{
+  "fired": true,
+  "condition_id": "cond_123",
+  "alert": {
+    "detail": "score dropped below threshold"
+  }
+}
+```
+
+JSON output shape on timeout:
+
+```json
+{
+  "fired": false,
+  "condition_id": "cond_123",
+  "timeout_seconds": 30
+}
+```
 
 #### `autoctx export` — Export a strategy package
 
@@ -369,7 +395,7 @@ package = ac.export_package("grid_ctf")
 
 ## TypeScript CLI
 
-The TypeScript package also publishes a parallel CLI for Node.js environments:
+The TypeScript package also publishes a narrower `autoctx` CLI for Node.js environments. It focuses on judge-based evaluation, improvement loops, task queueing, and MCP serving rather than the full multi-generation control plane:
 
 ```bash
 npx autoctx judge -p "Write a haiku" -o "output text" -r "evaluate quality"
@@ -382,3 +408,5 @@ Key entrypoints live in:
 
 - `ts/src/cli/index.ts`
 - `ts/src/index.ts`
+
+See [`../../ts/README.md`](../../ts/README.md) for install instructions, provider configuration, and library examples.

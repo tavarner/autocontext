@@ -53,6 +53,13 @@ npm install
 npm test
 ```
 
+## Repo Map
+
+- `autocontext/`: Python package, CLI, API server, dashboard, and tests
+- `ts/`: published TypeScript package, Node CLI, and MCP server
+- `tui/`: Ink-based terminal UI
+- `scripts/`: repo maintenance and protocol generation helpers
+
 ## Development Notes
 
 - The Python package name and CLI are `autocontext` / `autoctx`.
@@ -60,6 +67,19 @@ npm test
 - Prefer targeted tests for touched modules before running full suites.
 - Keep protocol changes in sync with `scripts/generate_protocol.py`.
 - Avoid rewriting historical plan docs unless the change is user-facing or release-facing.
+
+## Documentation Touch Points
+
+When a change affects public commands, environment variables, package names, or agent-facing workflows, update the relevant docs in the same PR:
+
+- `README.md`
+- `docs/README.md`
+- `autocontext/README.md`
+- `ts/README.md`
+- `examples/README.md`
+- `autocontext/docs/agent-integration.md`
+- `AGENTS.md`
+- `CHANGELOG.md`
 
 ## Pull Requests
 
