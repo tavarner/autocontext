@@ -22,7 +22,7 @@ from autocontext.knowledge.fresh_start import execute_fresh_start
 from autocontext.knowledge.harness_quality import compute_harness_quality
 from autocontext.knowledge.progress import build_progress_snapshot
 from autocontext.knowledge.protocol import parse_research_protocol, validate_tuning_overrides
-from autocontext.knowledge.rapid_gate import should_transition_to_linear
+from autocontext.knowledge.rapid_gate import rapid_gate, should_transition_to_linear
 from autocontext.knowledge.stagnation import StagnationDetector
 from autocontext.knowledge.tuning import TuningConfig, parse_tuning_proposal
 from autocontext.loop.stage_types import GenerationContext
@@ -543,8 +543,8 @@ def stage_tournament(
                     "delta": gate_delta,
                     "tier": "validity",
                 })
-                ctx.score_history = rollback["score_history"]
-                ctx.gate_decision_history = rollback["gate_decision_history"]
+                ctx.score_history[:] = rollback["score_history"]
+                ctx.gate_decision_history[:] = rollback["gate_decision_history"]
                 ctx.gate_decision = gate_decision
                 ctx.gate_delta = gate_delta
                 ctx.current_strategy = rollback["current_strategy"]
@@ -607,6 +607,7 @@ def stage_tournament(
             max_retries=settings.max_retries,
             use_rapid=use_rapid,
             custom_metrics=custom_metrics,
+            rapid_gate_fn=rapid_gate,
         )
         gate_decision = gate_result.decision
 
@@ -705,8 +706,8 @@ def stage_tournament(
     gen_dir = artifacts.generation_dir(ctx.run_id, ctx.generation)
     artifacts.buffered_write_markdown(gen_dir / "narrative.md", replay_narrative)
 
-    ctx.score_history = outcome["score_history"]
-    ctx.gate_decision_history = outcome["gate_decision_history"]
+    ctx.score_history[:] = outcome["score_history"]
+    ctx.gate_decision_history[:] = outcome["gate_decision_history"]
     ctx.previous_best = outcome["previous_best"]
     ctx.challenger_elo = outcome["challenger_elo"]
     ctx.tournament = tournament

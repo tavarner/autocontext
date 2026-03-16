@@ -9,6 +9,7 @@ application, or validity rollback construction.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,7 @@ def resolve_gate_decision(
     max_retries: int,
     use_rapid: bool,
     custom_metrics: dict[str, float] | None = None,
+    rapid_gate_fn: Callable[[float, float], Any] | None = None,
 ) -> GateDecisionResult:
     """Select gate mode (rapid/trend-aware/standard) and evaluate decision.
 
@@ -48,7 +50,7 @@ def resolve_gate_decision(
     delta = round(tournament_best_score - previous_best, 6)
 
     if use_rapid:
-        result = rapid_gate(tournament_best_score, previous_best)
+        result = (rapid_gate_fn or rapid_gate)(tournament_best_score, previous_best)
         return GateDecisionResult(
             decision=result.decision,
             delta=result.delta,
