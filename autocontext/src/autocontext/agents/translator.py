@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from autocontext.agents.subagent_runtime import SubagentRuntime, SubagentTask
+from autocontext.agents.translator_simplification import extract_strategy_deterministic
 from autocontext.agents.types import RoleExecution
 from autocontext.harness.core.output_parser import strip_json_fences as _harness_strip_fences
 from autocontext.harness.core.types import RoleUsage
@@ -26,6 +27,17 @@ class StrategyTranslator:
         return _harness_strip_fences(text)
 
     def translate(self, raw_output: str, strategy_interface: str) -> tuple[dict[str, Any], RoleExecution]:
+        deterministic = extract_strategy_deterministic(raw_output)
+        if deterministic is not None and self._matches_strategy_interface(deterministic, strategy_interface):
+            execution = RoleExecution(
+                role="translator",
+                content=json.dumps(deterministic, sort_keys=True),
+                usage=RoleUsage(input_tokens=0, output_tokens=0, latency_ms=0, model="deterministic"),
+                subagent_id="deterministic-extract",
+                status="completed",
+            )
+            return deterministic, execution
+
         prompt = (
             "Extract the strategy from the following competitor analysis as a JSON object.\n\n"
             f"Strategy interface (expected format):\n{strategy_interface}\n\n"
@@ -48,6 +60,28 @@ class StrategyTranslator:
         if not isinstance(decoded, Mapping):
             raise ValueError("translator did not return a JSON object")
         return dict(decoded), execution
+
+    @staticmethod
+    def _matches_strategy_interface(strategy: Mapping[str, Any], strategy_interface: str) -> bool:
+        """Return True when extracted keys already match the declared interface.
+
+        This keeps deterministic extraction on the safe path only. If the
+        competitor emits abbreviated or off-schema keys, we fall back to the
+        translator model, which can canonicalize names.
+        """
+        if not strategy:
+            return False
+        keys = [str(key) for key in strategy]
+        interface_keys = {
+            *re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", strategy_interface),
+            *re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:', strategy_interface),
+        }
+        if interface_keys:
+            return all(key in interface_keys for key in keys)
+        return all(
+            re.search(rf"\b{re.escape(key)}\b", strategy_interface) is not None
+            for key in keys
+        )
 
     def translate_code(self, raw_output: str) -> tuple[dict[str, Any], RoleExecution]:
         """Extract executable Python code from competitor output.
