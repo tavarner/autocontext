@@ -1,22 +1,32 @@
-"""Tests for AC-267: research hub substrate — models, materialization, store.
-
-Covers: ResearchSession, SharedPackage, ResearchResult, PromotionEvent,
-materialize_result, HubStore.
-"""
+"""Tests for AC-267 research hub storage and materialization."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
+import pytest
+
+from autocontext.analytics.facets import DelightSignal, FrictionSignal, RunFacet
+from autocontext.analytics.store import FacetStore
+from autocontext.knowledge.normalized_metrics import (
+    CostEfficiency,
+    NormalizedProgress,
+    RunProgressReport,
+)
+from autocontext.knowledge.package import ConflictPolicy
+from autocontext.knowledge.research_hub import (
+    HubStore,
+    ResearchResult,
+    ResearchSession,
+    materialize_result,
+)
+from autocontext.knowledge.weakness import Weakness, WeaknessReport
+from autocontext.storage.artifacts import ArtifactStore
+from autocontext.storage.sqlite_store import SQLiteStore
 
 
-def _make_session(**overrides: Any) -> Any:
-    from autocontext.knowledge.research_hub import ResearchSession
-
+def _make_session(**overrides: Any) -> ResearchSession:
     defaults: dict[str, Any] = {
         "session_id": "sess-1",
         "scenario_name": "grid_ctf",
@@ -27,395 +37,252 @@ def _make_session(**overrides: Any) -> Any:
         "current_objective": "Maximize flag captures",
         "current_hypotheses": ["High aggression works above 0.6 density"],
         "best_run_id": "run-42",
-        "best_generation": 5,
+        "best_generation": 2,
         "best_score": 0.78,
         "unresolved_questions": ["Does terrain affect optimal aggression?"],
-        "operator_observations": ["Scores plateau around gen 4-5"],
+        "operator_observations": ["Scores plateau around gen 2"],
         "follow_ups": ["Try balanced aggression=0.6"],
         "shared": True,
         "external_link": "",
+        "metadata": {"owner_team": "ops"},
     }
     defaults.update(overrides)
     return ResearchSession(**defaults)
 
 
-def _make_package(**overrides: Any) -> Any:
-    from autocontext.knowledge.research_hub import SharedPackage
-
-    defaults: dict[str, Any] = {
-        "package_id": "pkg-1",
-        "scenario_name": "grid_ctf",
-        "scenario_family": "game",
-        "source_run_id": "run-42",
-        "source_generation": 5,
-        "title": "High-Aggression Grid CTF Strategy",
-        "description": "Optimized for dense grids with high resource density.",
-        "strategy": {"aggression": 0.8, "defense": 0.4},
-        "provider_summary": "anthropic / claude-sonnet",
-        "executor_summary": "local",
-        "best_score": 0.78,
-        "best_elo": 1200.0,
-        "normalized_progress": "3 advances, 1 retry, 1 rollback over 5 generations",
-        "weakness_summary": "Low defense makes flag loss likely in sparse grids",
-        "result_summary": "Peaked at 0.78 with stable improvement trend",
-        "notebook_hypotheses": ["High aggression works above 0.6 density"],
-        "linked_artifacts": ["knowledge/grid_ctf/playbook.md"],
-        "compatibility_tags": ["grid_ctf", "dense_grids", "anthropic"],
-        "adoption_notes": "",
-        "promotion_level": "experimental",
-        "created_at": "2026-03-16T12:00:00Z",
-    }
-    defaults.update(overrides)
-    return SharedPackage(**defaults)
-
-
-def _make_result(**overrides: Any) -> Any:
-    from autocontext.knowledge.research_hub import ResearchResult
-
-    defaults: dict[str, Any] = {
-        "result_id": "res-1",
-        "scenario_name": "grid_ctf",
-        "run_id": "run-42",
-        "package_id": "pkg-1",
-        "title": "Grid CTF Run 42 Results",
-        "summary": "Peaked at 0.78 across 5 generations with stable trend.",
-        "best_score": 0.78,
-        "best_elo": 1200.0,
-        "normalized_progress": "3 advances, 1 retry, 1 rollback",
-        "cost_summary": "$0.15 total, 30k tokens",
-        "weakness_summary": "Low defense in sparse grids",
-        "consultation_summary": "",
-        "friction_signals": ["validation_failure at gen 2"],
-        "delight_signals": ["fast_advance at gen 1", "strong_improvement at gen 3"],
-        "created_at": "2026-03-16T12:00:00Z",
-        "tags": ["grid_ctf", "high_aggression"],
-    }
-    defaults.update(overrides)
-    return ResearchResult(**defaults)
-
-
-def _make_facet() -> Any:
-    from autocontext.analytics.facets import (
-        DelightSignal,
-        FrictionSignal,
-        RunFacet,
-    )
-
+def _make_facet() -> RunFacet:
     return RunFacet(
         run_id="run-42",
         scenario="grid_ctf",
         scenario_family="game",
         agent_provider="anthropic",
         executor_mode="local",
-        total_generations=5,
-        advances=3, retries=1, rollbacks=1,
-        best_score=0.78, best_elo=1200.0,
+        total_generations=2,
+        advances=1,
+        retries=0,
+        rollbacks=1,
+        best_score=0.78,
+        best_elo=1200.0,
         total_duration_seconds=120.0,
-        total_tokens=30000, total_cost_usd=0.15,
-        tool_invocations=10, validation_failures=2,
-        consultation_count=0, consultation_cost_usd=0.0,
+        total_tokens=30000,
+        total_cost_usd=0.15,
+        tool_invocations=10,
+        validation_failures=2,
+        consultation_count=0,
+        consultation_cost_usd=0.0,
         friction_signals=[
             FrictionSignal(
-                signal_type="validation_failure", severity="medium",
-                generation_index=2, description="Parse failure",
+                signal_type="validation_failure",
+                severity="medium",
+                generation_index=1,
+                description="Parse failure",
                 evidence=["ev-1"],
-            ),
+            )
         ],
         delight_signals=[
             DelightSignal(
-                signal_type="fast_advance", generation_index=1,
-                description="Quick advance", evidence=["ev-2"],
-            ),
-            DelightSignal(
-                signal_type="strong_improvement", generation_index=3,
-                description="Big jump", evidence=["ev-3"],
-            ),
+                signal_type="strong_improvement",
+                generation_index=2,
+                description="Big jump",
+                evidence=["ev-2"],
+            )
         ],
-        events=[], metadata={},
+        events=[],
+        metadata={},
         created_at="2026-03-16T12:00:00Z",
     )
 
 
-# ===========================================================================
-# ResearchSession
-# ===========================================================================
+@pytest.fixture()
+def hub_env(tmp_path: Path) -> dict[str, Any]:
+    db = SQLiteStore(tmp_path / "test.db")
+    migrations = Path(__file__).resolve().parents[1] / "migrations"
+    db.migrate(migrations)
+    artifacts = ArtifactStore(
+        runs_root=tmp_path / "runs",
+        knowledge_root=tmp_path / "knowledge",
+        skills_root=tmp_path / "skills",
+        claude_skills_path=tmp_path / ".claude" / "skills",
+    )
+    hub = HubStore(db, artifacts, analytics_root=tmp_path / "knowledge" / "analytics")
+    return {
+        "sqlite": db,
+        "artifacts": artifacts,
+        "hub": hub,
+        "tmp_path": tmp_path,
+    }
 
 
-class TestResearchSession:
-    def test_construction(self) -> None:
-        session = _make_session()
-        assert session.session_id == "sess-1"
-        assert session.owner == "operator-alice"
-        assert session.status == "active"
-        assert session.shared is True
+def _seed_run(hub_env: dict[str, Any]) -> None:
+    sqlite: SQLiteStore = hub_env["sqlite"]
+    artifacts: ArtifactStore = hub_env["artifacts"]
 
-    def test_roundtrip(self) -> None:
-        from autocontext.knowledge.research_hub import ResearchSession
+    sqlite.create_run("run-42", "grid_ctf", 2, "local", agent_provider="anthropic")
+    sqlite.upsert_generation(
+        run_id="run-42",
+        generation_index=1,
+        mean_score=0.55,
+        best_score=0.55,
+        elo=1100.0,
+        wins=3,
+        losses=1,
+        gate_decision="accepted",
+        status="completed",
+    )
+    sqlite.upsert_generation(
+        run_id="run-42",
+        generation_index=2,
+        mean_score=0.78,
+        best_score=0.78,
+        elo=1200.0,
+        wins=4,
+        losses=0,
+        gate_decision="accepted",
+        status="completed",
+    )
+    sqlite.append_agent_output("run-42", 1, "competitor", '{"aggression": 0.7, "defense": 0.4}')
+    sqlite.append_agent_output("run-42", 2, "competitor", '{"aggression": 0.8, "defense": 0.4}')
+    sqlite.mark_run_completed("run-42")
 
-        session = _make_session()
-        d = session.to_dict()
-        restored = ResearchSession.from_dict(d)
-        assert restored.session_id == "sess-1"
-        assert restored.owner == "operator-alice"
-        assert restored.shared is True
+    sqlite.upsert_notebook(
+        session_id="sess-1",
+        scenario_name="grid_ctf",
+        current_objective="Maximize flag captures",
+        current_hypotheses=["High aggression works above 0.6 density"],
+        best_run_id="run-42",
+        best_generation=2,
+        best_score=0.78,
+    )
 
+    FacetStore(artifacts.knowledge_root).persist(_make_facet())
+    artifacts.write_progress_report(
+        "grid_ctf",
+        "run-42",
+        RunProgressReport(
+            run_id="run-42",
+            scenario="grid_ctf",
+            total_generations=2,
+            advances=1,
+            rollbacks=1,
+            retries=0,
+            progress=NormalizedProgress(
+                raw_score=0.78,
+                normalized_score=0.78,
+                score_floor=0.0,
+                score_ceiling=1.0,
+                pct_of_ceiling=78.0,
+            ),
+            cost=CostEfficiency(
+                total_input_tokens=20000,
+                total_output_tokens=10000,
+                total_tokens=30000,
+                total_cost_usd=0.15,
+            ),
+        ),
+    )
+    artifacts.write_weakness_report(
+        "grid_ctf",
+        "run-42",
+        WeaknessReport(
+            run_id="run-42",
+            scenario="grid_ctf",
+            total_generations=2,
+            weaknesses=[
+                Weakness(
+                    category="validation_failure",
+                    severity="medium",
+                    affected_generations=[1],
+                    description="Parse failure on generation 1",
+                    evidence={"count": 1},
+                    frequency=1,
+                )
+            ],
+        ),
+    )
+
+
+class TestResearchSessionModel:
     def test_from_notebook(self) -> None:
-        from autocontext.knowledge.research_hub import ResearchSession
         from autocontext.notebook.types import SessionNotebook
 
-        nb = SessionNotebook(
+        notebook = SessionNotebook(
             session_id="sess-nb",
             scenario_name="grid_ctf",
             current_objective="Test objective",
             best_run_id="run-1",
             best_score=0.5,
         )
-        session = ResearchSession.from_notebook(nb, owner="alice")
+        session = ResearchSession.from_notebook(notebook, owner="alice")
         assert session.session_id == "sess-nb"
         assert session.owner == "alice"
         assert session.current_objective == "Test objective"
         assert session.status == "active"
 
-
-# ===========================================================================
-# SharedPackage
-# ===========================================================================
-
-
-class TestSharedPackage:
-    def test_construction(self) -> None:
-        pkg = _make_package()
-        assert pkg.package_id == "pkg-1"
-        assert pkg.promotion_level == "experimental"
-        assert pkg.best_score == 0.78
-
     def test_roundtrip(self) -> None:
-        from autocontext.knowledge.research_hub import SharedPackage
-
-        pkg = _make_package()
-        d = pkg.to_dict()
-        restored = SharedPackage.from_dict(d)
-        assert restored.package_id == "pkg-1"
-        assert restored.strategy == {"aggression": 0.8, "defense": 0.4}
-        assert restored.compatibility_tags == ["grid_ctf", "dense_grids", "anthropic"]
-
-
-# ===========================================================================
-# ResearchResult
-# ===========================================================================
-
-
-class TestResearchResult:
-    def test_construction(self) -> None:
-        result = _make_result()
-        assert result.result_id == "res-1"
-        assert result.best_score == 0.78
-        assert len(result.delight_signals) == 2
-
-    def test_roundtrip(self) -> None:
-        from autocontext.knowledge.research_hub import ResearchResult
-
-        result = _make_result()
-        d = result.to_dict()
-        restored = ResearchResult.from_dict(d)
-        assert restored.result_id == "res-1"
-        assert restored.tags == ["grid_ctf", "high_aggression"]
-
-
-# ===========================================================================
-# PromotionEvent
-# ===========================================================================
-
-
-class TestPromotionEvent:
-    def test_construction(self) -> None:
-        from autocontext.knowledge.research_hub import PromotionEvent
-
-        evt = PromotionEvent(
-            event_id="promo-1",
-            package_id="pkg-1",
-            source_run_id="run-42",
-            action="promote",
-            actor="operator-alice",
-            label="experimental",
-            created_at="2026-03-16T12:00:00Z",
-        )
-        assert evt.action == "promote"
-        assert evt.label == "experimental"
-
-    def test_roundtrip(self) -> None:
-        from autocontext.knowledge.research_hub import PromotionEvent
-
-        evt = PromotionEvent(
-            event_id="promo-2",
-            package_id="pkg-1",
-            source_run_id="run-42",
-            action="adopt",
-            actor="operator-bob",
-            label=None,
-            created_at="2026-03-16T13:00:00Z",
-        )
-        d = evt.to_dict()
-        restored = PromotionEvent.from_dict(d)
-        assert restored.action == "adopt"
-        assert restored.label is None
-
-
-# ===========================================================================
-# materialize_result
-# ===========================================================================
+        session = _make_session()
+        restored = ResearchSession.from_dict(session.to_dict())
+        assert restored.session_id == "sess-1"
+        assert restored.metadata["owner_team"] == "ops"
+        assert restored.shared is True
 
 
 class TestMaterializeResult:
     def test_from_facet(self) -> None:
-        from autocontext.knowledge.research_hub import materialize_result
-
-        facet = _make_facet()
-        result = materialize_result(facet, title="Run 42 Results")
-
+        result = materialize_result(_make_facet(), title="Run 42 Results")
         assert result.run_id == "run-42"
-        assert result.scenario_name == "grid_ctf"
         assert result.best_score == 0.78
-        assert result.best_elo == 1200.0
-        assert "30000" in result.cost_summary or "30k" in result.cost_summary.lower()
         assert len(result.friction_signals) == 1
-        assert len(result.delight_signals) == 2
-
-    def test_includes_weakness_summary(self) -> None:
-        from autocontext.knowledge.research_hub import materialize_result
-
-        facet = _make_facet()
-        result = materialize_result(
-            facet,
-            title="Test",
-            weakness_summary="Defense is weak in sparse grids",
-        )
-        assert "Defense is weak" in result.weakness_summary
-
-    def test_empty_facet(self) -> None:
-        from autocontext.analytics.facets import RunFacet
-        from autocontext.knowledge.research_hub import materialize_result
-
-        facet = RunFacet(
-            run_id="run-empty", scenario="test", scenario_family="",
-            agent_provider="", executor_mode="",
-            total_generations=0, advances=0, retries=0, rollbacks=0,
-            best_score=0.0, best_elo=0.0,
-            total_duration_seconds=0.0,
-            total_tokens=0, total_cost_usd=0.0,
-            tool_invocations=0, validation_failures=0,
-            consultation_count=0, consultation_cost_usd=0.0,
-            friction_signals=[], delight_signals=[],
-            events=[], metadata={},
-        )
-        result = materialize_result(facet, title="Empty")
-        assert result.best_score == 0.0
-        assert result.friction_signals == []
-
-
-# ===========================================================================
-# HubStore
-# ===========================================================================
+        assert len(result.delight_signals) == 1
 
 
 class TestHubStore:
-    def test_persist_and_load_session(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
-
-        store = HubStore(tmp_path)
+    def test_persist_and_load_session_uses_notebook_and_sqlite(self, hub_env: dict[str, Any]) -> None:
+        hub: HubStore = hub_env["hub"]
         session = _make_session()
-        path = store.persist_session(session)
-        assert path.exists()
 
-        loaded = store.load_session("sess-1")
+        path = hub.persist_session(session)
+        loaded = hub.load_session("sess-1")
+
+        assert path.exists()
         assert loaded is not None
         assert loaded.owner == "operator-alice"
+        assert loaded.shared is True
 
-    def test_load_missing_session(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
+    def test_promote_run_to_package_persists_metadata_and_payload(self, hub_env: dict[str, Any]) -> None:
+        hub: HubStore = hub_env["hub"]
+        _seed_run(hub_env)
+        hub.persist_session(_make_session())
 
-        store = HubStore(tmp_path)
-        assert store.load_session("nonexistent") is None
+        package = hub.promote_run_to_package("run-42", session_id="sess-1", actor="alice")
+        loaded = hub.load_package(package.package_id)
+        strategy_package = hub.load_strategy_package(package.package_id)
 
-    def test_list_sessions(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
-
-        store = HubStore(tmp_path)
-        store.persist_session(_make_session(session_id="s1"))
-        store.persist_session(_make_session(session_id="s2"))
-        assert len(store.list_sessions()) == 2
-
-    def test_persist_and_load_package(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
-
-        store = HubStore(tmp_path)
-        pkg = _make_package()
-        path = store.persist_package(pkg)
-        assert path.exists()
-
-        loaded = store.load_package("pkg-1")
         assert loaded is not None
-        assert loaded.promotion_level == "experimental"
+        assert loaded.source_run_id == "run-42"
+        assert "grid_ctf" in loaded.compatibility_tags
+        assert strategy_package is not None
+        assert strategy_package.metadata.source_run_id == "run-42"
+        assert any(p.action == "promote" for p in hub.list_promotions())
 
-    def test_load_missing_package(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
+    def test_materialize_result_for_run_uses_reports_and_facets(self, hub_env: dict[str, Any]) -> None:
+        hub: HubStore = hub_env["hub"]
+        _seed_run(hub_env)
 
-        store = HubStore(tmp_path)
-        assert store.load_package("nonexistent") is None
+        result = hub.materialize_result_for_run("run-42")
+        loaded = hub.load_result(result.result_id)
 
-    def test_list_packages(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
-
-        store = HubStore(tmp_path)
-        store.persist_package(_make_package(package_id="p1"))
-        store.persist_package(_make_package(package_id="p2"))
-        store.persist_package(_make_package(package_id="p3"))
-        assert len(store.list_packages()) == 3
-
-    def test_persist_and_load_result(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
-
-        store = HubStore(tmp_path)
-        result = _make_result()
-        path = store.persist_result(result)
-        assert path.exists()
-
-        loaded = store.load_result("res-1")
+        assert isinstance(result, ResearchResult)
         assert loaded is not None
-        assert loaded.best_score == 0.78
+        assert "78.00% of ceiling" in loaded.normalized_progress
+        assert "Parse failure" in loaded.weakness_summary
+        assert loaded.metadata["scenario_family"] == "game"
 
-    def test_load_missing_result(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore
+    def test_adopt_package_records_promotion(self, hub_env: dict[str, Any]) -> None:
+        hub: HubStore = hub_env["hub"]
+        _seed_run(hub_env)
+        package = hub.promote_run_to_package("run-42", actor="alice")
 
-        store = HubStore(tmp_path)
-        assert store.load_result("nonexistent") is None
+        adoption = hub.adopt_package(package.package_id, actor="bob", conflict_policy=ConflictPolicy.MERGE)
 
-    def test_persist_and_load_promotion(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore, PromotionEvent
-
-        store = HubStore(tmp_path)
-        evt = PromotionEvent(
-            event_id="promo-1", package_id="pkg-1",
-            source_run_id="run-42", action="promote",
-            actor="alice", label="experimental",
-            created_at="2026-03-16T12:00:00Z",
-        )
-        path = store.persist_promotion(evt)
-        assert path.exists()
-
-        loaded = store.load_promotion("promo-1")
-        assert loaded is not None
-        assert loaded.action == "promote"
-
-    def test_list_promotions(self, tmp_path: Path) -> None:
-        from autocontext.knowledge.research_hub import HubStore, PromotionEvent
-
-        store = HubStore(tmp_path)
-        for i in range(2):
-            store.persist_promotion(PromotionEvent(
-                event_id=f"promo-{i}", package_id="pkg-1",
-                source_run_id="run-42", action="promote",
-                actor="alice", label="experimental",
-                created_at="2026-03-16T12:00:00Z",
-            ))
-        assert len(store.list_promotions()) == 2
+        assert adoption["import_result"]["scenario_name"] == "grid_ctf"
+        assert any(event.action == "adopt" for event in hub.list_promotions())

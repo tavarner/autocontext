@@ -15,6 +15,7 @@ from autocontext.config import load_settings
 from autocontext.loop.controller import LoopController
 from autocontext.loop.events import EventStreamEmitter
 from autocontext.server.cockpit_api import cockpit_router
+from autocontext.server.hub_api import hub_router
 from autocontext.server.knowledge_api import router as knowledge_router
 from autocontext.server.monitor_api import monitor_router
 from autocontext.server.notebook_api import notebook_router
@@ -109,6 +110,7 @@ def create_app(
     """Factory that creates the FastAPI app, optionally wired to a LoopController."""
     application = FastAPI(title="autocontext Dashboard API", version="0.1.0")
     application.include_router(cockpit_router)
+    application.include_router(hub_router)
     application.include_router(knowledge_router)
     application.include_router(notebook_router)
     application.include_router(openclaw_router)
