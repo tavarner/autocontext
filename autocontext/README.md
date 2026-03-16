@@ -65,8 +65,10 @@ uv run autoctx list
 uv run autoctx status <run_id>
 uv run autoctx replay <run_id> --generation 1
 uv run autoctx benchmark --scenario grid_ctf --runs 5
+uv run autoctx new-scenario --template prompt-optimization --name my-task
 uv run autoctx serve --host 127.0.0.1 --port 8000
 uv run autoctx mcp-serve
+uv run autoctx wait <condition_id> --json
 ```
 
 Useful variants:
@@ -168,4 +170,6 @@ autocontext exposes:
 - [Sandbox modes](docs/sandbox.md)
 - [MLX host training](docs/mlx-training.md)
 - [Demo data notes](demo_data/README.md)
+- [Copy-paste examples](../examples/README.md)
+- [Change history](../CHANGELOG.md)
 - [Repository overview](../README.md)

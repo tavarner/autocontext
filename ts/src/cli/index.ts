@@ -30,7 +30,7 @@ Commands:
   serve       Start MCP server on stdio
   version     Show version
 
-Run \`mts <command> --help\` for command-specific options.
+Run \`autoctx <command> --help\` for command-specific options.
 `.trim();
 
 async function main(): Promise<void> {

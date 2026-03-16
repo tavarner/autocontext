@@ -10,9 +10,18 @@ assignees: ""
 
 What limitation or friction are you hitting?
 
+## Audience and surface
+
+- Who is this for? repo visitor, contributor, package user, agent integrator, maintainer, other
+- Relevant surface: `autocontext/`, `ts/`, `tui/`, docs/examples, CI/release, other
+
 ## Proposed change
 
 Describe the capability you want.
+
+## Desired interface
+
+If applicable, describe the desired CLI, SDK, MCP, API, or docs experience.
 
 ## Why it matters
 

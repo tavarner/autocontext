@@ -2,6 +2,15 @@
 
 ## Questions and Usage Help
 
+Before opening an issue, check the main docs and examples first:
+
+- `README.md`
+- `docs/README.md`
+- `examples/README.md`
+- `autocontext/README.md`
+- `ts/README.md`
+- `autocontext/docs/agent-integration.md`
+
 Use GitHub issues for:
 
 - setup problems
