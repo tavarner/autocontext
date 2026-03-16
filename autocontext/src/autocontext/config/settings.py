@@ -48,6 +48,16 @@ class AppSettings(BaseModel):
         ge=0,
         description="Soft stage-boundary time budget per generation in seconds (0 = unlimited)",
     )
+    generation_scaffolding_budget_ratio: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="Share of generation budget reserved for scaffolding before execution begins",
+    )
+    generation_phase_budget_rollover_enabled: bool = Field(
+        default=True,
+        description="Allow unused scaffolding budget to roll over into execution budget",
+    )
     seed_base: int = Field(default=1000)
     max_retries: int = Field(default=2, ge=0)
     retry_backoff_seconds: float = Field(default=0.25, ge=0)

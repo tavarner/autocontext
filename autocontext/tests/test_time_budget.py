@@ -62,6 +62,8 @@ class TestSettings:
         """generation_time_budget_seconds defaults to 0 (unlimited)."""
         settings = AppSettings()
         assert settings.generation_time_budget_seconds == 0
+        assert settings.generation_scaffolding_budget_ratio == 0.4
+        assert settings.generation_phase_budget_rollover_enabled is True
 
     def test_env_var_override(self) -> None:
         """AUTOCONTEXT_GENERATION_TIME_BUDGET_SECONDS loads from env."""
@@ -178,8 +180,16 @@ class TestPipelineBudget:
         # Verify budget exhaustion was emitted and tournament work was skipped.
         budget_events = [e for e in events_emitted if e[0] == "generation_budget_exhausted"]
         assert len(budget_events) == 1
+        assert budget_events[0][1]["phase_name"] == "scaffolding"
         tournament_events = [e for e in events_emitted if e[0] == "tournament_started"]
         assert tournament_events == []
+
+        phase_events = [e for e in events_emitted if e[0] == "generation_phase_result"]
+        assert len(phase_events) == 2
+        assert phase_events[0][1]["phase_name"] == "scaffolding"
+        assert phase_events[0][1]["status"] == "timeout"
+        assert phase_events[1][1]["phase_name"] == "execution"
+        assert phase_events[1][1]["status"] == "skipped"
 
         metrics = runner.sqlite.get_generation_metrics("budget_test")
         assert len(metrics) == 1
@@ -192,6 +202,10 @@ class TestPipelineBudget:
         assert len(timing_events) == 1
         assert timing_events[0][1]["budget_seconds"] == 1
         assert timing_events[0][1]["over_budget"] is True
+        phased_execution = timing_events[0][1]["phased_execution"]
+        assert phased_execution is not None
+        assert phased_execution["failed_phase"] == "scaffolding"
+        assert phased_execution["phase_results"][0]["status"] == "timeout"
 
     def test_pipeline_runs_all_stages_when_unlimited(self, tmp_path: Path) -> None:
         """All stages run when budget=0 (unlimited)."""

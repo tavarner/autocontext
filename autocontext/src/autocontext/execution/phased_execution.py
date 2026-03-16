@@ -16,11 +16,11 @@ Key types:
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
+from queue import Empty, Queue
 from typing import Any
 
 
@@ -184,16 +184,32 @@ class PhasedRunner:
         budget: PhaseBudget,
         fn: Callable[[], dict[str, Any]],
     ) -> PhaseResult:
-        """Run a single phase with timeout enforcement."""
+        """Run a single phase with timeout enforcement.
+
+        Uses a daemon thread instead of ``ThreadPoolExecutor`` so the caller
+        regains control promptly when the timeout is hit.
+        """
         timer = PhaseTimer(budget.budget_seconds)
         timer.start()
+        result_queue: Queue[tuple[str, dict[str, Any] | Exception]] = Queue(maxsize=1)
 
+        def _run() -> None:
+            try:
+                result_queue.put(("completed", fn()))
+            except Exception as exc:  # pragma: no cover - exercised via queue consumer
+                result_queue.put(("failed", exc))
+
+        worker = threading.Thread(
+            target=_run,
+            name=f"phase-{budget.phase_name}",
+            daemon=True,
+        )
+        worker.start()
+
+        timeout = budget.budget_seconds if budget.budget_seconds > 0 else None
         try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(fn)
-                timeout = budget.budget_seconds if budget.budget_seconds > 0 else None
-                outputs = future.result(timeout=timeout)
-        except FuturesTimeoutError:
+            status, payload = result_queue.get(timeout=timeout)
+        except Empty:
             timer.stop()
             return PhaseResult(
                 phase_name=budget.phase_name,
@@ -204,7 +220,10 @@ class PhasedRunner:
                 error=f"{budget.phase_name} phase exceeded {budget.budget_seconds}s budget (timeout)",
                 outputs={},
             )
-        except Exception as exc:
+
+        if status == "failed":
+            exc = payload
+            assert isinstance(exc, Exception)
             timer.stop()
             return PhaseResult(
                 phase_name=budget.phase_name,
@@ -217,6 +236,7 @@ class PhasedRunner:
             )
 
         timer.stop()
+        outputs = payload if isinstance(payload, dict) else {}
         return PhaseResult(
             phase_name=budget.phase_name,
             status="completed",

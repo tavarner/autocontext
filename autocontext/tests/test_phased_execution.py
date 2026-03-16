@@ -315,10 +315,13 @@ class TestPhasedRunner:
             time.sleep(0.2)
             return {"done": True}
 
+        started_at = time.monotonic()
         result = runner.run_phase(budget, slow_fn)
+        elapsed = time.monotonic() - started_at
         assert result.status == "timeout"
         assert result.error is not None
         assert "timeout" in result.error.lower() or "budget" in result.error.lower()
+        assert elapsed < 0.15
 
     def test_run_phase_failure(self) -> None:
         from autocontext.execution.phased_execution import (

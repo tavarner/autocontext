@@ -62,6 +62,7 @@ class GenerationContext:
     # AC-174: generation timing
     generation_start_time: float = 0.0
     generation_elapsed_seconds: float = 0.0
+    phased_execution: dict[str, Any] | None = None
 
     # Consultation result (AC-212)
     consultation_result: Any | None = None
