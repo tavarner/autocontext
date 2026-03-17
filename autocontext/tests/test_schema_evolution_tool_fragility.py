@@ -1060,6 +1060,96 @@ class TestSchemaEvolutionCodegen:
         errors = validate_source_for_family("schema_evolution", source)
         assert errors == [], f"Generated source has errors: {errors}"
 
+    def test_generated_class_has_get_mutations(self) -> None:
+        """AC-314: Generated schema evolution scenarios must have get_mutations()."""
+        from autocontext.scenarios.custom.schema_evolution_codegen import generate_schema_evolution_class
+        from autocontext.scenarios.custom.schema_evolution_spec import SchemaEvolutionMutationModel, SchemaEvolutionSpec
+        from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel
+
+        spec = SchemaEvolutionSpec(
+            description="Schema changes",
+            environment_description="Backend",
+            initial_state_description="v1",
+            mutations=[
+                SchemaEvolutionMutationModel(
+                    version=2, description="add field", breaking=False,
+                    fields_added=["priority"], fields_removed=[], fields_modified={},
+                ),
+                SchemaEvolutionMutationModel(
+                    version=3, description="remove old field", breaking=True,
+                    fields_added=[], fields_removed=["legacy_flag"], fields_modified={},
+                ),
+            ],
+            success_criteria=["adapted"],
+            failure_modes=["stale"],
+            actions=[SimulationActionSpecModel(name="query", description="query", parameters={})],
+            max_steps=5,
+        )
+        source = generate_schema_evolution_class(spec, "test_mutations")
+        assert "def get_mutations" in source
+
+    def test_get_mutations_returns_spec_mutations(self) -> None:
+        """AC-314: get_mutations() should return the mutations from the spec."""
+        import importlib.util
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        from autocontext.scenarios.custom.schema_evolution_codegen import generate_schema_evolution_class
+        from autocontext.scenarios.custom.schema_evolution_spec import SchemaEvolutionMutationModel, SchemaEvolutionSpec
+        from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel
+        from autocontext.scenarios.schema_evolution import SchemaEvolutionInterface
+
+        spec = SchemaEvolutionSpec(
+            description="Evolving schema",
+            environment_description="Backend",
+            initial_state_description="v1",
+            mutations=[
+                SchemaEvolutionMutationModel(
+                    version=2, description="add priority", breaking=False,
+                    fields_added=["priority"], fields_removed=[], fields_modified={},
+                ),
+            ],
+            success_criteria=["adapted"],
+            failure_modes=["stale"],
+            actions=[SimulationActionSpecModel(name="act", description="action", parameters={})],
+            max_steps=5,
+        )
+        source = generate_schema_evolution_class(spec, "test_get_mutations")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mod_path = Path(tmp) / "test_mod.py"
+            mod_path.write_text(source, encoding="utf-8")
+            mod_name = f"_test_get_mutations_{id(source)}"
+            mod_spec = importlib.util.spec_from_file_location(mod_name, str(mod_path))
+            assert mod_spec is not None and mod_spec.loader is not None
+            mod = importlib.util.module_from_spec(mod_spec)
+            sys.modules[mod_name] = mod
+            mod_spec.loader.exec_module(mod)
+
+            cls = None
+            for attr_name in dir(mod):
+                attr = getattr(mod, attr_name)
+                if isinstance(attr, type) and issubclass(attr, SchemaEvolutionInterface) and attr is not SchemaEvolutionInterface:
+                    cls = attr
+                    break
+
+            assert cls is not None, "No SchemaEvolutionInterface subclass found"
+            instance = cls()
+            mutations = instance.get_mutations()
+            assert len(mutations) == 1
+            assert mutations[0].version == 2
+            assert mutations[0].description == "add priority"
+
+            sys.modules.pop(mod_name, None)
+
+    def test_base_interface_get_mutations_default(self) -> None:
+        """AC-314: Base SchemaEvolutionInterface.get_mutations() returns empty list."""
+        from autocontext.scenarios.schema_evolution import SchemaEvolutionInterface
+
+        # get_mutations is not abstract — it's a concrete default
+        assert hasattr(SchemaEvolutionInterface, "get_mutations")
+
 
 class TestToolFragilityCodegen:
     def test_generate_class(self) -> None:

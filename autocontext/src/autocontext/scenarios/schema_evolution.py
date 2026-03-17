@@ -119,6 +119,14 @@ class SchemaEvolutionInterface(SimulationInterface):
     on detecting and discarding stale assumptions after schema changes.
     """
 
+    def get_mutations(self) -> list[SchemaMutation]:
+        """Return all known schema mutations for this scenario.
+
+        Default implementation returns empty list. Generated scenarios
+        override this with their spec-defined mutations.
+        """
+        return []
+
     @abstractmethod
     def get_schema_version(self, state: dict[str, Any]) -> int:
         """Return the current schema version from state."""
