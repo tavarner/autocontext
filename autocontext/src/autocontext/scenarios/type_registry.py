@@ -14,4 +14,4 @@ def get_valid_scenario_types() -> frozenset[str]:
 
     Use this instead of hardcoding allowlists in tests or validation code.
     """
-    return frozenset(f.name for f in list_families())
+    return frozenset(f.scenario_type_marker for f in list_families())

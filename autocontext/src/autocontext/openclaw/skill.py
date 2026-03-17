@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, cast
+from typing import Any
 
 from autocontext.knowledge.search import search_strategies
 from autocontext.mcp.tools import (
@@ -77,21 +77,10 @@ def _build_scenario_info(name: str) -> ScenarioInfo:
         description = instance.describe_task()[:500] if hasattr(instance, "describe_task") else ""
     else:
         description = instance.describe_rules()[:500] if hasattr(instance, "describe_rules") else ""
-    scenario_type = cast(
-        Literal[
-            "game",
-            "agent_task",
-            "simulation",
-            "artifact_editing",
-            "investigation",
-            "workflow",
-        ],
-        family.name,
-    )
     return ScenarioInfo(
         name=name,
         display_name=name.replace("_", " ").title(),
-        scenario_type=scenario_type,
+        scenario_type=family.scenario_type_marker,
         description=description,
         strategy_interface=strategy_interface,
     )

@@ -153,8 +153,8 @@ class TestScenarioInfoTypes:
         )
         assert info.scenario_type == "coordination"
 
-    def test_all_registered_families_accepted(self) -> None:
-        """Every registered family name should be a valid scenario_type."""
+    def test_all_registered_scenario_markers_accepted(self) -> None:
+        """Every registered scenario_type marker should be a valid scenario_type."""
         from pydantic import ValidationError
 
         from autocontext.openclaw.models import ScenarioInfo
@@ -165,11 +165,11 @@ class TestScenarioInfoTypes:
                 ScenarioInfo(
                     name=f"test_{family.name}",
                     display_name=f"Test {family.name}",
-                    scenario_type=family.name,
+                    scenario_type=family.scenario_type_marker,
                     description=f"Test {family.name} scenario",
                 )
             except ValidationError as exc:
                 raise AssertionError(
-                    f"ScenarioInfo rejected scenario_type='{family.name}' "
-                    f"but family '{family.name}' is registered"
+                    f"ScenarioInfo rejected scenario_type='{family.scenario_type_marker}' "
+                    f"for registered family '{family.name}'"
                 ) from exc

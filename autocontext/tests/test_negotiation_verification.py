@@ -9,21 +9,23 @@ Verifies that 'negotiation' is properly registered across all layers:
 
 from __future__ import annotations
 
+import pytest
+
 # ===========================================================================
 # AC-307/AC-316: get_valid_scenario_types utility
 # ===========================================================================
 
 
 class TestGetValidScenarioTypes:
-    def test_returns_all_registered_families(self) -> None:
+    def test_returns_all_registered_markers(self) -> None:
         from autocontext.scenarios.families import list_families
         from autocontext.scenarios.type_registry import get_valid_scenario_types
 
         types = get_valid_scenario_types()
-        family_names = {f.name for f in list_families()}
+        family_markers = {f.scenario_type_marker for f in list_families()}
 
-        for name in family_names:
-            assert name in types, f"Family '{name}' missing from valid scenario types"
+        for marker in family_markers:
+            assert marker in types, f"Marker '{marker}' missing from valid scenario types"
 
     def test_includes_negotiation(self) -> None:
         from autocontext.scenarios.type_registry import get_valid_scenario_types
@@ -35,7 +37,7 @@ class TestGetValidScenarioTypes:
 
         types = get_valid_scenario_types()
         for expected in (
-            "game", "agent_task", "simulation", "artifact_editing",
+            "parametric", "agent_task", "simulation", "artifact_editing",
             "investigation", "workflow", "negotiation", "schema_evolution",
             "tool_fragility", "operator_loop", "coordination",
         ):
@@ -84,6 +86,19 @@ class TestNegotiationInScenarioInfo:
                 raise AssertionError(
                     f"ScenarioInfo rejected scenario_type='{stype}'"
                 ) from exc
+
+    def test_invalid_type_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        from autocontext.openclaw.models import ScenarioInfo
+
+        with pytest.raises(ValidationError):
+            ScenarioInfo(
+                name="bad",
+                display_name="Bad",
+                scenario_type="game",
+                description="Old family name should not be accepted as a scenario marker",
+            )
 
 
 # ===========================================================================
