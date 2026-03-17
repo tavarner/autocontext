@@ -3,11 +3,6 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref to release"
-        required: true
-        default: "main"
-        type: string
       publish_python:
         description: "Publish the Python package to PyPI"
         required: true
@@ -20,7 +15,7 @@ on:
         type: boolean
 
 concurrency:
-  group: release-${{ inputs.ref }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -36,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -72,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-node@v4
         with:
