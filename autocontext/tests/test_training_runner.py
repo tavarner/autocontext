@@ -32,6 +32,7 @@ class TestTrainingConfig:
         assert cfg.time_budget == 300
         assert cfg.max_experiments == 0
         assert cfg.memory_limit_mb == 16384
+        assert cfg.backend == "mlx"
         assert cfg.agent_provider == "anthropic"
         assert cfg.agent_model == ""
 
@@ -42,6 +43,7 @@ class TestTrainingConfig:
             time_budget=600,
             max_experiments=50,
             memory_limit_mb=8192,
+            backend="cuda",
             agent_provider="deterministic",
             agent_model="custom-model",
         )
@@ -49,6 +51,7 @@ class TestTrainingConfig:
         assert cfg.time_budget == 600
         assert cfg.max_experiments == 50
         assert cfg.memory_limit_mb == 8192
+        assert cfg.backend == "cuda"
 
 
 # ---------------------------------------------------------------------------
@@ -454,10 +457,51 @@ class TestTrainingLoop:
         assert registry_path.exists()
         assert artifact_path.exists()
 
+        registry_record = json.loads(registry_path.read_text(encoding="utf-8"))
+        assert registry_record["backend"] == "mlx"
+        assert registry_record["runtime_types"] == ["provider", "pi"]
+
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         assert artifact["artifact_type"] == "distilled_model"
         assert artifact["scenario"] == "grid_ctf"
         assert artifact["checkpoint_path"] == str(checkpoint_path)
+
+    def test_build_training_result_respects_selected_backend(self, tmp_path: Path) -> None:
+        cfg = TrainingConfig(
+            scenario="grid_ctf",
+            data_path=tmp_path / "data.jsonl",
+            max_experiments=1,
+            backend="cuda",
+        )
+        (tmp_path / "data.jsonl").write_text("{}\n", encoding="utf-8")
+        checkpoint_path = tmp_path / "workspace" / "checkpoints" / "exp_0"
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
+        runner = TrainingRunner(cfg, work_dir=tmp_path / "workspace")
+
+        settings = AppSettings(
+            knowledge_root=tmp_path / "knowledge",
+            runs_root=tmp_path / "runs",
+            skills_root=tmp_path / "skills",
+            claude_skills_path=tmp_path / ".claude" / "skills",
+        )
+        best = ExperimentResult(
+            experiment_index=0,
+            avg_score=0.75,
+            valid_rate=1.0,
+            peak_memory_mb=1024.0,
+            training_seconds=12.0,
+            outcome=ExperimentOutcome.KEPT,
+            checkpoint_path=checkpoint_path,
+            summary_metrics={"num_params_M": 1.25},
+        )
+
+        with patch("autocontext.training.runner.load_settings", return_value=settings):
+            result = runner.build_training_result([best])
+
+        registry_path = settings.knowledge_root / "model_registry" / f"{result.published_model_id}.json"
+        registry_record = json.loads(registry_path.read_text(encoding="utf-8"))
+        assert registry_record["backend"] == "cuda"
+        assert registry_record["runtime_types"] == ["provider"]
 
     def test_propose_train_py_uses_competitor_model_when_agent_model_empty(self, tmp_path: Path) -> None:
         cfg = TrainingConfig(
@@ -536,6 +580,7 @@ class TestTrainCLI:
                     "--time-budget", "600",
                     "--max-experiments", "50",
                     "--memory-limit", "8192",
+                    "--backend", "cuda",
                     "--agent-provider", "deterministic",
                     "--agent-model", "custom-model",
                 ],
@@ -548,6 +593,7 @@ class TestTrainCLI:
             assert call_cfg.time_budget == 600
             assert call_cfg.max_experiments == 50
             assert call_cfg.memory_limit_mb == 8192
+            assert call_cfg.backend == "cuda"
             assert call_cfg.agent_provider == "deterministic"
             assert call_cfg.agent_model == "custom-model"
 

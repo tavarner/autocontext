@@ -6,7 +6,10 @@ end_to_end_activation_flow.
 
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
+from unittest.mock import patch
 
 # ===========================================================================
 # TrainingBackend ABC
@@ -40,6 +43,26 @@ class TestTrainingBackend:
         backend = CUDABackend()
         # In test environment, CUDA is typically not available
         assert isinstance(backend.is_available(), bool)
+
+    def test_cuda_requires_actual_cuda_runtime(self, monkeypatch) -> None:
+        from autocontext.training.backends import CUDABackend
+
+        fake_torch = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(is_available=lambda: False),
+        )
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        with patch("importlib.util.find_spec", return_value=object()):
+            assert CUDABackend().is_available() is False
+
+    def test_cuda_available_when_torch_reports_cuda(self, monkeypatch) -> None:
+        from autocontext.training.backends import CUDABackend
+
+        fake_torch = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(is_available=lambda: True),
+        )
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        with patch("importlib.util.find_spec", return_value=object()):
+            assert CUDABackend().is_available() is True
 
     def test_mlx_default_checkpoint_dir(self) -> None:
         from autocontext.training.backends import MLXBackend

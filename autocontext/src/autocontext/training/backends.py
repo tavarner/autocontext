@@ -84,7 +84,14 @@ class CUDABackend(TrainingBackend):
         try:
             import importlib.util
 
-            return importlib.util.find_spec("torch") is not None
+            if importlib.util.find_spec("torch") is None:
+                return False
+
+            import importlib
+
+            torch_module = importlib.import_module("torch")
+            cuda_module = getattr(torch_module, "cuda", None)
+            return bool(cuda_module is not None and cuda_module.is_available())
         except Exception:
             return False
 
