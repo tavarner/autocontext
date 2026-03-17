@@ -302,10 +302,14 @@ def run(
         except KeyboardInterrupt:
             if json_output:
                 _write_json_stderr("run interrupted")
+            else:
+                console.print("[yellow]Run interrupted.[/yellow]")
             raise typer.Exit(code=1) from None
         except Exception as exc:
             if json_output:
                 _write_json_stderr(str(exc))
+            else:
+                console.print(f"[red]Error: {exc}[/red]")
             raise typer.Exit(code=1) from exc
         if json_output:
             _write_json_stdout(dataclasses.asdict(task_summary))
@@ -352,10 +356,14 @@ def run(
         except KeyboardInterrupt:
             if json_output:
                 _write_json_stderr("run interrupted")
+            else:
+                console.print("[yellow]Run interrupted.[/yellow]")
             raise typer.Exit(code=1) from None
         except Exception as exc:
             if json_output:
                 _write_json_stderr(str(exc))
+            else:
+                console.print(f"[red]Error: {exc}[/red]")
             raise typer.Exit(code=1) from exc
         if json_output:
             _write_json_stdout(dataclasses.asdict(summary))
@@ -390,10 +398,14 @@ def resume(
     except KeyboardInterrupt:
         if json_output:
             _write_json_stderr("resume interrupted")
+        else:
+            console.print("[yellow]Resume interrupted.[/yellow]")
         raise typer.Exit(code=1) from None
     except Exception as exc:
         if json_output:
             _write_json_stderr(str(exc))
+        else:
+            console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(code=1) from exc
     if json_output:
         _write_json_stdout(dataclasses.asdict(summary))
