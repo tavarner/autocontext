@@ -78,7 +78,15 @@ class _TaskScenario(AgentTaskInterface):
     def get_task_prompt(self, state: dict) -> str:
         return "Summarize the following..."
 
-    def evaluate_output(self, output: str, state: dict, **kwargs: Any) -> AgentTaskResult:
+    def evaluate_output(
+        self,
+        output: str,
+        state: dict,
+        reference_context: str | None = None,
+        required_concepts: list[str] | None = None,
+        calibration_examples: list[dict[Any, Any]] | None = None,
+        pinned_dimensions: list[str] | None = None,
+    ) -> AgentTaskResult:
         return AgentTaskResult(score=0.8, reasoning="ok")
 
     def get_rubric(self) -> str:
@@ -167,10 +175,10 @@ class TestModels:
     def test_scenario_info_minimal(self) -> None:
         info = ScenarioInfo(
             name="grid_ctf", display_name="Grid CTF",
-            scenario_type="game", description="Capture flags", strategy_interface="{}",
+            scenario_type="parametric", description="Capture flags", strategy_interface="{}",
         )
         assert info.name == "grid_ctf"
-        assert info.scenario_type == "game"
+        assert info.scenario_type == "parametric"
 
     def test_scenario_info_rejects_bad_type(self) -> None:
         with pytest.raises(ValidationError):
@@ -205,7 +213,7 @@ class TestModels:
             version="0.1.0", description="test",
             scenarios=[ScenarioInfo(
                 name="grid_ctf", display_name="Grid CTF",
-                scenario_type="game", description="Flags", strategy_interface="{}",
+                scenario_type="parametric", description="Flags", strategy_interface="{}",
             )],
             mcp_tools=["mts_list_scenarios"],
         )
@@ -241,7 +249,7 @@ class TestSkillManifest:
         assert "grid_ctf" in names
         assert "summarize_doc" in names
         assert "travel_workflow" in names
-        assert next(s for s in m.scenarios if s.name == "grid_ctf").scenario_type == "game"
+        assert next(s for s in m.scenarios if s.name == "grid_ctf").scenario_type == "parametric"
         assert next(s for s in m.scenarios if s.name == "summarize_doc").scenario_type == "agent_task"
         assert next(s for s in m.scenarios if s.name == "travel_workflow").scenario_type == "simulation"
 
@@ -278,7 +286,7 @@ class TestDiscoverScenarios:
         with patch(_REG, reg):
             results = MtsSkillWrapper(_ctx()).discover_scenarios()
         types = {r.scenario_type for r in results}
-        assert "game" in types
+        assert "parametric" in types
         assert "agent_task" in types
         assert "simulation" in types
 

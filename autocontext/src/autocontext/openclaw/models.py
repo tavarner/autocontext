@@ -1,9 +1,11 @@
 """Pydantic models for the ClawHub skill wrapper (AC-192)."""
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from autocontext.scenarios.type_registry import get_valid_scenario_types
 
 
 class ScenarioInfo(BaseModel):
@@ -11,21 +13,20 @@ class ScenarioInfo(BaseModel):
 
     name: str
     display_name: str
-    scenario_type: Literal[
-        "game",
-        "agent_task",
-        "simulation",
-        "artifact_editing",
-        "investigation",
-        "workflow",
-        "negotiation",
-        "schema_evolution",
-        "tool_fragility",
-        "operator_loop",
-        "coordination",
-    ]
+    scenario_type: str
     description: str
     strategy_interface: str = ""
+
+    @field_validator("scenario_type")
+    @classmethod
+    def validate_scenario_type(cls, value: str) -> str:
+        valid_types = get_valid_scenario_types()
+        if value not in valid_types:
+            valid_list = ", ".join(sorted(valid_types))
+            raise ValueError(
+                f"Invalid scenario_type '{value}'. Expected one of: {valid_list}"
+            )
+        return value
 
 
 class SkillManifest(BaseModel):
