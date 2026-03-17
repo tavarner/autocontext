@@ -21,6 +21,12 @@ from pathlib import Path
 
 from autocontext.agents.llm_client import LanguageModelClient, build_client_from_settings
 from autocontext.config.settings import load_settings
+from autocontext.training.backends import TrainingBackend, default_backend_registry
+from autocontext.training.model_registry import (
+    ModelRegistry,
+    TrainingCompletionOutput,
+    publish_training_output,
+)
 
 CONVERGENCE_NUDGE_THRESHOLD = 10
 _TEMPLATE_DIR = Path(__file__).parent / "autoresearch"
@@ -45,6 +51,7 @@ class TrainingConfig:
     time_budget: int = 300
     max_experiments: int = 0
     memory_limit_mb: int = 16384
+    backend: str = "mlx"
     agent_provider: str = "anthropic"
     agent_model: str = ""
 
@@ -93,6 +100,13 @@ class TrainingRunner:
         self.work_dir = work_dir
         self._best_score = float("-inf")
         self._best_experiment_index = -1
+        self._backend = self._resolve_backend()
+
+    def _resolve_backend(self) -> TrainingBackend:
+        backend = default_backend_registry().get(self.config.backend)
+        if backend is None:
+            raise ValueError(f"Unknown training backend: {self.config.backend}")
+        return backend
 
     @property
     def subprocess_timeout(self) -> int:
@@ -334,7 +348,7 @@ class TrainingRunner:
         return proposed
 
     def _run_experiment_subprocess(self, experiment_index: int) -> subprocess.CompletedProcess[str]:
-        checkpoint_dir = self.work_dir / "checkpoints" / f"exp_{experiment_index}"
+        checkpoint_dir = self._checkpoint_dir(experiment_index)
         command = [
             sys.executable,
             "train.py",
@@ -360,7 +374,7 @@ class TrainingRunner:
         )
 
     def _execute_experiment(self, experiment_index: int) -> ExperimentResult:
-        checkpoint_dir = self.work_dir / "checkpoints" / f"exp_{experiment_index}"
+        checkpoint_dir = self._checkpoint_dir(experiment_index)
         try:
             completed = self._run_experiment_subprocess(experiment_index)
         except subprocess.TimeoutExpired:
@@ -514,26 +528,21 @@ class TrainingRunner:
             pass
         return stats
 
+    def _checkpoint_dir(self, experiment_index: int) -> Path:
+        return self.work_dir / self._backend.default_checkpoint_dir(self.config.scenario) / f"exp_{experiment_index}"
+
     def _publish_best_model(self, best_result: ExperimentResult | None) -> str | None:
         if best_result is None or best_result.checkpoint_path is None:
             return None
 
         num_params_m = best_result.summary_metrics.get("num_params_M", 0.0)
-        if num_params_m <= 0:
-            return None
-
-        from autocontext.training.model_registry import (
-            ModelRegistry,
-            TrainingCompletionOutput,
-            publish_training_output,
-        )
 
         settings = load_settings()
         registry = ModelRegistry(settings.knowledge_root)
         completion = TrainingCompletionOutput(
             run_id=self._training_run_id(),
             checkpoint_path=str(best_result.checkpoint_path),
-            backend="mlx",
+            backend=self._backend.name,
             scenario=self.config.scenario,
             scenario_family=self._scenario_family_name(),
             parameter_count=max(int(num_params_m * 1_000_000), 1),
@@ -547,8 +556,9 @@ class TrainingRunner:
                 "depth": best_result.summary_metrics.get("depth", 0.0),
             },
             data_stats=self._data_stats(),
-            runtime_types=["provider"],
+            runtime_types=self._backend.supported_runtime_types(),
             metadata={
+                "backend_metadata": self._backend.metadata(),
                 "experiment_index": best_result.experiment_index,
                 "work_dir": str(self.work_dir),
             },

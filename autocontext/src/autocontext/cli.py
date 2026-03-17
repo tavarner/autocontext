@@ -755,6 +755,7 @@ def train(
     time_budget: int = typer.Option(300, "--time-budget", help="Training time budget in seconds"),
     max_experiments: int = typer.Option(0, "--max-experiments", help="Max iterations (0 = unlimited)"),
     memory_limit: int = typer.Option(16384, "--memory-limit", help="Peak memory cap in MB"),
+    backend: str = typer.Option("mlx", "--backend", help="Training backend to publish and activate (mlx, cuda)"),
     agent_provider: str = typer.Option("anthropic", "--agent-provider", help="LLM provider for training agent"),
     agent_model: str = typer.Option("", "--agent-model", help="Model for training agent (empty = provider default)"),
     json_output: bool = typer.Option(False, "--json", help="Output structured JSON"),
@@ -770,6 +771,7 @@ def train(
         time_budget=time_budget,
         max_experiments=max_experiments,
         memory_limit_mb=memory_limit,
+        backend=backend,
         agent_provider=agent_provider,
         agent_model=agent_model,
     )
