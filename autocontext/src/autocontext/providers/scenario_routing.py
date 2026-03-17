@@ -33,7 +33,7 @@ class ScenarioRoutingContext:
 class RoutingDecision:
     """Resolved provider/model choice with provenance."""
 
-    provider_type: str  # local, anthropic, openai-compatible, etc.
+    provider_type: str  # mlx, anthropic, openai-compatible, etc.
     model: str
     artifact_id: str | None
     source: str  # registry, manual_override, fallback
@@ -62,6 +62,12 @@ class RoutingDecision:
         )
 
 
+def _resolve_backend_provider_type(backend: str) -> str:
+    """Map a local-backend name to the concrete provider type the runtime expects."""
+    normalized = backend.strip().lower()
+    return normalized or "mlx"
+
+
 def resolve_provider_for_context(
     ctx: ScenarioRoutingContext,
     registry: ModelRegistry,
@@ -83,7 +89,7 @@ def resolve_provider_for_context(
     # 1. Manual override
     if ctx.manual_model_override:
         return RoutingDecision(
-            provider_type="local",
+            provider_type=_resolve_backend_provider_type(ctx.backend),
             model=ctx.manual_model_override,
             artifact_id=None,
             source="manual_override",
@@ -100,7 +106,7 @@ def resolve_provider_for_context(
     )
     if record is not None:
         return RoutingDecision(
-            provider_type="local",
+            provider_type=_resolve_backend_provider_type(record.backend or ctx.backend),
             model=record.checkpoint_path,
             artifact_id=record.artifact_id,
             source="registry",

@@ -93,13 +93,13 @@ class TestRoutingDecision:
         from autocontext.providers.scenario_routing import RoutingDecision
 
         dec = RoutingDecision(
-            provider_type="local",
+            provider_type="mlx",
             model="grid-mlx-1",
             artifact_id="grid-mlx-1",
             source="registry",
             fallback_used=False,
         )
-        assert dec.provider_type == "local"
+        assert dec.provider_type == "mlx"
         assert dec.source == "registry"
 
     def test_roundtrip(self) -> None:
@@ -137,6 +137,7 @@ class TestResolveProviderForContext:
         decision = resolve_provider_for_context(ctx, registry)
 
         assert decision.artifact_id == "grid-mlx-1"
+        assert decision.provider_type == "mlx"
         assert decision.source == "registry"
         assert decision.fallback_used is False
 
@@ -171,6 +172,7 @@ class TestResolveProviderForContext:
         )
         decision = resolve_provider_for_context(ctx, registry)
 
+        assert decision.provider_type == "mlx"
         assert decision.source == "manual_override"
         assert decision.model == "/custom/model/path"
 
