@@ -1148,3 +1148,84 @@ describe("internalRetries surfacing", () => {
     expect(parsed.internalRetries).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC-306: reviseOutput must not pass empty model string to provider
+// ---------------------------------------------------------------------------
+
+describe("AC-306: factory reviseOutput model sanitization", () => {
+  it("should pass undefined model to provider when judgeModel is empty", async () => {
+    const { createAgentTask } = await import("../src/scenarios/agent-task-factory.js");
+
+    let capturedModel: string | undefined;
+    const mockProvider = {
+      name: "mock",
+      defaultModel: () => "default-model",
+      complete: async (opts: any) => {
+        capturedModel = opts.model;
+        return { text: "revised output", model: "default-model", usage: {} };
+      },
+    };
+
+    const spec = {
+      taskPrompt: "Write something",
+      judgeRubric: "Evaluate quality",
+      judgeModel: "",
+      outputFormat: "free_text",
+      maxRounds: 3,
+      qualityThreshold: 0.9,
+      revisionPrompt: "Improve your response.",
+    };
+
+    const task = createAgentTask({
+      spec: spec as any,
+      name: "test_task",
+      provider: mockProvider as any,
+    });
+    await task.reviseOutput(
+      "original output",
+      { score: 0.5, reasoning: "needs work", dimensionScores: {}, internalRetries: 0 },
+      {},
+    );
+
+    // model should be undefined (not ""), so the provider uses its default
+    expect(capturedModel).toBeUndefined();
+  });
+
+  it("should pass actual model when judgeModel is non-empty", async () => {
+    const { createAgentTask } = await import("../src/scenarios/agent-task-factory.js");
+
+    let capturedModel: string | undefined;
+    const mockProvider = {
+      name: "mock",
+      defaultModel: () => "default-model",
+      complete: async (opts: any) => {
+        capturedModel = opts.model;
+        return { text: "revised", model: "custom-model", usage: {} };
+      },
+    };
+
+    const spec = {
+      taskPrompt: "Write something",
+      judgeRubric: "Evaluate",
+      judgeModel: "custom-model",
+      outputFormat: "free_text",
+      maxRounds: 3,
+      qualityThreshold: 0.9,
+      revisionPrompt: "Improve.",
+    };
+
+    const task = createAgentTask({
+      spec: spec as any,
+      name: "test_task_2",
+      provider: mockProvider as any,
+    });
+    await task.reviseOutput(
+      "original",
+      { score: 0.5, reasoning: "weak", dimensionScores: {}, internalRetries: 0 },
+      {},
+    );
+
+    expect(capturedModel).toBe("custom-model");
+  });
+});

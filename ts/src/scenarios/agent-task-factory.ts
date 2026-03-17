@@ -64,7 +64,7 @@ export function createAgentTask(opts: AgentTaskFactoryOpts): AgentTaskInterface 
       }
       const judge = new LLMJudge({
         provider,
-        model: spec.judgeModel,
+        model: spec.judgeModel || provider.defaultModel(),
         rubric: spec.judgeRubric,
       });
       const result = await judge.evaluate({
@@ -121,7 +121,7 @@ export function createAgentTask(opts: AgentTaskFactoryOpts): AgentTaskInterface 
       const result = await provider.complete({
         systemPrompt: "You are a helpful assistant revising your previous output.",
         userPrompt: prompt,
-        model: spec.judgeModel,
+        model: spec.judgeModel || undefined,
       });
       return result.text;
     },
