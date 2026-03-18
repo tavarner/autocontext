@@ -713,7 +713,7 @@ class TestStageTournament:
         gate.evaluate.return_value = MagicMock(decision="advance", reason="improved")
         events = MagicMock()
         sqlite = MagicMock()
-        sqlite.get_strategy_score_history.return_value = [
+        sqlite.get_self_play_strategy_history.return_value = [
             {
                 "generation_index": 1,
                 "content": json.dumps({"aggression": 0.9}),

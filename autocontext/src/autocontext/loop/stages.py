@@ -694,7 +694,7 @@ def stage_tournament(
             weight=settings.self_play_weight,
         )
         self_play_pool = load_self_play_pool(
-            sqlite.get_strategy_score_history(ctx.run_id) if settings.self_play_enabled else [],
+            sqlite.get_self_play_strategy_history(ctx.run_id) if settings.self_play_enabled else [],
             self_play_config,
             current_generation=ctx.generation,
         )
