@@ -8,6 +8,12 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+from autocontext.agents.feedback_loops import (
+    AnalystRating,
+    ToolUsageTracker,
+    format_utilization_report,
+    identify_stale_tools,
+)
 from autocontext.harness.storage.versioned_store import VersionedFileStore
 from autocontext.knowledge.lessons import LessonStore
 from autocontext.knowledge.mutation_log import MutationEntry, MutationLog
@@ -278,6 +284,33 @@ class ArtifactStore:
                 return path.read_text(encoding="utf-8")
         return ""
 
+    def write_analyst_rating(self, scenario_name: str, generation_index: int, rating: AnalystRating) -> None:
+        """Persist curator feedback on analyst quality for the generation."""
+        feedback_dir = self.knowledge_root / scenario_name / "analyst_feedback"
+        self.write_json(feedback_dir / f"gen_{generation_index}.json", rating.to_dict())
+
+    def read_latest_analyst_rating(self, scenario_name: str, current_gen: int) -> AnalystRating | None:
+        """Read the most recent analyst rating from a generation before current_gen."""
+        feedback_dir = self.knowledge_root / scenario_name / "analyst_feedback"
+        if not feedback_dir.exists():
+            return None
+        candidates = sorted(feedback_dir.glob("gen_*.json"), reverse=True)
+        for path in candidates:
+            try:
+                num = int(path.stem.split("_")[1])
+            except (IndexError, ValueError):
+                continue
+            if num >= current_gen:
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                LOGGER.warning("failed to parse analyst rating %s", path, exc_info=True)
+                continue
+            if isinstance(raw, dict):
+                return AnalystRating.from_dict(raw)
+        return None
+
     def harness_dir(self, scenario_name: str) -> Path:
         """Return the harness directory: knowledge/<scenario>/harness/"""
         return self.knowledge_root / scenario_name / "harness"
@@ -419,6 +452,61 @@ class ArtifactStore:
 
     def shared_tools_dir(self) -> Path:
         return self.knowledge_root / "_shared" / "tools"
+
+    def list_tool_names(self, scenario_name: str) -> list[str]:
+        """List scenario and shared tool module names."""
+        names = set(self._list_python_modules(self.tools_dir(scenario_name)))
+        names.update(self._list_python_modules(self.shared_tools_dir()))
+        return sorted(names)
+
+    def _tool_usage_path(self, scenario_name: str) -> Path:
+        return self.knowledge_root / scenario_name / "tool_usage.json"
+
+    def read_tool_usage_tracker(self, scenario_name: str, known_tools: list[str]) -> ToolUsageTracker:
+        """Load persisted tool-usage state, keeping newly available tools visible."""
+        path = self._tool_usage_path(scenario_name)
+        if not path.exists():
+            return ToolUsageTracker(known_tools=known_tools)
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            LOGGER.warning("failed to parse tool usage state %s", path, exc_info=True)
+            return ToolUsageTracker(known_tools=known_tools)
+        if not isinstance(raw, dict):
+            return ToolUsageTracker(known_tools=known_tools)
+        return ToolUsageTracker.from_dict(raw, known_tools=known_tools)
+
+    def write_tool_usage_tracker(self, scenario_name: str, tracker: ToolUsageTracker) -> None:
+        """Persist tool-usage state for future architect prompts."""
+        self.write_json(self._tool_usage_path(scenario_name), tracker.to_dict())
+
+    def read_tool_usage_report(
+        self,
+        scenario_name: str,
+        *,
+        current_generation: int,
+        window: int = 5,
+        stale_after_gens: int = 5,
+    ) -> str:
+        """Render a current architect-facing tool-utilization report."""
+        tool_names = self.list_tool_names(scenario_name)
+        if not tool_names:
+            return ""
+        tracker = self.read_tool_usage_tracker(scenario_name, known_tools=tool_names)
+        report = format_utilization_report(
+            tracker,
+            current_generation=max(current_generation, 0),
+            window=window,
+        )
+        stale = identify_stale_tools(
+            tracker,
+            current_generation=max(current_generation, 0),
+            archive_after_gens=stale_after_gens,
+        )
+        if stale:
+            stale_lines = "\n".join(f"- {name}" for name in stale)
+            report = f"{report}\n\nStale tools to review for archival:\n{stale_lines}".strip()
+        return report
 
     def persist_tools(self, scenario_name: str, generation_index: int, tools: list[dict[str, object]]) -> list[str]:
         return self._persist_generated_modules(

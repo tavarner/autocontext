@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from autocontext.agents.architect import parse_dag_changes
+from autocontext.agents.feedback_loops import AnalystRating, ToolUsageTracker, format_analyst_feedback
 from autocontext.backpressure.trend_gate import TrendAwareGate
 from autocontext.harness.evaluation.dimensional import detect_dimension_regression
 from autocontext.harness.evaluation.failure_report import FailureReport
@@ -471,6 +472,111 @@ def _apply_tuning_to_settings(
         ctx.settings = ctx.settings.model_copy(update=update)
 
 
+def _load_analyst_feedback_section(
+    ctx: GenerationContext,
+    *,
+    artifacts: ArtifactStore,
+) -> str:
+    """Read the latest curator rating for injection into the next analyst prompt."""
+    raw_rating = artifacts.read_latest_analyst_rating(ctx.scenario_name, ctx.generation)
+    if not isinstance(raw_rating, AnalystRating):
+        return ""
+    return format_analyst_feedback(raw_rating)
+
+
+def _load_architect_tool_usage_report(
+    ctx: GenerationContext,
+    *,
+    artifacts: ArtifactStore,
+) -> str:
+    """Read the architect-facing report on which tools the competitor actually uses."""
+    if ctx.generation <= 1:
+        return ""
+    report = artifacts.read_tool_usage_report(
+        ctx.scenario_name,
+        current_generation=ctx.generation - 1,
+    )
+    return report if isinstance(report, str) else ""
+
+
+def _update_tool_usage_feedback(
+    ctx: GenerationContext,
+    *,
+    artifacts: ArtifactStore,
+) -> None:
+    """Track competitor tool references so the architect sees real adoption data next gen."""
+    outputs = ctx.outputs
+    if outputs is None or outputs.competitor_output is None:
+        return
+    raw_text = outputs.competitor_output.raw_text
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        return
+
+    known_tools = artifacts.list_tool_names(ctx.scenario_name)
+    if not isinstance(known_tools, list):
+        return
+    tool_names = sorted({name for name in known_tools if isinstance(name, str) and name})
+    if not tool_names:
+        return
+
+    tracker = artifacts.read_tool_usage_tracker(ctx.scenario_name, known_tools=tool_names)
+    if not isinstance(tracker, ToolUsageTracker):
+        tracker = ToolUsageTracker(known_tools=tool_names)
+    tracker.record_generation(ctx.generation, raw_text)
+    artifacts.write_tool_usage_tracker(ctx.scenario_name, tracker)
+
+
+def _maybe_rate_analyst_output(
+    ctx: GenerationContext,
+    *,
+    curator: KnowledgeCurator | None,
+    artifacts: ArtifactStore,
+    sqlite: SQLiteStore,
+) -> AnalystRating | None:
+    """Persist curator feedback on analyst quality when there is a real report to rate."""
+    if curator is None or ctx.settings.ablation_no_feedback:
+        return None
+    outputs = ctx.outputs
+    if outputs is None:
+        return None
+    analysis_markdown = getattr(outputs, "analysis_markdown", "")
+    if not isinstance(analysis_markdown, str) or not analysis_markdown.strip():
+        return None
+
+    tournament = ctx.tournament
+    score_summary = ""
+    if tournament is not None:
+        score_summary = (
+            f"Generation {ctx.generation}: best_score={tournament.best_score:.4f}, "
+            f"mean_score={tournament.mean_score:.4f}, gate_decision={ctx.gate_decision or 'pending'}"
+        )
+    rating, exec_result = curator.rate_analyst_output(
+        analysis_markdown,
+        generation=ctx.generation,
+        score_summary=score_summary,
+        constraint_mode=ctx.settings.constraint_prompts_enabled,
+    )
+    artifacts.write_analyst_rating(ctx.scenario_name, ctx.generation, rating)
+    sqlite.append_generation_agent_activity(
+        ctx.run_id,
+        ctx.generation,
+        outputs=[
+            ("curator_analyst_rating", json.dumps(rating.to_dict(), sort_keys=True)),
+            ("curator_analyst_feedback", exec_result.content),
+        ],
+        role_metrics=[(
+            exec_result.role,
+            exec_result.usage.model,
+            exec_result.usage.input_tokens,
+            exec_result.usage.output_tokens,
+            exec_result.usage.latency_ms,
+            exec_result.subagent_id,
+            exec_result.status,
+        )],
+    )
+    return rating
+
+
 def stage_knowledge_setup(
     ctx: GenerationContext,
     *,
@@ -488,6 +594,8 @@ def stage_knowledge_setup(
     tool_context = "" if ablation else artifacts.read_tool_context(ctx.scenario_name)
     skills_context = "" if ablation else artifacts.read_skills(ctx.scenario_name)
     recent_analysis = "" if ablation else artifacts.read_latest_advance_analysis(ctx.scenario_name, ctx.generation)
+    analyst_feedback = "" if ablation else _load_analyst_feedback_section(ctx, artifacts=artifacts)
+    tool_usage_report = "" if ablation else _load_architect_tool_usage_report(ctx, artifacts=artifacts)
     weakness_reports = "" if ablation else artifacts.read_latest_weakness_reports_markdown(ctx.scenario_name)
     progress_reports = "" if ablation else artifacts.read_latest_progress_reports_markdown(ctx.scenario_name)
     score_trajectory = "" if ablation else trajectory_builder.build_trajectory(ctx.run_id)
@@ -574,10 +682,12 @@ def stage_knowledge_setup(
         replay_narrative="" if ablation else ctx.replay_narrative,
         coach_competitor_hints="" if ablation else ctx.coach_competitor_hints,
         recent_analysis=recent_analysis,
+        analyst_feedback=analyst_feedback,
         score_trajectory=score_trajectory,
         strategy_registry=strategy_registry,
         progress_json=progress_json_str,
         experiment_log=experiment_log,
+        architect_tool_usage_report=tool_usage_report,
         constraint_mode=ctx.settings.constraint_prompts_enabled,
         context_budget_tokens=ctx.settings.context_budget_tokens,
         notebook_contexts=notebook_contexts,
@@ -675,6 +785,7 @@ def stage_agent_generation(
     ctx.outputs = outputs
     ctx.current_strategy = outputs.strategy
     ctx.created_tools = created_tools
+    _update_tool_usage_feedback(ctx, artifacts=artifacts)
     return ctx
 
 
@@ -1140,13 +1251,30 @@ def stage_curator_gate(
     events: EventStreamEmitter,
 ) -> GenerationContext:
     """Stage 4: Curator quality gate — assess playbook before persisting."""
-    if ctx.gate_decision != "advance":
-        return ctx
     if curator is None:
         return ctx
-    if not ctx.outputs or not ctx.outputs.coach_playbook:
-        return ctx
     if ctx.settings.ablation_no_feedback:
+        return ctx
+
+    analyst_rating = _maybe_rate_analyst_output(
+        ctx,
+        curator=curator,
+        artifacts=artifacts,
+        sqlite=sqlite,
+    )
+    if analyst_rating is not None:
+        events.emit("analyst_feedback_rated", {
+            "run_id": ctx.run_id,
+            "generation": ctx.generation,
+            "overall": analyst_rating.overall,
+            "actionability": analyst_rating.actionability,
+            "specificity": analyst_rating.specificity,
+            "correctness": analyst_rating.correctness,
+        })
+
+    if ctx.gate_decision != "advance":
+        return ctx
+    if not ctx.outputs or not ctx.outputs.coach_playbook:
         return ctx
 
     current_pb = artifacts.read_playbook(ctx.scenario_name)
@@ -1205,6 +1333,7 @@ def stage_curator_gate(
     events.emit("curator_completed", {
         "run_id": ctx.run_id, "generation": ctx.generation,
         "decision": curator_decision.decision,
+        "analyst_rating": analyst_rating.to_dict() if analyst_rating is not None else None,
         "skeptic_recommendation": (
             ctx.skeptic_review.recommendation if ctx.skeptic_review is not None else None
         ),

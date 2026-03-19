@@ -61,6 +61,7 @@ def build_prompt_bundle(
     replay_narrative: str = "",
     coach_competitor_hints: str = "",
     recent_analysis: str = "",
+    analyst_feedback: str = "",
     score_trajectory: str = "",
     strategy_registry: str = "",
     progress_json: str = "",
@@ -68,6 +69,7 @@ def build_prompt_bundle(
     dead_ends: str = "",
     research_protocol: str = "",
     session_reports: str = "",
+    architect_tool_usage_report: str = "",
     constraint_mode: bool = False,
     context_budget_tokens: int = 0,
     notebook_contexts: dict[str, str] | None = None,
@@ -81,11 +83,13 @@ def build_prompt_bundle(
             "lessons": operational_lessons,
             "tools": available_tools,
             "analysis": recent_analysis,
+            "analyst_feedback": analyst_feedback,
             "hints": coach_competitor_hints,
             "experiment_log": experiment_log,
             "dead_ends": dead_ends,
             "research_protocol": research_protocol,
             "session_reports": session_reports,
+            "tool_usage_report": architect_tool_usage_report,
             "notebook_competitor": _nb.get("competitor", ""),
             "notebook_analyst": _nb.get("analyst", ""),
             "notebook_coach": _nb.get("coach", ""),
@@ -96,11 +100,13 @@ def build_prompt_bundle(
         operational_lessons = budgeted["lessons"]
         available_tools = budgeted["tools"]
         recent_analysis = budgeted["analysis"]
+        analyst_feedback = budgeted["analyst_feedback"]
         coach_competitor_hints = budgeted["hints"]
         experiment_log = budgeted["experiment_log"]
         dead_ends = budgeted["dead_ends"]
         research_protocol = budgeted["research_protocol"]
         session_reports = budgeted["session_reports"]
+        architect_tool_usage_report = budgeted["tool_usage_report"]
         _nb = {
             "competitor": budgeted["notebook_competitor"],
             "analyst": budgeted["notebook_analyst"],
@@ -116,6 +122,11 @@ def build_prompt_bundle(
     analysis_block = (
         f"Most recent generation analysis:\n{recent_analysis}\n\n"
         if recent_analysis
+        else ""
+    )
+    analyst_feedback_block = (
+        f"{analyst_feedback.strip()}\n\n"
+        if analyst_feedback
         else ""
     )
     replay_block = (
@@ -156,6 +167,11 @@ def build_prompt_bundle(
     session_reports_block = (
         f"Prior session reports:\n{session_reports}\n\n"
         if session_reports
+        else ""
+    )
+    tool_usage_block = (
+        f"{architect_tool_usage_report.strip()}\n\n"
+        if architect_tool_usage_report
         else ""
     )
     base_context = (
@@ -207,6 +223,7 @@ def build_prompt_bundle(
         + competitor_constraint
         + "Describe your strategy reasoning and recommend specific parameter values.",
         analyst=base_context
+        + analyst_feedback_block
         + analyst_nb
         + analyst_constraint
         + (
@@ -236,6 +253,7 @@ def build_prompt_bundle(
             "<!-- COMPETITOR_HINTS_END -->"
         ),
         architect=base_context
+        + tool_usage_block
         + architect_nb
         + architect_constraint
         + (

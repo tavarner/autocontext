@@ -136,8 +136,37 @@ class ToolUsageTracker:
     def get_stats(self) -> dict[str, ToolUsageRecord]:
         return dict(self._records)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "records": {
+                name: record.to_dict()
+                for name, record in sorted(self._records.items())
+            },
+        }
 
-def format_utilization_report(tracker: ToolUsageTracker, window: int = 5) -> str:
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], known_tools: list[str]) -> ToolUsageTracker:
+        tracker = cls(known_tools=known_tools)
+        raw_records = data.get("records", {})
+        if not isinstance(raw_records, dict):
+            return tracker
+        for name, raw in raw_records.items():
+            if not isinstance(name, str) or not isinstance(raw, dict):
+                continue
+            tracker._records[name] = ToolUsageRecord.from_dict(raw)
+        for name in known_tools:
+            tracker._records.setdefault(
+                name,
+                ToolUsageRecord(tool_name=name, used_in_gens=[], last_used=0, total_refs=0),
+            )
+        return tracker
+
+
+def format_utilization_report(
+    tracker: ToolUsageTracker,
+    current_generation: int,
+    window: int = 5,
+) -> str:
     """Format tool usage stats as a utilization report for the architect prompt."""
     stats = tracker.get_stats()
     if not stats:
@@ -145,7 +174,7 @@ def format_utilization_report(tracker: ToolUsageTracker, window: int = 5) -> str
 
     lines = [f"Tool utilization (last {window} gens):"]
     for name, rec in sorted(stats.items()):
-        recent_uses = sum(1 for g in rec.used_in_gens if g > (rec.last_used - window))
+        recent_uses = sum(1 for g in rec.used_in_gens if 0 <= current_generation - g < window)
         if rec.total_refs == 0:
             level = "UNUSED"
         elif recent_uses >= window * 0.6:

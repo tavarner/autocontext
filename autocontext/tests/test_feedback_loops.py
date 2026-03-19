@@ -163,7 +163,7 @@ class TestFormatUtilizationReport:
         tracker.record_generation(2, "tool_a used again")
         tracker.record_generation(3, "tool_a and tool_b used")
 
-        report = format_utilization_report(tracker, window=3)
+        report = format_utilization_report(tracker, current_generation=3, window=3)
         assert "tool_a" in report
         assert "tool_c" in report  # unused tool mentioned
         assert "HIGH" in report or "UNUSED" in report
@@ -172,8 +172,18 @@ class TestFormatUtilizationReport:
         from autocontext.agents.feedback_loops import ToolUsageTracker, format_utilization_report
 
         tracker = ToolUsageTracker(known_tools=[])
-        report = format_utilization_report(tracker, window=5)
+        report = format_utilization_report(tracker, current_generation=5, window=5)
         assert report == "" or "no tools" in report.lower()
+
+    def test_report_ages_out_old_uses(self) -> None:
+        from autocontext.agents.feedback_loops import ToolUsageTracker, format_utilization_report
+
+        tracker = ToolUsageTracker(known_tools=["tool_a"])
+        tracker.record_generation(1, "tool_a used")
+
+        report = format_utilization_report(tracker, current_generation=10, window=3)
+        assert "used 0/3 gens" in report
+        assert "UNUSED" in report
 
 
 # ===========================================================================
