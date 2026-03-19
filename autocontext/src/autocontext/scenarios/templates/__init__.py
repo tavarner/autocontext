@@ -132,13 +132,39 @@ class _TemplateAgentTask(AgentTaskInterface):
         settings = load_settings()
         from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
         provider = get_provider(settings)
+        runtime_judge_model = (
+            settings.judge_model
+            if isinstance(getattr(settings, "judge_model", None), str)
+            else ""
+        )
+        judge_samples = (
+            settings.judge_samples
+            if isinstance(getattr(settings, "judge_samples", None), int)
+            else 1
+        )
+        judge_temperature = (
+            float(settings.judge_temperature)
+            if isinstance(getattr(settings, "judge_temperature", None), int | float)
+            else 0.0
+        )
+        judge_disagreement_threshold = (
+            float(settings.judge_disagreement_threshold)
+            if isinstance(getattr(settings, "judge_disagreement_threshold", None), int | float)
+            else 0.15
+        )
+        judge_bias_probes_enabled = (
+            settings.judge_bias_probes_enabled
+            if isinstance(getattr(settings, "judge_bias_probes_enabled", None), bool)
+            else False
+        )
+        effective_model = self._spec.judge_model or runtime_judge_model or provider.default_model()
         judge = LLMJudge(
-            model=self._spec.judge_model,
+            model=effective_model,
             rubric=self._spec.judge_rubric,
             provider=provider,
-            samples=settings.judge_samples,
-            temperature=settings.judge_temperature,
-            disagreement_threshold=settings.judge_disagreement_threshold,
+            samples=judge_samples,
+            temperature=judge_temperature,
+            disagreement_threshold=judge_disagreement_threshold,
         )
         result = judge.evaluate(
             task_prompt=self.get_task_prompt(state),
@@ -151,10 +177,10 @@ class _TemplateAgentTask(AgentTaskInterface):
         evaluator_guardrail = evaluate_evaluator_guardrail(
             result,
             provider=provider,
-            model=self._spec.judge_model,
+            model=effective_model,
             rubric=self._spec.judge_rubric,
             candidate_output=output,
-            bias_probes_enabled=settings.judge_bias_probes_enabled,
+            bias_probes_enabled=judge_bias_probes_enabled,
         )
         return AgentTaskResult(
             score=result.score,
@@ -367,13 +393,39 @@ class TemplateAgentTask(AgentTaskInterface):
         settings = load_settings()
         from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
         provider = get_provider(settings)
+        runtime_judge_model = (
+            settings.judge_model
+            if isinstance(getattr(settings, "judge_model", None), str)
+            else ""
+        )
+        judge_samples = (
+            settings.judge_samples
+            if isinstance(getattr(settings, "judge_samples", None), int)
+            else 1
+        )
+        judge_temperature = (
+            float(settings.judge_temperature)
+            if isinstance(getattr(settings, "judge_temperature", None), int | float)
+            else 0.0
+        )
+        judge_disagreement_threshold = (
+            float(settings.judge_disagreement_threshold)
+            if isinstance(getattr(settings, "judge_disagreement_threshold", None), int | float)
+            else 0.15
+        )
+        judge_bias_probes_enabled = (
+            settings.judge_bias_probes_enabled
+            if isinstance(getattr(settings, "judge_bias_probes_enabled", None), bool)
+            else False
+        )
+        effective_model = self._judge_model or runtime_judge_model or provider.default_model()
         judge = LLMJudge(
-            model=self._judge_model,
+            model=effective_model,
             rubric=self._rubric,
             provider=provider,
-            samples=settings.judge_samples,
-            temperature=settings.judge_temperature,
-            disagreement_threshold=settings.judge_disagreement_threshold,
+            samples=judge_samples,
+            temperature=judge_temperature,
+            disagreement_threshold=judge_disagreement_threshold,
         )
         result = judge.evaluate(
             task_prompt=self.get_task_prompt(state),
@@ -386,10 +438,10 @@ class TemplateAgentTask(AgentTaskInterface):
         evaluator_guardrail = evaluate_evaluator_guardrail(
             result,
             provider=provider,
-            model=self._judge_model,
+            model=effective_model,
             rubric=self._rubric,
             candidate_output=output,
-            bias_probes_enabled=settings.judge_bias_probes_enabled,
+            bias_probes_enabled=judge_bias_probes_enabled,
         )
         return AgentTaskResult(
             score=result.score,

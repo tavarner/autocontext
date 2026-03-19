@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from autocontext.execution.bias_probes import BiasReport, run_position_bias_probe
-from autocontext.execution.judge import JudgeResult
+from autocontext.execution.judge import DisagreementMetrics, JudgeResult
 from autocontext.providers.base import LLMProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -50,19 +50,22 @@ def evaluate_evaluator_guardrail(
     bias_probes_enabled: bool = False,
 ) -> EvaluatorGuardrailResult | None:
     """Resolve live evaluator guardrail status from judge output and probes."""
+    disagreement = getattr(judge_result, "disagreement", None)
+    if not isinstance(disagreement, DisagreementMetrics):
+        disagreement = None
     disagreement_payload = (
-        judge_result.disagreement.to_dict()
-        if judge_result.disagreement is not None
+        disagreement.to_dict()
+        if disagreement is not None
         else None
     )
     bias_payload: dict[str, Any] | None = None
     violations: list[str] = []
     metadata: dict[str, Any] = {}
 
-    if judge_result.disagreement is not None and judge_result.disagreement.is_high_disagreement:
+    if disagreement is not None and disagreement.is_high_disagreement:
         violations.append(
             "judge disagreement exceeded threshold "
-            f"(std_dev={judge_result.disagreement.score_std_dev:.4f})"
+            f"(std_dev={disagreement.score_std_dev:.4f})"
         )
 
     if bias_probes_enabled and provider is not None and candidate_output.strip():
