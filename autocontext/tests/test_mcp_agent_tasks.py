@@ -25,8 +25,10 @@ from autocontext.mcp.tools import (
     get_task_result,
     list_agent_tasks,
     queue_improvement_run,
+    run_improvement_loop,
 )
 from autocontext.providers.base import CompletionResult, LLMProvider
+from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
 
 
 class _MockProvider(LLMProvider):
@@ -339,6 +341,73 @@ class TestEvaluateOutput:
         assert result["score"] == 0.9
         assert result["evaluator_guardrail"]["passed"] is False
         assert result["evaluator_guardrail"]["disagreement"]["is_high_disagreement"] is True
+
+
+class TestRunImprovementLoop:
+    def test_surfaces_pareto_and_actionable_side_info(self, ctx, monkeypatch):
+        from autocontext.mcp import tools as mcp_tools
+
+        class _ParetoTask(AgentTaskInterface):
+            def __init__(self) -> None:
+                self._eval_calls = 0
+
+            def get_task_prompt(self, state: dict) -> str:
+                return "Improve the artifact"
+
+            def evaluate_output(
+                self,
+                output: str,
+                state: dict,
+                reference_context: str | None = None,
+                required_concepts: list[str] | None = None,
+                calibration_examples: list[dict] | None = None,
+                pinned_dimensions: list[str] | None = None,
+            ) -> AgentTaskResult:
+                self._eval_calls += 1
+                if self._eval_calls == 1:
+                    return AgentTaskResult(
+                        score=0.45,
+                        reasoning="Needs stronger structure",
+                        dimension_scores={"quality": 0.45},
+                    )
+                return AgentTaskResult(
+                    score=0.82,
+                    reasoning="Much stronger revision",
+                    dimension_scores={"quality": 0.82, "novelty": 0.70},
+                )
+
+            def get_rubric(self) -> str:
+                return "Quality and novelty"
+
+            def initial_state(self, seed: int | None = None) -> dict:
+                return {}
+
+            def describe_task(self) -> str:
+                return "Synthetic task for optimizer surface tests"
+
+            def revise_output(
+                self,
+                output: str,
+                judge_result: AgentTaskResult,
+                state: dict,
+            ) -> str:
+                return f"revised::{output}"
+
+        monkeypatch.setitem(mcp_tools.SCENARIO_REGISTRY, "pareto-task", _ParetoTask)
+
+        result = run_improvement_loop(
+            ctx,
+            "pareto-task",
+            "initial artifact",
+            max_rounds=2,
+            quality_threshold=0.95,
+        )
+
+        assert result["scenario_name"] == "pareto-task"
+        assert result["pareto_frontier"]
+        assert result["actionable_side_info"]
+        assert result["pareto_frontier"][-1]["scores"]["novelty"] == 0.70
+        assert result["actionable_side_info"][0]["outcome"] == "weak_dimension"
 
 
 # ---------------------------------------------------------------------------

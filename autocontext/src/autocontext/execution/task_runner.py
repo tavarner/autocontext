@@ -126,6 +126,12 @@ def _serialize_result(
         data["evaluator_guardrail"] = evaluator_guardrail
     if rubric_calibration is not None:
         data["rubric_calibration"] = rubric_calibration
+    if result.pareto_frontier:
+        data["pareto_frontier"] = result.pareto_frontier
+    if result.actionable_side_info:
+        data["actionable_side_info"] = result.actionable_side_info
+    if result.metadata:
+        data["optimizer_metadata"] = result.metadata
     return json.dumps(data)
 
 
@@ -160,6 +166,18 @@ def _serialize_evolution_result(
             "best_round": result.best_round,
             "total_rounds": result.total_rounds,
             "met_threshold": result.met_threshold,
+            **(
+                {"pareto_frontier": result.pareto_frontier}
+                if result.pareto_frontier else {}
+            ),
+            **(
+                {"actionable_side_info": result.actionable_side_info}
+                if result.actionable_side_info else {}
+            ),
+            **(
+                {"optimizer_metadata": result.metadata}
+                if result.metadata else {}
+            ),
         }
         for idx, result in enumerate(generation_results)
     ]
@@ -185,6 +203,14 @@ def _serialize_evolution_result(
         data["evaluator_guardrail"] = evaluator_guardrail
     if rubric_calibration is not None:
         data["rubric_calibration"] = rubric_calibration
+    if generation_results:
+        final_result = generation_results[-1]
+        if final_result.pareto_frontier:
+            data["pareto_frontier"] = final_result.pareto_frontier
+        if final_result.actionable_side_info:
+            data["actionable_side_info"] = final_result.actionable_side_info
+        if final_result.metadata:
+            data["optimizer_metadata"] = final_result.metadata
     return json.dumps(data)
 
 
