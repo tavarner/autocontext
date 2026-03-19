@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
+from autocontext.agents.feedback_loops import AnalystRating
 from autocontext.agents.subagent_runtime import SubagentRuntime, SubagentTask
 from autocontext.agents.types import RoleExecution
+from autocontext.harness.core.output_parser import strip_json_fences
 
 _DECISION_RE = re.compile(r"<!--\s*CURATOR_DECISION:\s*(accept|reject|merge)\s*-->", re.IGNORECASE)
 _PLAYBOOK_RE = re.compile(
@@ -87,6 +90,13 @@ _CURATOR_CONSOLIDATION_CONSTRAINT = (
     "- Do NOT keep lessons that directly contradict each other without resolution\n\n"
 )
 
+_CURATOR_ANALYST_RATING_CONSTRAINT = (
+    "Constraints:\n"
+    "- Do NOT give high scores without citing concrete evidence from the analyst report\n"
+    "- Do NOT reward vague recommendations or unsupported claims\n"
+    "- Do NOT collapse actionability, specificity, and correctness into the same score without justification\n\n"
+)
+
 
 class KnowledgeCurator:
     def __init__(self, runtime: SubagentRuntime, model: str):
@@ -139,6 +149,47 @@ class KnowledgeCurator:
         )
         decision = parse_curator_playbook_decision(exec_result.content)
         return decision, exec_result
+
+    def rate_analyst_output(
+        self,
+        analyst_markdown: str,
+        *,
+        generation: int,
+        score_summary: str = "",
+        constraint_mode: bool = False,
+    ) -> tuple[AnalystRating, RoleExecution]:
+        """Rate analyst quality so the next analyst prompt gets concrete curator feedback."""
+        constraint_preamble = _CURATOR_ANALYST_RATING_CONSTRAINT if constraint_mode else ""
+        prompt = (
+            constraint_preamble
+            + "You are a curator rating the quality of the analyst's report.\n\n"
+            "Score the report from 1-5 on:\n"
+            "- actionability: how directly the recommendations can be used\n"
+            "- specificity: how concrete and evidence-backed the findings are\n"
+            "- correctness: how well the analysis matches the available evidence\n\n"
+            "Return a JSON object with keys: actionability, specificity, correctness, rationale.\n\n"
+        )
+        if score_summary:
+            prompt += f"SCORE SUMMARY:\n{score_summary}\n\n"
+        prompt += f"ANALYST REPORT:\n{analyst_markdown}\n"
+        exec_result = self.runtime.run_task(
+            SubagentTask(
+                role="curator",
+                model=self.model,
+                prompt=prompt,
+                max_tokens=1200,
+                temperature=0.2,
+            )
+        )
+        payload: dict[str, object] = {}
+        try:
+            decoded = json.loads(strip_json_fences(exec_result.content))
+            if isinstance(decoded, dict):
+                payload = decoded
+        except json.JSONDecodeError:
+            payload = {}
+        rating = AnalystRating.from_dict({"generation": generation, **payload})
+        return rating, exec_result
 
     def consolidate_lessons(
         self,

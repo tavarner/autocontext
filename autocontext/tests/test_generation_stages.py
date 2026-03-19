@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from autocontext.agents.feedback_loops import AnalystRating, ToolUsageTracker
 from autocontext.agents.llm_client import DeterministicDevClient
 from autocontext.agents.orchestrator import AgentOrchestrator
 from autocontext.agents.skeptic import SkepticReview
@@ -334,6 +335,66 @@ class TestStageKnowledgeSetup:
         assert "The latest analyst output over-indexes on offense" in result.prompts.analyst
         assert "Try aggression <= 0.4 next generation" not in result.prompts.analyst
 
+    def test_includes_prior_analyst_feedback_in_analyst_prompt(self) -> None:
+        artifacts = MagicMock()
+        artifacts.read_playbook.return_value = ""
+        artifacts.read_tool_context.return_value = ""
+        artifacts.read_skills.return_value = ""
+        artifacts.read_mutation_replay.return_value = ""
+        artifacts.read_latest_weakness_reports_markdown.return_value = ""
+        artifacts.read_latest_progress_reports_markdown.return_value = ""
+        artifacts.read_latest_advance_analysis.return_value = ""
+        artifacts.read_progress.return_value = None
+        artifacts.read_latest_analyst_rating.return_value = AnalystRating(
+            actionability=2,
+            specificity=3,
+            correctness=4,
+            rationale="Recommendations were still too vague.",
+            generation=1,
+        )
+        artifacts.read_tool_usage_report.return_value = ""
+        trajectory = MagicMock()
+        trajectory.build_trajectory.return_value = ""
+        trajectory.build_strategy_registry.return_value = ""
+        trajectory.build_experiment_log.return_value = ""
+        ctx = _make_ctx()
+        ctx.generation = 2
+
+        result = stage_knowledge_setup(ctx, artifacts=artifacts, trajectory_builder=trajectory)
+
+        assert result.prompts is not None
+        assert "Previous Analysis Quality" in result.prompts.analyst
+        assert "too vague" in result.prompts.analyst.lower()
+        assert "Previous Analysis Quality" not in result.prompts.competitor
+
+    def test_includes_tool_usage_report_in_architect_prompt(self) -> None:
+        artifacts = MagicMock()
+        artifacts.read_playbook.return_value = ""
+        artifacts.read_tool_context.return_value = ""
+        artifacts.read_skills.return_value = ""
+        artifacts.read_mutation_replay.return_value = ""
+        artifacts.read_latest_weakness_reports_markdown.return_value = ""
+        artifacts.read_latest_progress_reports_markdown.return_value = ""
+        artifacts.read_latest_advance_analysis.return_value = ""
+        artifacts.read_progress.return_value = None
+        artifacts.read_latest_analyst_rating.return_value = None
+        artifacts.read_tool_usage_report.return_value = (
+            "Tool utilization (last 5 gens):\n- path_optimizer: used 1/5 gens (LOW)"
+        )
+        trajectory = MagicMock()
+        trajectory.build_trajectory.return_value = ""
+        trajectory.build_strategy_registry.return_value = ""
+        trajectory.build_experiment_log.return_value = ""
+        ctx = _make_ctx()
+        ctx.generation = 3
+
+        result = stage_knowledge_setup(ctx, artifacts=artifacts, trajectory_builder=trajectory)
+
+        assert result.prompts is not None
+        assert "Tool utilization" in result.prompts.architect
+        assert "path_optimizer" in result.prompts.architect
+        assert "Tool utilization" not in result.prompts.analyst
+
 
 # ---------- TestStageAgentGeneration ----------
 
@@ -427,6 +488,63 @@ class TestStageAgentGeneration:
         _, kwargs = sqlite.append_generation_agent_activity.call_args
         assert len(kwargs["outputs"]) == 4
         assert len(kwargs["role_metrics"]) == 5
+
+    def test_updates_tool_usage_feedback_from_competitor_raw_text(self) -> None:
+        scenario = _make_scenario_mock()
+        ctx = _make_ctx(settings=_make_settings(), scenario=scenario)
+
+        from autocontext.agents.contracts import CompetitorOutput
+        from autocontext.prompts.templates import build_prompt_bundle
+
+        ctx.prompts = build_prompt_bundle(
+            scenario_rules="Test",
+            strategy_interface='{"aggression": float}',
+            evaluation_criteria="Score",
+            previous_summary="best: 0.0",
+            observation=scenario.get_observation(None, "challenger"),
+            current_playbook="",
+            available_tools="",
+        )
+        ctx.strategy_interface = '{"aggression": float}'
+
+        role_exec = RoleExecution(
+            role="competitor",
+            content="Use cluster_evaluator to choose safer paths.",
+            usage=RoleUsage(input_tokens=10, output_tokens=5, latency_ms=1, model="test"),
+            subagent_id="competitor",
+            status="completed",
+        )
+        outputs = AgentOutputs(
+            strategy={"aggression": 0.5},
+            analysis_markdown="analysis",
+            coach_markdown="coach",
+            coach_playbook="playbook",
+            coach_lessons="",
+            coach_competitor_hints="",
+            architect_markdown="architect",
+            architect_tools=[],
+            role_executions=[role_exec],
+            competitor_output=CompetitorOutput(
+                raw_text="Use cluster_evaluator to choose safer paths.",
+                strategy={"aggression": 0.5},
+                reasoning="Use cluster_evaluator to choose safer paths.",
+            ),
+        )
+        orchestrator = MagicMock()
+        orchestrator.run_generation.return_value = outputs
+        artifacts = MagicMock()
+        artifacts.persist_tools.return_value = []
+        artifacts.list_tool_names.return_value = ["cluster_evaluator", "path_optimizer"]
+        artifacts.read_tool_usage_tracker.return_value = ToolUsageTracker(
+            known_tools=["cluster_evaluator", "path_optimizer"],
+        )
+        sqlite = MagicMock()
+
+        stage_agent_generation(ctx, orchestrator=orchestrator, artifacts=artifacts, sqlite=sqlite)
+
+        written_tracker = artifacts.write_tool_usage_tracker.call_args.args[1]
+        assert isinstance(written_tracker, ToolUsageTracker)
+        assert written_tracker.get_stats()["cluster_evaluator"].total_refs == 1
 
 
 # ---------- Helpers for tournament / curator stage tests ----------
@@ -949,6 +1067,61 @@ class TestStageCuratorGate:
         assert "Risk level: high" in kwargs["skeptic_review_section"]
         assert "Recommendation: caution" in kwargs["skeptic_review_section"]
         assert "Overfit to a narrow opponent slice" in kwargs["skeptic_review_section"]
+
+    def test_persists_analyst_rating_feedback(self) -> None:
+        curator = MagicMock()
+        curator.rate_analyst_output.return_value = (
+            AnalystRating(
+                actionability=4,
+                specificity=3,
+                correctness=5,
+                rationale="Strong evidence, but one recommendation could be more specific.",
+                generation=1,
+            ),
+            RoleExecution(
+                role="curator",
+                content='{"actionability": 4}',
+                usage=RoleUsage(input_tokens=12, output_tokens=6, latency_ms=1, model="test"),
+                subagent_id="curator-rating",
+                status="completed",
+            ),
+        )
+        curator.assess_playbook_quality.return_value = (
+            MagicMock(decision="accept", playbook="", score=7, reasoning="ok"),
+            RoleExecution(
+                role="curator",
+                content="ok",
+                usage=RoleUsage(input_tokens=10, output_tokens=5, latency_ms=1, model="test"),
+                subagent_id="curator-test",
+                status="completed",
+            ),
+        )
+        ctx = _make_curator_ctx(gate_decision="advance", coach_playbook="new playbook")
+        ctx.outputs.analysis_markdown = (
+            "## Findings\n- Concrete issue\n\n"
+            "## Root Causes\n- Cause\n\n"
+            "## Actionable Recommendations\n- Fix it"
+        )
+        artifacts = MagicMock()
+        artifacts.read_playbook.return_value = "current playbook"
+        trajectory_builder = MagicMock()
+        trajectory_builder.build_trajectory.return_value = "Gen1: 0.5"
+        sqlite = MagicMock()
+        events = MagicMock()
+
+        stage_curator_gate(
+            ctx,
+            curator=curator,
+            artifacts=artifacts,
+            trajectory_builder=trajectory_builder,
+            sqlite=sqlite,
+            events=events,
+        )
+
+        curator.rate_analyst_output.assert_called_once()
+        artifacts.write_analyst_rating.assert_called_once()
+        outputs = sqlite.append_generation_agent_activity.call_args_list[0].kwargs["outputs"]
+        assert any(role == "curator_analyst_rating" for role, _ in outputs)
 
 
 # ---------- Helpers for persistence stage tests ----------
