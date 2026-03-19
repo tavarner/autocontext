@@ -322,11 +322,14 @@ class ImprovementLoop:
             # AC-266: Add round output as Pareto candidate with dimension scores
             candidate_scores = {"task_score": effective_score}
             candidate_scores.update(result.dimension_scores)
-            # Dynamically add per-dimension objectives on first successful round
+            # Dynamically add per-dimension objectives on first successful round.
+            # Do not rebuild the frontier here: it would drop earlier candidates
+            # collected under the previous objective set.
             for dim_name in result.dimension_scores:
                 if not any(o.name == dim_name for o in _pareto_objectives):
                     _pareto_objectives.append(OptimizationObjective(dim_name, "maximize"))
-                    _pareto_frontier = ParetoFrontier(_pareto_objectives)  # rebuild with new objectives
+                    for existing in _pareto_frontier.candidates:
+                        existing.scores.setdefault(dim_name, 0.0)
             _pareto_frontier.add(Candidate(
                 candidate_id=f"round-{round_num}",
                 artifact=current_output,

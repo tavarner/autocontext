@@ -356,6 +356,12 @@ def run_improvement_loop(
         "rounds": rounds_summary,
         "best_output_preview": result.best_output[:500],
     }
+    if result.pareto_frontier:
+        payload["pareto_frontier"] = result.pareto_frontier
+    if result.actionable_side_info:
+        payload["actionable_side_info"] = result.actionable_side_info
+    if result.metadata:
+        payload["optimizer_metadata"] = result.metadata
     if ctx.settings.judge_samples > 1 or ctx.settings.judge_bias_probes_enabled:
         best_eval = task.evaluate_output(
             result.best_output,

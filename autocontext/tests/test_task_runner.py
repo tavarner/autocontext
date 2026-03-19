@@ -12,6 +12,7 @@ from autocontext.execution.task_runner import (
     SimpleAgentTask,
     TaskConfig,
     TaskRunner,
+    _serialize_evolution_result,
     _serialize_result,
     enqueue_task,
 )
@@ -419,6 +420,9 @@ class TestEnqueueFunction:
         assert payload["trajectory"]["total_generations"] == 3
         assert len(payload["generations"]) == 3
         assert payload["trajectory"]["metadata"]["best_output"] == "Generation 3 final output"
+        assert payload["pareto_frontier"]
+        assert payload["generations"][-1]["pareto_frontier"]
+        assert payload["generations"][0]["actionable_side_info"]
 
     def test_run_once_persists_objective_verification(self, store):
         provider = _MockProvider([
@@ -645,6 +649,13 @@ class TestSerialization:
             best_round=2,
             total_rounds=2,
             met_threshold=True,
+            pareto_frontier=[
+                {"candidate_id": "round-1", "scores": {"task_score": 0.5}},
+                {"candidate_id": "round-2", "scores": {"task_score": 0.9, "quality": 0.9}},
+            ],
+            actionable_side_info=[
+                {"example_id": "round-1-quality", "outcome": "weak_dimension"},
+            ],
         )
         serialized = _serialize_result(result)
         data = json.loads(serialized)
@@ -652,6 +663,8 @@ class TestSerialization:
         assert data["met_threshold"] is True
         assert len(data["rounds"]) == 2
         assert data["rounds"][1]["is_revision"] is True
+        assert len(data["pareto_frontier"]) == 2
+        assert data["actionable_side_info"][0]["example_id"] == "round-1-quality"
 
     def test_serialize_result_with_duration(self):
         result = ImprovementResult(
@@ -683,6 +696,49 @@ class TestSerialization:
         serialized = _serialize_result(result)
         data = json.loads(serialized)
         assert "duration_ms" not in data
+
+    def test_serialize_evolution_result_includes_optimizer_surface(self):
+        from autocontext.execution.agent_task_evolution import AgentTaskTrajectory
+
+        trajectory = AgentTaskTrajectory(
+            task_name="pareto-task",
+            total_generations=2,
+            score_history=[0.4, 0.9],
+            lessons_per_generation=[1, 1],
+            cold_start_score=0.4,
+            final_score=0.9,
+            improvement_delta=0.5,
+            metadata={},
+        )
+        generation_results = [
+            ImprovementResult(
+                rounds=[RoundResult(round_number=1, output="out1", score=0.4, reasoning="ok")],
+                best_output="out1",
+                best_score=0.4,
+                best_round=1,
+                total_rounds=1,
+                met_threshold=False,
+                pareto_frontier=[{"candidate_id": "round-1", "scores": {"task_score": 0.4}}],
+                actionable_side_info=[{"example_id": "round-1-quality", "outcome": "weak_dimension"}],
+            ),
+            ImprovementResult(
+                rounds=[RoundResult(round_number=1, output="out2", score=0.9, reasoning="great")],
+                best_output="out2",
+                best_score=0.9,
+                best_round=1,
+                total_rounds=1,
+                met_threshold=True,
+                pareto_frontier=[{"candidate_id": "round-2", "scores": {"task_score": 0.9, "quality": 0.9}}],
+                actionable_side_info=[{"example_id": "round-2-quality", "outcome": "success"}],
+            ),
+        ]
+
+        serialized = _serialize_evolution_result(trajectory, generation_results)
+        data = json.loads(serialized)
+
+        assert data["pareto_frontier"][0]["candidate_id"] == "round-2"
+        assert data["actionable_side_info"][0]["example_id"] == "round-2-quality"
+        assert data["generations"][0]["pareto_frontier"][0]["candidate_id"] == "round-1"
 
 
 # ---------------------------------------------------------------------------

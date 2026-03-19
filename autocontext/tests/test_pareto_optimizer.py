@@ -308,3 +308,40 @@ class TestImprovementLoopParetoIntegration:
 
         # Best score should be the highest
         assert result.best_score >= 0.7
+
+    def test_objective_expansion_preserves_existing_frontier_candidates(self) -> None:
+        """Adding a new dimension objective should not discard earlier candidates."""
+        from unittest.mock import MagicMock
+
+        from autocontext.execution.improvement_loop import ImprovementLoop
+        from autocontext.scenarios.agent_task import AgentTaskResult
+
+        task = MagicMock()
+        task.get_task_prompt.return_value = "Test prompt"
+        task.get_rubric.return_value = "Test rubric"
+        task.initial_state.return_value = {}
+        task.prepare_context.side_effect = lambda s: s
+        task.validate_context.return_value = []
+        task.verify_facts.return_value = None
+
+        results = iter([
+            AgentTaskResult(score=0.90, reasoning="strong baseline", dimension_scores={}),
+            AgentTaskResult(
+                score=0.85,
+                reasoning="lower aggregate, new dimension discovered",
+                dimension_scores={"novelty": 0.85},
+            ),
+        ])
+
+        task.evaluate_output.side_effect = lambda *args, **kwargs: next(results)
+        task.revise_output.side_effect = lambda output, judge_result, state: f"revised: {output}"
+
+        loop = ImprovementLoop(task, max_rounds=2, quality_threshold=0.95)
+        result = loop.run("initial output", {})
+
+        frontier_ids = {entry["candidate_id"] for entry in result.pareto_frontier}
+        assert frontier_ids == {"round-1", "round-2"}
+
+        round1 = next(entry for entry in result.pareto_frontier if entry["candidate_id"] == "round-1")
+        assert round1["scores"]["task_score"] == 0.90
+        assert round1["scores"]["novelty"] == 0.0
