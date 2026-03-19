@@ -456,6 +456,8 @@ class TestStageSkepticReview:
         assert payload["recommendation"] == "caution"
         assert payload["concerns_count"] == 1
         assert payload["confidence"] == 6
+        assert ctx.skeptic_review is not None
+        assert ctx.skeptic_review.recommendation == "caution"
 
 
 # ---------------------------------------------------------------------------

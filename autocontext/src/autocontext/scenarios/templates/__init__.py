@@ -130,11 +130,15 @@ class _TemplateAgentTask(AgentTaskInterface):
     ) -> AgentTaskResult:
         """Evaluate the output with the configured judge provider."""
         settings = load_settings()
+        from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
         provider = get_provider(settings)
         judge = LLMJudge(
             model=self._spec.judge_model,
             rubric=self._spec.judge_rubric,
             provider=provider,
+            samples=settings.judge_samples,
+            temperature=settings.judge_temperature,
+            disagreement_threshold=settings.judge_disagreement_threshold,
         )
         result = judge.evaluate(
             task_prompt=self.get_task_prompt(state),
@@ -144,11 +148,24 @@ class _TemplateAgentTask(AgentTaskInterface):
             calibration_examples=calibration_examples or self._spec.calibration_examples,
             pinned_dimensions=pinned_dimensions or self._pinned_dimensions(),
         )
+        evaluator_guardrail = evaluate_evaluator_guardrail(
+            result,
+            provider=provider,
+            model=self._spec.judge_model,
+            rubric=self._spec.judge_rubric,
+            candidate_output=output,
+            bias_probes_enabled=settings.judge_bias_probes_enabled,
+        )
         return AgentTaskResult(
             score=result.score,
             reasoning=result.reasoning,
             dimension_scores=result.dimension_scores,
             internal_retries=result.internal_retries,
+            evaluator_guardrail=(
+                evaluator_guardrail.to_dict()
+                if evaluator_guardrail is not None
+                else None
+            ),
         )
 
     def get_rubric(self) -> str:
@@ -348,11 +365,15 @@ class TemplateAgentTask(AgentTaskInterface):
         pinned_dimensions: list[str] | None = None,
     ) -> AgentTaskResult:
         settings = load_settings()
+        from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
         provider = get_provider(settings)
         judge = LLMJudge(
             model=self._judge_model,
             rubric=self._rubric,
             provider=provider,
+            samples=settings.judge_samples,
+            temperature=settings.judge_temperature,
+            disagreement_threshold=settings.judge_disagreement_threshold,
         )
         result = judge.evaluate(
             task_prompt=self.get_task_prompt(state),
@@ -362,11 +383,24 @@ class TemplateAgentTask(AgentTaskInterface):
             calibration_examples=calibration_examples or self._calibration_examples,
             pinned_dimensions=pinned_dimensions or self._pinned_dimensions,
         )
+        evaluator_guardrail = evaluate_evaluator_guardrail(
+            result,
+            provider=provider,
+            model=self._judge_model,
+            rubric=self._rubric,
+            candidate_output=output,
+            bias_probes_enabled=settings.judge_bias_probes_enabled,
+        )
         return AgentTaskResult(
             score=result.score,
             reasoning=result.reasoning,
             dimension_scores=result.dimension_scores,
             internal_retries=result.internal_retries,
+            evaluator_guardrail=(
+                evaluator_guardrail.to_dict()
+                if evaluator_guardrail is not None
+                else None
+            ),
         )
 
     def get_rubric(self) -> str:

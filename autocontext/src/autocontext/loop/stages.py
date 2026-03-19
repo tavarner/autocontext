@@ -249,6 +249,23 @@ def _build_self_play_summary_payload(tournament: EvaluationSummary) -> dict[str,
     return clean or None
 
 
+def _build_skeptic_review_section(ctx: GenerationContext) -> str:
+    """Render skeptic findings into curator-readable context."""
+    review = ctx.skeptic_review
+    if review is None:
+        return ""
+    concerns = review.concerns or ["No concrete concerns captured."]
+    concerns_block = "\n".join(f"- {concern}" for concern in concerns)
+    return (
+        "SKEPTIC REVIEW:\n"
+        f"Risk level: {review.risk_level}\n"
+        f"Recommendation: {review.recommendation}\n"
+        f"Confidence: {review.confidence}/10\n"
+        "Concerns:\n"
+        f"{concerns_block}\n"
+    )
+
+
 def _resolve_holdout_policy(ctx: GenerationContext) -> HoldoutPolicy:
     """Build the effective holdout policy, including scenario-family overrides."""
     family = detect_family(ctx.scenario)
@@ -1051,6 +1068,7 @@ def stage_skeptic_review(
     events: EventStreamEmitter,
 ) -> GenerationContext:
     """Stage 3.5: Skeptic adversarial review before curator/persistence."""
+    ctx.skeptic_review = None
     if ctx.gate_decision != "advance":
         return ctx
     if skeptic is None:
@@ -1080,6 +1098,7 @@ def stage_skeptic_review(
         recent_analysis=analysis,
         constraint_mode=ctx.settings.constraint_prompts_enabled,
     )
+    ctx.skeptic_review = review
 
     sqlite.append_generation_agent_activity(
         ctx.run_id,
@@ -1146,6 +1165,7 @@ def stage_curator_gate(
     if ctx.settings.harness_validators_enabled and ctx.tournament is not None:
         quality = compute_harness_quality(ctx.tournament.results)
         harness_quality_section = quality.to_prompt_section()
+    skeptic_review_section = _build_skeptic_review_section(ctx)
 
     curator_decision, curator_exec = curator.assess_playbook_quality(
         current_playbook=current_pb,
@@ -1154,6 +1174,7 @@ def stage_curator_gate(
         recent_analysis=curator_analysis,
         constraint_mode=ctx.settings.constraint_prompts_enabled,
         harness_quality_section=harness_quality_section,
+        skeptic_review_section=skeptic_review_section,
     )
 
     sqlite.append_generation_agent_activity(
@@ -1184,6 +1205,9 @@ def stage_curator_gate(
     events.emit("curator_completed", {
         "run_id": ctx.run_id, "generation": ctx.generation,
         "decision": curator_decision.decision,
+        "skeptic_recommendation": (
+            ctx.skeptic_review.recommendation if ctx.skeptic_review is not None else None
+        ),
     })
 
     return ctx

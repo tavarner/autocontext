@@ -81,6 +81,7 @@ def generate_agent_task_class(spec: AgentTaskSpec, name: str = "custom_agent_tas
                 pinned_dimensions: list[str] | None = None,
             ) -> AgentTaskResult:
                 from autocontext.config import load_settings
+                from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
                 from autocontext.providers.registry import get_provider
 
                 settings = load_settings()
@@ -90,6 +91,9 @@ def generate_agent_task_class(spec: AgentTaskSpec, name: str = "custom_agent_tas
                     model=effective_model,
                     rubric=self._rubric,
                     provider=provider,
+                    samples=settings.judge_samples,
+                    temperature=settings.judge_temperature,
+                    disagreement_threshold=settings.judge_disagreement_threshold,
                 )
                 # Use passed-in context or fall back to class defaults
                 ref_ctx = reference_context or self._reference_context
@@ -102,11 +106,24 @@ def generate_agent_task_class(spec: AgentTaskSpec, name: str = "custom_agent_tas
                     calibration_examples=calibration_examples,
                     pinned_dimensions=pinned_dimensions,
                 )
+                evaluator_guardrail = evaluate_evaluator_guardrail(
+                    result,
+                    provider=provider,
+                    model=effective_model,
+                    rubric=self._rubric,
+                    candidate_output=output,
+                    bias_probes_enabled=settings.judge_bias_probes_enabled,
+                )
                 return AgentTaskResult(
                     score=result.score,
                     reasoning=result.reasoning,
                     dimension_scores=result.dimension_scores,
                     internal_retries=result.internal_retries,
+                    evaluator_guardrail=(
+                        evaluator_guardrail.to_dict()
+                        if evaluator_guardrail is not None
+                        else None
+                    ),
                 )
 
             def get_rubric(self) -> str:

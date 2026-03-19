@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from autocontext.providers.base import LLMProvider
 
@@ -17,6 +18,14 @@ class BiasProbeResult:
     magnitude: float  # 0.0-1.0, how strong the bias is
     details: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "probe_type": self.probe_type,
+            "detected": self.detected,
+            "magnitude": self.magnitude,
+            "details": self.details,
+        }
+
 
 @dataclass(slots=True)
 class BiasReport:
@@ -31,6 +40,15 @@ class BiasReport:
     def bias_types_detected(self) -> list[str]:
         """Return probe types where bias was detected."""
         return [r.probe_type for r in self.results if r.detected]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "probes_run": self.probes_run,
+            "probes_failed": self.probes_failed,
+            "results": [result.to_dict() for result in self.results],
+            "any_bias_detected": self.any_bias_detected,
+            "bias_types_detected": self.bias_types_detected,
+        }
 
 
 def run_position_bias_probe(

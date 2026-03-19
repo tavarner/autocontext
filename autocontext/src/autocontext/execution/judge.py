@@ -29,6 +29,16 @@ class DisagreementMetrics:
     is_high_disagreement: bool = False
     sample_count: int = 1
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "score_std_dev": self.score_std_dev,
+            "score_range": list(self.score_range),
+            "sample_scores": self.sample_scores,
+            "dimension_std_devs": self.dimension_std_devs,
+            "is_high_disagreement": self.is_high_disagreement,
+            "sample_count": self.sample_count,
+        }
+
 
 @dataclass(slots=True)
 class JudgeResult:
