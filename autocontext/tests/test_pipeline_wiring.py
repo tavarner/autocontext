@@ -24,7 +24,6 @@ def _make_settings(**overrides: Any) -> AppSettings:
         config_adaptive_enabled=False,
         holdout_enabled=False,
         protocol_enabled=False,
-        holdout_enabled=False,
         exploration_mode="linear",
         rapid_gens=0,
     )
