@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from autocontext.execution.output_cleaner import clean_revision_output
 from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
@@ -72,6 +72,9 @@ class ImprovementResult:
     total_internal_retries: int = 0
     duration_ms: int | None = None
     judge_calls: int = 0
+    pareto_frontier: list[dict[str, Any]] = field(default_factory=list)
+    actionable_side_info: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def improved(self) -> bool:
@@ -141,6 +144,18 @@ class ImprovementLoop:
         termination_reason: TerminationReason = "max_rounds"
         dimension_trajectory: dict[str, list[float]] = {}
         threshold_met_round: int | None = None
+
+        # AC-266: Pareto frontier and ASI tracking
+        from autocontext.harness.optimizer.pareto import (
+            ActionableSideInfo,
+            Candidate,
+            OptimizationObjective,
+            ParetoFrontier,
+        )
+
+        _pareto_objectives = [OptimizationObjective("task_score", "maximize")]
+        _pareto_frontier = ParetoFrontier(_pareto_objectives)
+        _collected_asi: list[ActionableSideInfo] = []
 
         # Dimension pinning: lock dimension names after first successful evaluation
         pinned_dimensions: list[str] | None = None
@@ -304,6 +319,31 @@ class ImprovementLoop:
                 best_output = current_output
                 best_round = round_num
 
+            # AC-266: Add round output as Pareto candidate with dimension scores
+            candidate_scores = {"task_score": effective_score}
+            candidate_scores.update(result.dimension_scores)
+            # Dynamically add per-dimension objectives on first successful round
+            for dim_name in result.dimension_scores:
+                if not any(o.name == dim_name for o in _pareto_objectives):
+                    _pareto_objectives.append(OptimizationObjective(dim_name, "maximize"))
+                    _pareto_frontier = ParetoFrontier(_pareto_objectives)  # rebuild with new objectives
+            _pareto_frontier.add(Candidate(
+                candidate_id=f"round-{round_num}",
+                artifact=current_output,
+                scores=candidate_scores,
+                asi=[],
+            ))
+
+            # Collect ASI from weak dimensions
+            for dim, dscore in result.dimension_scores.items():
+                if dscore < 0.5:
+                    _collected_asi.append(ActionableSideInfo(
+                        example_id=f"round-{round_num}-{dim}",
+                        outcome="weak_dimension",
+                        diagnosis=f"{dim} scored {dscore:.2f} in round {round_num}",
+                        suggested_fix=f"Improve {dim} dimension",
+                    ))
+
             logger.info(
                 "round %d score: %.2f (best: %.2f at round %d)",
                 round_num, effective_score, best_score, best_round,
@@ -344,6 +384,11 @@ class ImprovementLoop:
                         total_internal_retries=total_internal_retries,
                         duration_ms=duration_ms,
                         judge_calls=judge_calls,
+                        pareto_frontier=[
+                            {"candidate_id": c.candidate_id, "scores": c.scores, "artifact_len": len(c.artifact)}
+                            for c in _pareto_frontier.candidates
+                        ],
+                        actionable_side_info=[a.to_dict() for a in _collected_asi],
                     )
 
                 if near_threshold and round_num < self.max_rounds:
@@ -370,6 +415,11 @@ class ImprovementLoop:
                         total_internal_retries=total_internal_retries,
                         duration_ms=duration_ms,
                         judge_calls=judge_calls,
+                        pareto_frontier=[
+                            {"candidate_id": c.candidate_id, "scores": c.scores, "artifact_len": len(c.artifact)}
+                            for c in _pareto_frontier.candidates
+                        ],
+                        actionable_side_info=[a.to_dict() for a in _collected_asi],
                     )
             else:
                 # Score dropped below threshold after previously meeting it
@@ -421,4 +471,9 @@ class ImprovementLoop:
             total_internal_retries=total_internal_retries,
             duration_ms=duration_ms,
             judge_calls=judge_calls,
+            pareto_frontier=[
+                {"candidate_id": c.candidate_id, "scores": c.scores, "artifact_len": len(c.artifact)}
+                for c in _pareto_frontier.candidates
+            ],
+            actionable_side_info=[a.to_dict() for a in _collected_asi],
         )
