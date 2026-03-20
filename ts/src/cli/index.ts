@@ -24,6 +24,7 @@ autoctx — always-on agent evaluation harness
 
 Commands:
   run         Run generation loop for a scenario
+  tui         Start interactive TUI (WebSocket server + Ink UI)
   judge       One-shot evaluation of output against a rubric
   improve     Run multi-round improvement loop
   queue       Add a task to the background runner queue
@@ -54,6 +55,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "run":
       await cmdRun(dbPath);
+      break;
+    case "tui":
+      await cmdTui(dbPath);
       break;
     case "judge":
       await cmdJudge(dbPath);
@@ -161,6 +165,40 @@ async function cmdRun(dbPath: string): Promise<void> {
   } finally {
     store.close();
   }
+}
+
+async function cmdTui(dbPath: string): Promise<void> {
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      port: { type: "string", default: "8000" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
+    console.log("autoctx tui [--port 8000]");
+    console.log("Starts WebSocket server and interactive TUI.");
+    process.exit(0);
+  }
+
+  const port = parseInt(values.port ?? "8000", 10);
+
+  const { RunManager } = await import("../server/run-manager.js");
+  const mgr = new RunManager({
+    dbPath,
+    migrationsDir: getMigrationsDir(),
+    runsRoot: resolve("runs"),
+    knowledgeRoot: resolve("knowledge"),
+    providerType: process.env.AUTOCONTEXT_PROVIDER ?? "deterministic",
+  });
+
+  console.log(`AutoContext TUI server starting on port ${port}...`);
+  console.log(`Run manager ready. Scenarios: ${mgr.listScenarios().join(", ")}`);
+  console.log("Connect a TUI client to ws://localhost:" + port + "/ws/interactive");
+
+  // Keep process alive
+  await new Promise(() => {});
 }
 
 async function cmdJudge(_dbPath: string): Promise<void> {
