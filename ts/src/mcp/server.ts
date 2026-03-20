@@ -12,6 +12,7 @@ import { ImprovementLoop } from "../execution/improvement-loop.js";
 import { enqueueTask } from "../execution/task-runner.js";
 import { SQLiteStore } from "../storage/index.js";
 import { SimpleAgentTask } from "../execution/task-runner.js";
+import { loadSettings } from "../config/index.js";
 
 export interface MtsServerOpts {
   store: SQLiteStore;
@@ -25,8 +26,20 @@ export interface MtsServerOpts {
   knowledgeRoot?: string;
 }
 
+export function resolveMcpArtifactRoots(opts: Pick<MtsServerOpts, "runsRoot" | "knowledgeRoot">): {
+  runsRoot: string;
+  knowledgeRoot: string;
+} {
+  const settings = loadSettings();
+  return {
+    runsRoot: opts.runsRoot ?? settings.runsRoot,
+    knowledgeRoot: opts.knowledgeRoot ?? settings.knowledgeRoot,
+  };
+}
+
 export function createMcpServer(opts: MtsServerOpts): McpServer {
   const { store, provider, model = "" } = opts;
+  const { runsRoot, knowledgeRoot } = resolveMcpArtifactRoots(opts);
   const server = new McpServer({
     name: "autocontext",
     version: "0.2.0",
@@ -320,8 +333,8 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     async (args) => {
       const { ArtifactStore } = await import("../knowledge/artifact-store.js");
       const artifacts = new ArtifactStore({
-        runsRoot: opts.runsRoot ?? "runs",
-        knowledgeRoot: opts.knowledgeRoot ?? "knowledge",
+        runsRoot,
+        knowledgeRoot,
       });
       const content = artifacts.readPlaybook(args.scenario);
       return {
@@ -356,8 +369,8 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
         provider,
         scenario: new ScenarioClass(),
         store,
-        runsRoot: opts.runsRoot ?? "runs",
-        knowledgeRoot: opts.knowledgeRoot ?? "knowledge",
+        runsRoot,
+        knowledgeRoot,
         matchesPerGeneration: args.matchesPerGeneration,
       });
 

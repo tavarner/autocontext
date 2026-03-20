@@ -243,6 +243,17 @@ export class SQLiteStore {
     );
   }
 
+  updateRunStatus(runId: string, status: string): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+         SET status = ?,
+             updated_at = datetime('now')
+         WHERE run_id = ?`,
+      )
+      .run(status, runId);
+  }
+
   upsertGeneration(
     runId: string,
     generationIndex: number,

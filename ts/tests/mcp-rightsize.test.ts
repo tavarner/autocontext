@@ -136,6 +136,39 @@ describe("MCP server with expanded tools", () => {
     expect(server).toBeDefined();
     store.close();
   });
+
+  it("resolveMcpArtifactRoots falls back to configured env roots", async () => {
+    const previousRunsRoot = process.env.AUTOCONTEXT_RUNS_ROOT;
+    const previousKnowledgeRoot = process.env.AUTOCONTEXT_KNOWLEDGE_ROOT;
+    process.env.AUTOCONTEXT_RUNS_ROOT = "custom-runs";
+    process.env.AUTOCONTEXT_KNOWLEDGE_ROOT = "custom-knowledge";
+
+    try {
+      const { resolveMcpArtifactRoots } = await import("../src/mcp/server.js");
+      expect(resolveMcpArtifactRoots({})).toEqual({
+        runsRoot: "custom-runs",
+        knowledgeRoot: "custom-knowledge",
+      });
+      expect(resolveMcpArtifactRoots({
+        runsRoot: "explicit-runs",
+        knowledgeRoot: "explicit-knowledge",
+      })).toEqual({
+        runsRoot: "explicit-runs",
+        knowledgeRoot: "explicit-knowledge",
+      });
+    } finally {
+      if (previousRunsRoot === undefined) {
+        delete process.env.AUTOCONTEXT_RUNS_ROOT;
+      } else {
+        process.env.AUTOCONTEXT_RUNS_ROOT = previousRunsRoot;
+      }
+      if (previousKnowledgeRoot === undefined) {
+        delete process.env.AUTOCONTEXT_KNOWLEDGE_ROOT;
+      } else {
+        process.env.AUTOCONTEXT_KNOWLEDGE_ROOT = previousKnowledgeRoot;
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -217,6 +250,38 @@ describe("Run control helpers", () => {
     // Quick single-gen run to prove the tool would work
     const result = await runner.run("mcp-test", 1);
     expect(result.generationsCompleted).toBe(1);
+    expect(store.getRun("mcp-test")?.status).toBe("completed");
+
+    store.close();
+  });
+
+  it("GenerationRunner marks runs failed when the live run errors", async () => {
+    const { GenerationRunner } = await import("../src/loop/generation-runner.js");
+    const { GridCtfScenario } = await import("../src/scenarios/grid-ctf.js");
+    const { SQLiteStore } = await import("../src/storage/index.js");
+
+    const provider = {
+      name: "failing-test",
+      defaultModel: () => "failing-test",
+      complete: async () => {
+        throw new Error("provider exploded");
+      },
+    };
+
+    const store = new SQLiteStore(join(dir, "test.db"));
+    store.migrate(join(__dirname, "..", "migrations"));
+
+    const runner = new GenerationRunner({
+      provider,
+      scenario: new GridCtfScenario(),
+      store,
+      runsRoot: join(dir, "runs"),
+      knowledgeRoot: join(dir, "knowledge"),
+      matchesPerGeneration: 2,
+    });
+
+    await expect(runner.run("mcp-fail", 1)).rejects.toThrow("provider exploded");
+    expect(store.getRun("mcp-fail")?.status).toBe("failed");
 
     store.close();
   });

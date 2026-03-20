@@ -79,153 +79,163 @@ export class GenerationRunner {
   async run(runId: string, generations: number): Promise<RunResult> {
     // Create run record
     this.store.createRun(runId, this.scenario.name, generations, "local");
-    this.emit("run_started", {
-      run_id: runId,
-      scenario: this.scenario.name,
-      target_generations: generations,
-    });
-
-    let previousBest = 0;
-    let currentElo = 1000;
-    let bestScoreOverall = 0;
-
-    for (let gen = 1; gen <= generations; gen++) {
-      await this.controller?.waitIfPaused();
-      let retryCount = 0;
-      let finalizedAttempt: GenerationAttempt | null = null;
-      this.emit("generation_started", { run_id: runId, generation: gen });
-      this.emit("agents_started", {
+    try {
+      this.emit("run_started", {
         run_id: runId,
-        generation: gen,
-        roles: ["competitor", "analyst", "coach"],
+        scenario: this.scenario.name,
+        target_generations: generations,
       });
 
-      // Retry loop for this generation
-      while (retryCount <= this.maxRetries) {
+      let previousBest = 0;
+      let currentElo = 1000;
+      let bestScoreOverall = 0;
+
+      for (let gen = 1; gen <= generations; gen++) {
         await this.controller?.waitIfPaused();
-        const competitorPrompt = this.buildCompetitorPrompt(runId);
-
-        // Step 1: Get strategy from provider (competitor role)
-        const competitorStartedAt = Date.now();
-        const competitorResult = await this.provider.complete({
-          systemPrompt: "",
-          userPrompt: competitorPrompt,
-        });
-        this.emitRoleCompleted("competitor", competitorStartedAt, competitorResult.usage);
-
-        let strategy: Record<string, unknown>;
-        try {
-          strategy = JSON.parse(competitorResult.text);
-        } catch {
-          strategy = { aggression: 0.5, defense: 0.5, path_bias: 0.5 };
-        }
-
-        // Step 2: Run tournament
-        await this.controller?.waitIfPaused();
-        const seedForGen = this.seedBase + (gen - 1) * this.matchesPerGeneration;
-        const tournament = new TournamentRunner(this.scenario, {
-          matchCount: this.matchesPerGeneration,
-          seedBase: seedForGen,
-          initialElo: currentElo,
-        });
-        this.emit("tournament_started", {
+        let retryCount = 0;
+        let finalizedAttempt: GenerationAttempt | null = null;
+        this.emit("generation_started", { run_id: runId, generation: gen });
+        this.emit("agents_started", {
           run_id: runId,
           generation: gen,
-          matches: this.matchesPerGeneration,
+          roles: ["competitor", "analyst", "coach"],
         });
-        const tournamentResult = tournament.run(strategy);
-        tournamentResult.matches.forEach((match, matchIndex) => {
-          this.emit("match_completed", {
+
+        // Retry loop for this generation
+        while (retryCount <= this.maxRetries) {
+          await this.controller?.waitIfPaused();
+          const competitorPrompt = this.buildCompetitorPrompt(runId);
+
+          // Step 1: Get strategy from provider (competitor role)
+          const competitorStartedAt = Date.now();
+          const competitorResult = await this.provider.complete({
+            systemPrompt: "",
+            userPrompt: competitorPrompt,
+          });
+          this.emitRoleCompleted("competitor", competitorStartedAt, competitorResult.usage);
+
+          let strategy: Record<string, unknown>;
+          try {
+            strategy = JSON.parse(competitorResult.text);
+          } catch {
+            strategy = { aggression: 0.5, defense: 0.5, path_bias: 0.5 };
+          }
+
+          // Step 2: Run tournament
+          await this.controller?.waitIfPaused();
+          const seedForGen = this.seedBase + (gen - 1) * this.matchesPerGeneration;
+          const tournament = new TournamentRunner(this.scenario, {
+            matchCount: this.matchesPerGeneration,
+            seedBase: seedForGen,
+            initialElo: currentElo,
+          });
+          this.emit("tournament_started", {
             run_id: runId,
             generation: gen,
-            match_index: matchIndex,
-            score: match.score,
-            winner: match.winner ?? "",
+            matches: this.matchesPerGeneration,
           });
-        });
-        this.emit("tournament_completed", {
-          run_id: runId,
-          generation: gen,
-          mean_score: tournamentResult.meanScore,
-          best_score: tournamentResult.bestScore,
-          wins: tournamentResult.wins,
-          losses: tournamentResult.losses,
-        });
+          const tournamentResult = tournament.run(strategy);
+          tournamentResult.matches.forEach((match, matchIndex) => {
+            this.emit("match_completed", {
+              run_id: runId,
+              generation: gen,
+              match_index: matchIndex,
+              score: match.score,
+              winner: match.winner ?? "",
+            });
+          });
+          this.emit("tournament_completed", {
+            run_id: runId,
+            generation: gen,
+            mean_score: tournamentResult.meanScore,
+            best_score: tournamentResult.bestScore,
+            wins: tournamentResult.wins,
+            losses: tournamentResult.losses,
+          });
 
-        // Step 3: Backpressure gate
-        const decision = this.gate.evaluate(
-          previousBest,
-          tournamentResult.bestScore,
-          retryCount,
-          this.maxRetries,
-        );
-        const gateDecision = this.controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
-        const attempt: GenerationAttempt = {
-          competitorPrompt,
-          competitorResultText: competitorResult.text,
-          strategy,
-          tournamentResult,
-          gateDecision,
-        };
-        this.emit("gate_decided", {
-          run_id: runId,
-          generation: gen,
-          decision: gateDecision,
-          delta: decision.delta,
-          threshold: decision.threshold,
-        });
+          // Step 3: Backpressure gate
+          const decision = this.gate.evaluate(
+            previousBest,
+            tournamentResult.bestScore,
+            retryCount,
+            this.maxRetries,
+          );
+          const gateDecision = this.controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
+          const attempt: GenerationAttempt = {
+            competitorPrompt,
+            competitorResultText: competitorResult.text,
+            strategy,
+            tournamentResult,
+            gateDecision,
+          };
+          this.emit("gate_decided", {
+            run_id: runId,
+            generation: gen,
+            decision: gateDecision,
+            delta: decision.delta,
+            threshold: decision.threshold,
+          });
 
-        // Step 5: Apply gate decision
-        if (gateDecision === "advance") {
-          finalizedAttempt = attempt;
-          previousBest = tournamentResult.bestScore;
-          currentElo = tournamentResult.elo;
-          if (tournamentResult.bestScore > bestScoreOverall) {
-            bestScoreOverall = tournamentResult.bestScore;
+          // Step 5: Apply gate decision
+          if (gateDecision === "advance") {
+            finalizedAttempt = attempt;
+            previousBest = tournamentResult.bestScore;
+            currentElo = tournamentResult.elo;
+            if (tournamentResult.bestScore > bestScoreOverall) {
+              bestScoreOverall = tournamentResult.bestScore;
+            }
+            break;
           }
+
+          if (gateDecision === "retry") {
+            retryCount++;
+            continue;
+          }
+
+          // rollback — don't update previousBest, move to next gen
+          finalizedAttempt = attempt;
           break;
         }
 
-        if (gateDecision === "retry") {
-          retryCount++;
-          continue;
+        if (!finalizedAttempt) {
+          throw new Error(`generation ${gen} finished without a finalized attempt`);
         }
 
-        // rollback — don't update previousBest, move to next gen
-        finalizedAttempt = attempt;
-        break;
+        this.persistGeneration(runId, gen, finalizedAttempt);
+        await this.controller?.waitIfPaused();
+        await this.runSupportRoles(runId, gen, finalizedAttempt);
+        this.emit("generation_completed", {
+          run_id: runId,
+          generation: gen,
+          mean_score: finalizedAttempt.tournamentResult.meanScore,
+          best_score: finalizedAttempt.tournamentResult.bestScore,
+          elo: finalizedAttempt.tournamentResult.elo,
+          gate_decision: finalizedAttempt.gateDecision,
+        });
       }
 
-      if (!finalizedAttempt) {
-        throw new Error(`generation ${gen} finished without a finalized attempt`);
-      }
-
-      this.persistGeneration(runId, gen, finalizedAttempt);
-      await this.controller?.waitIfPaused();
-      await this.runSupportRoles(runId, gen, finalizedAttempt);
-      this.emit("generation_completed", {
+      this.store.updateRunStatus(runId, "completed");
+      this.emit("run_completed", {
         run_id: runId,
-        generation: gen,
-        mean_score: finalizedAttempt.tournamentResult.meanScore,
-        best_score: finalizedAttempt.tournamentResult.bestScore,
-        elo: finalizedAttempt.tournamentResult.elo,
-        gate_decision: finalizedAttempt.gateDecision,
+        completed_generations: generations,
+        best_score: bestScoreOverall,
+        elo: currentElo,
       });
+
+      return {
+        runId,
+        generationsCompleted: generations,
+        bestScore: bestScoreOverall,
+        currentElo,
+      };
+    } catch (error) {
+      this.store.updateRunStatus(runId, "failed");
+      this.emit("run_failed", {
+        run_id: runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-
-    this.emit("run_completed", {
-      run_id: runId,
-      completed_generations: generations,
-      best_score: bestScoreOverall,
-      elo: currentElo,
-    });
-
-    return {
-      runId,
-      generationsCompleted: generations,
-      bestScore: bestScoreOverall,
-      currentElo,
-    };
   }
 
   private buildCompetitorPrompt(runId: string): string {
