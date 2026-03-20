@@ -146,6 +146,19 @@ export type {
 
 // Prompts
 export { ContextBudget, estimateTokens } from "./prompts/context-budget.js";
+export { buildPromptBundle } from "./prompts/templates.js";
+export type { PromptBundle, PromptContext } from "./prompts/templates.js";
+
+// Agents (AC-345)
+export {
+  ROLES, ROLE_CONFIGS, parseCompetitorOutput, parseAnalystOutput, parseCoachOutput,
+  parseArchitectOutput, extractDelimitedSection, RuntimeBridgeProvider, RetryProvider,
+  ModelRouter, TierConfig, AgentOrchestrator,
+} from "./agents/index.js";
+export type {
+  Role, RoleConfig, CompetitorOutput, AnalystOutput, CoachOutput, ArchitectOutput,
+  RetryOpts, TierConfigOpts, SelectOpts, GenerationPrompts, GenerationResult,
+} from "./agents/index.js";
 
 // Config
 export { AppSettingsSchema, loadSettings, applyPreset, PRESETS } from "./config/index.js";
