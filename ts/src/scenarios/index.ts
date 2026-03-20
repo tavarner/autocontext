@@ -74,3 +74,11 @@ export {
 } from "./game-interface.js";
 export { GridCtfScenario } from "./grid-ctf.js";
 export { SCENARIO_REGISTRY, isGameScenario, isAgentTask } from "./registry.js";
+
+// Custom scenario pipeline (AC-348)
+export { loadCustomScenarios, registerCustomScenarios } from "./custom-loader.js";
+export type { CustomScenarioEntry } from "./custom-loader.js";
+export { IntentValidator } from "./intent-validator.js";
+export type { IntentValidationResult } from "./intent-validator.js";
+export { createScenarioFromDescription } from "./scenario-creator.js";
+export type { CreatedScenarioResult } from "./scenario-creator.js";
