@@ -24,6 +24,7 @@ autoctx — always-on agent evaluation harness
 
 Commands:
   run         Run generation loop for a scenario
+  tui         Start interactive TUI (WebSocket server + Ink UI)
   judge       One-shot evaluation of output against a rubric
   improve     Run multi-round improvement loop
   queue       Add a task to the background runner queue
@@ -54,6 +55,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "run":
       await cmdRun(dbPath);
+      break;
+    case "tui":
+      await cmdTui(dbPath);
       break;
     case "judge":
       await cmdJudge(dbPath);
@@ -160,6 +164,71 @@ async function cmdRun(dbPath: string): Promise<void> {
     }
   } finally {
     store.close();
+  }
+}
+
+async function cmdTui(dbPath: string): Promise<void> {
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      port: { type: "string", default: "8000" },
+      headless: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
+    console.log("autoctx tui [--port 8000] [--headless]");
+    console.log("Starts the interactive WebSocket server and bundled terminal UI.");
+    process.exit(0);
+  }
+
+  const port = parseInt(values.port ?? "8000", 10);
+
+  const { RunManager, InteractiveServer } = await import("../server/index.js");
+  const mgr = new RunManager({
+    dbPath,
+    migrationsDir: getMigrationsDir(),
+    runsRoot: resolve("runs"),
+    knowledgeRoot: resolve("knowledge"),
+    providerType: process.env.AUTOCONTEXT_PROVIDER ?? "deterministic",
+    apiKey: process.env.AUTOCONTEXT_API_KEY,
+    baseUrl: process.env.AUTOCONTEXT_BASE_URL,
+    model: process.env.AUTOCONTEXT_MODEL,
+  });
+  const server = new InteractiveServer({ runManager: mgr, port });
+  await server.start();
+
+  const headless = values.headless || !process.stdout.isTTY;
+  if (headless) {
+    console.log(`AutoContext interactive server listening at ${server.url}`);
+    console.log(`Scenarios: ${mgr.listScenarios().join(", ")}`);
+    await new Promise<void>((resolve) => {
+      const cleanup = () => {
+        process.off("SIGINT", cleanup);
+        process.off("SIGTERM", cleanup);
+        resolve();
+      };
+      process.on("SIGINT", cleanup);
+      process.on("SIGTERM", cleanup);
+    });
+    await server.stop();
+    return;
+  }
+
+  const React = await import("react");
+  const { render } = await import("ink");
+  const { InteractiveTui } = await import("../tui/app.js");
+
+  const app = render(React.createElement(InteractiveTui, {
+    manager: mgr,
+    serverUrl: server.url,
+  }));
+
+  try {
+    await app.waitUntilExit();
+  } finally {
+    await server.stop();
   }
 }
 
