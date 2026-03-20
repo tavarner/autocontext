@@ -243,6 +243,17 @@ export class SQLiteStore {
     );
   }
 
+  updateRunStatus(runId: string, status: string): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+         SET status = ?,
+             updated_at = datetime('now')
+         WHERE run_id = ?`,
+      )
+      .run(status, runId);
+  }
+
   upsertGeneration(
     runId: string,
     generationIndex: number,
@@ -398,6 +409,27 @@ export class SQLiteStore {
       });
     }
     return result;
+  }
+
+  listRuns(limit = 50, scenario?: string): RunRow[] {
+    if (scenario) {
+      return this.db
+        .prepare(
+          `SELECT * FROM runs WHERE scenario = ? ORDER BY created_at DESC LIMIT ?`,
+        )
+        .all(scenario, limit) as RunRow[];
+    }
+    return this.db
+      .prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
+      .all(limit) as RunRow[];
+  }
+
+  getMatchesForGeneration(runId: string, generationIndex: number): MatchRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM matches WHERE run_id = ? AND generation_index = ? ORDER BY id`,
+      )
+      .all(runId, generationIndex) as MatchRow[];
   }
 
   close(): void {

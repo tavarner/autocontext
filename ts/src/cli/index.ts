@@ -380,14 +380,22 @@ async function cmdStatus(dbPath: string): Promise<void> {
 async function cmdServe(dbPath: string): Promise<void> {
   const { SQLiteStore } = await import("../storage/index.js");
   const { startServer } = await import("../mcp/server.js");
+  const { loadSettings } = await import("../config/index.js");
 
   const store = new SQLiteStore(dbPath);
   const migrationsDir = getMigrationsDir();
   store.migrate(migrationsDir);
 
   const { provider, model } = await getProvider();
+  const settings = loadSettings();
 
-  await startServer({ store, provider, model });
+  await startServer({
+    store,
+    provider,
+    model,
+    runsRoot: resolve(settings.runsRoot),
+    knowledgeRoot: resolve(settings.knowledgeRoot),
+  });
 }
 
 main().catch((err) => {
