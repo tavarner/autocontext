@@ -2398,15 +2398,20 @@ def stage_persistence(
     if credit_assignment is not None:
         metrics["credit_assignment"] = credit_assignment.to_dict()
 
-    # 2. Insert matches into sqlite
+    # 2. Insert matches into sqlite (AC-171: include replay/state data)
+    strategy_json = json.dumps(ctx.current_strategy, sort_keys=True) if ctx.current_strategy else ""
     for idx, eval_result in enumerate(tournament.results):
         match_output = eval_result.metadata["execution_output"]
+        replay = match_output.result.replay if hasattr(match_output.result, "replay") else []
         sqlite.insert_match(
             run_id, generation,
             settings.seed_base + (generation * 100) + idx,
             match_output.result.score,
             match_output.result.passed_validation,
             json.dumps(match_output.result.validation_errors),
+            winner=getattr(match_output.result, "winner", "") or "",
+            strategy_json=strategy_json,
+            replay_json=json.dumps(replay) if replay else "",
         )
 
     # 3. Upsert generation
