@@ -9,37 +9,48 @@ Author: greyhaven-ai / autocontext contributors
 
 from __future__ import annotations
 
+from functools import lru_cache
+from html import escape as html_escape
 from pathlib import Path
 
-BANNER_ART = r"""
-                          .                                                 .                             .
-                        .o8                                               .o8                           .o8
- .oooo.   oooo  oooo  .o888oo  .ooooo.   .ooooo.   .ooooo.  ooo. .oo.   .o888oo  .ooooo.  oooo    ooo .o888oo
-`P  )88b  `888  `888    888   d88' `88b d88' `"Y8 d88' `88b `888P"Y88b    888   d88' `88b  `88b..8P'    888
- .oP"888   888   888    888   888   888 888       888   888  888   888    888   888ooo888    Y888'      888
-d8(  888   888   888    888 . 888   888 888   .o8 888   888  888   888    888 . 888    .o  .o8"'88b     888 .
-`Y888""8o  `V88V"V8P'   "888" `Y8bod8P' `Y8bod8P' `Y8bod8P' o888o o888o   "888" `Y8bod8P' o88'   888o   "888"
-""".strip("\n")
-
 TAGLINE = "closed-loop control plane for agent improvement"
+SYNC_BLOCK_START = "<!-- autocontext-banner:start -->"
+SYNC_BLOCK_END = "<!-- autocontext-banner:end -->"
 
-# ── What's new ───────────────────────────────────────────────────────
-# Maintain this list when cutting releases.  Each entry is a single
-# line shown in the CLI welcome box.  Keep it short — three to five
-# items for the *current* version; archive older entries in CHANGELOG.md.
 
-WHATS_NEW: list[str] = [
-    "GEPA-inspired ASI/Pareto optimizer wired into improvement loop",
-    "Component sensitivity profiling and credit assignment",
-    "Pluggable scoring backends with Elo and Glicko support",
-    "Novelty exploration and multi-basin playbook branching",
-    "Cost-aware loop control and long-run presets",
-]
+def _assets_dir() -> Path:
+    return Path(__file__).resolve().parent.parent.parent / "assets"
+
+
+def get_banner_path() -> Path:
+    """Return the path to the plain-text banner asset file."""
+    return _assets_dir() / "banner.txt"
+
+
+def get_whats_new_path() -> Path:
+    """Return the path to the What's New asset file."""
+    return _assets_dir() / "whats_new.txt"
+
+
+@lru_cache(maxsize=1)
+def load_banner_art() -> str:
+    """Load the canonical ASCII banner art."""
+    return get_banner_path().read_text(encoding="utf-8").strip("\n")
+
+
+@lru_cache(maxsize=1)
+def load_whats_new() -> tuple[str, ...]:
+    """Load the canonical What's New entries."""
+    return tuple(
+        line.strip()
+        for line in get_whats_new_path().read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def banner_plain() -> str:
     """Return the full banner as plain text (no ANSI escapes)."""
-    return f"{BANNER_ART}\n\n  {TAGLINE}\n"
+    return f"{load_banner_art()}\n\n  {TAGLINE}\n"
 
 
 def print_banner_rich() -> None:
@@ -52,7 +63,7 @@ def print_banner_rich() -> None:
 
     console = Console(stderr=True)
 
-    art = Text(BANNER_ART)
+    art = Text(load_banner_art())
     art.stylize("bold cyan")
 
     console.print()
@@ -62,9 +73,10 @@ def print_banner_rich() -> None:
     console.print()
 
     # ── What's new panel ─────────────────────────────────────────────
-    if WHATS_NEW:
+    whats_new = load_whats_new()
+    if whats_new:
         lines = Text()
-        for item in WHATS_NEW:
+        for item in whats_new:
             lines.append("  + ", style="bold green")
             lines.append(f"{item}\n", style="default")
 
@@ -79,6 +91,37 @@ def print_banner_rich() -> None:
         console.print()
 
 
-def get_banner_path() -> Path:
-    """Return the path to the plain-text banner asset file."""
-    return Path(__file__).resolve().parent.parent.parent / "assets" / "banner.txt"
+def render_readme_banner_block() -> str:
+    """Render the synced README hero block."""
+    whats_new = "\n".join(f"- {item}" for item in load_whats_new())
+    return (
+        f"{SYNC_BLOCK_START}\n"
+        "```\n"
+        f"{load_banner_art()}\n"
+        "```\n\n"
+        f"> **{TAGLINE}**\n\n"
+        "## What's New\n\n"
+        f"{whats_new}\n"
+        f"{SYNC_BLOCK_END}"
+    )
+
+
+def render_dashboard_banner_block() -> str:
+    """Render the synced dashboard hero block."""
+    whats_new = "\n".join(
+        f"          <li>{html_escape(item)}</li>" for item in load_whats_new()
+    )
+    return (
+        f"{SYNC_BLOCK_START}\n"
+        '    <section class="hero">\n'
+        f'      <pre class="ascii-banner">{html_escape(load_banner_art(), quote=False)}</pre>\n'
+        f'      <p class="ascii-tagline">{html_escape(TAGLINE)}</p>\n'
+        '      <div class="card whats-new">\n'
+        "        <h2>What's New</h2>\n"
+        "        <ul>\n"
+        f"{whats_new}\n"
+        "        </ul>\n"
+        "      </div>\n"
+        "    </section>\n"
+        f"{SYNC_BLOCK_END}"
+    )

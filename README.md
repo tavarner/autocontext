@@ -1,3 +1,4 @@
+<!-- autocontext-banner:start -->
 ```
                           .                                                 .                             .
                         .o8                                               .o8                           .o8
@@ -9,6 +10,15 @@ d8(  888   888   888    888 . 888   888 888   .o8 888   888  888   888    888 . 
 ```
 
 > **closed-loop control plane for agent improvement**
+
+## What's New
+
+- GEPA-inspired ASI/Pareto optimizer wired into improvement loop
+- Component sensitivity profiling and credit assignment
+- Pluggable scoring backends with Elo and Glicko support
+- Novelty exploration and multi-basin playbook branching
+- Cost-aware loop control and long-run presets
+<!-- autocontext-banner:end -->
 
 autocontext is a closed-loop control plane for improving agent behavior over repeated runs.
 
