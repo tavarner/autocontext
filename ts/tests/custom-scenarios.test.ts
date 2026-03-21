@@ -97,8 +97,33 @@ describe("CustomScenarioLoader", () => {
     expect(loaded.get("auto_typed")!.type).toBe("agent_task");
   });
 
-  it("registerCustomScenarios adds to SCENARIO_REGISTRY", async () => {
-    const { loadCustomScenarios, registerCustomScenarios } = await import("../src/scenarios/custom-loader.js");
+  it("loads agent_task_spec.json for persisted agent tasks", async () => {
+    const { loadCustomScenarios } = await import("../src/scenarios/custom-loader.js");
+    const customDir = join(dir, "_custom_scenarios");
+    const scenarioDir = join(customDir, "persisted_task");
+    mkdirSync(scenarioDir, { recursive: true });
+    writeFileSync(join(scenarioDir, "scenario_type.txt"), "agent_task", "utf-8");
+    writeFileSync(
+      join(scenarioDir, "agent_task_spec.json"),
+      JSON.stringify({
+        task_prompt: "Use the persisted agent-task spec.",
+        judge_rubric: "Judge for alignment.",
+        output_format: "free_text",
+      }),
+      "utf-8",
+    );
+
+    const loaded = loadCustomScenarios(customDir);
+    expect(loaded.get("persisted_task")?.spec.taskPrompt).toBe("Use the persisted agent-task spec.");
+  });
+
+  it("registerCustomScenarios keeps agent tasks out of SCENARIO_REGISTRY", async () => {
+    const {
+      loadCustomScenarios,
+      registerCustomScenarios,
+      CUSTOM_SCENARIO_REGISTRY,
+      CUSTOM_AGENT_TASK_REGISTRY,
+    } = await import("../src/scenarios/custom-loader.js");
     const { SCENARIO_REGISTRY } = await import("../src/scenarios/registry.js");
 
     const customDir = join(dir, "_custom_scenarios");
@@ -118,10 +143,9 @@ describe("CustomScenarioLoader", () => {
     const loaded = loadCustomScenarios(customDir);
     const before = Object.keys(SCENARIO_REGISTRY).length;
     registerCustomScenarios(loaded);
-    // Should have added 1 entry
-    expect(Object.keys(SCENARIO_REGISTRY).length).toBeGreaterThanOrEqual(before);
-    // Clean up to not pollute other tests
-    delete (SCENARIO_REGISTRY as Record<string, unknown>)["registered_task"];
+    expect(Object.keys(SCENARIO_REGISTRY).length).toBe(before);
+    expect(CUSTOM_SCENARIO_REGISTRY.has("registered_task")).toBe(true);
+    expect(typeof CUSTOM_AGENT_TASK_REGISTRY.registered_task).toBe("function");
   });
 });
 

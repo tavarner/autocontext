@@ -311,8 +311,8 @@ function reducer(state: RunState, action: Action): RunState {
         return {
           ...state,
           paused: msg.paused,
-          currentGeneration: msg.generation,
-          phase: msg.phase,
+          currentGeneration: msg.generation ?? null,
+          phase: msg.phase ?? null,
         };
       }
       if (msg.type === "chat_response") {
@@ -352,6 +352,18 @@ function reducer(state: RunState, action: Action): RunState {
         return addLog({ ...state, chatMessages }, `Error: ${msg.message}`);
       }
       if (msg.type === "ack") {
+        if (msg.action === "confirm_scenario") {
+          return addLog(
+            {
+              ...state,
+              scenarioCreation: {
+                ...state.scenarioCreation,
+                phase: "confirming",
+              },
+            },
+            "Confirming scenario...",
+          );
+        }
         return addLog(state, `Ack: ${msg.action}${msg.decision ? ` (${msg.decision})` : ""}`);
       }
       if (msg.type === "scenario_generating") {
@@ -391,6 +403,9 @@ function reducer(state: RunState, action: Action): RunState {
         );
       }
       if (msg.type === "scenario_ready") {
+        const scoreText = msg.test_scores.length > 0
+          ? ` (${msg.test_scores.map((s) => s.toFixed(3)).join(", ")})`
+          : "";
         return addLog(
           {
             ...state,
@@ -401,7 +416,7 @@ function reducer(state: RunState, action: Action): RunState {
               testScores: msg.test_scores,
             },
           },
-          `Scenario ready: ${msg.name} (test scores: ${msg.test_scores.map((s) => s.toFixed(3)).join(", ")})`,
+          `Scenario ready: ${msg.name}${scoreText}`,
         );
       }
       if (msg.type === "scenario_error") {

@@ -3,14 +3,25 @@
  * Mirrors Python's autocontext/server/run_manager.py.
  */
 
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
-import { SQLiteStore } from "../storage/index.js";
 import { GenerationRunner } from "../loop/generation-runner.js";
-import { createProvider } from "../providers/index.js";
+import { LoopController } from "../loop/controller.js";
 import { EventStreamEmitter } from "../loop/events.js";
 import type { EventCallback } from "../loop/events.js";
-import { LoopController } from "../loop/controller.js";
+import { createProvider } from "../providers/index.js";
+import {
+  type CreatedScenarioResult,
+  type CustomScenarioEntry,
+  type IntentValidationResult,
+  createScenarioFromDescription,
+  IntentValidator,
+  loadCustomScenarios,
+  registerCustomScenarios,
+} from "../scenarios/index.js";
+import { getScenarioTypeMarker, type ScenarioFamilyName } from "../scenarios/families.js";
+import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
+import { SQLiteStore } from "../storage/index.js";
 
 export interface RunManagerOpts {
   dbPath: string;
@@ -39,13 +50,35 @@ export interface RunManagerState {
   phase: string | null;
 }
 
+export interface ScenarioPreviewInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  strategyParams: Array<{ name: string; description: string }>;
+  scoringComponents: Array<{ name: string; description: string; weight: number }>;
+  constraints: string[];
+  winThreshold: number;
+}
+
+export interface ScenarioReadyInfo {
+  name: string;
+  testScores: number[];
+}
+
+interface PendingScenarioDraft {
+  description: string;
+  detectedFamily: string;
+  preview: CreatedScenarioResult;
+  validation: IntentValidationResult;
+}
+
 export class RunManager {
-  private opts: RunManagerOpts;
+  private readonly opts: RunManagerOpts;
   private _active = false;
   private _runPromise: Promise<void> | null = null;
-  private controller = new LoopController();
-  private events: EventStreamEmitter;
-  private stateSubscribers: Array<(state: RunManagerState) => void> = [];
+  private readonly controller = new LoopController();
+  private readonly events: EventStreamEmitter;
+  private readonly stateSubscribers: Array<(state: RunManagerState) => void> = [];
   private state: RunManagerState = {
     active: false,
     paused: false,
@@ -54,6 +87,8 @@ export class RunManager {
     generation: null,
     phase: null,
   };
+  private customScenarios = new Map<string, CustomScenarioEntry>();
+  private pendingScenario: PendingScenarioDraft | null = null;
 
   constructor(opts: RunManagerOpts) {
     this.opts = opts;
@@ -61,6 +96,7 @@ export class RunManager {
     this.events.subscribe((event, payload) => {
       this.applyEventState(event, payload);
     });
+    this.reloadCustomScenarios();
   }
 
   get isActive(): boolean {
@@ -72,14 +108,21 @@ export class RunManager {
   }
 
   getEnvironmentInfo(): EnvironmentInfo {
-    const scenarios = this.listScenarios().map((name) => {
+    const builtinScenarios = this.listScenarios().map((name) => {
       const ScenarioClass = SCENARIO_REGISTRY[name];
       const instance = new ScenarioClass();
       return { name, description: instance.describeRules() };
     });
+    const customScenarios = [...this.customScenarios.values()]
+      .filter((entry) => !(entry.name in SCENARIO_REGISTRY))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entry) => ({
+        name: entry.name,
+        description: this.describeCustomScenario(entry),
+      }));
 
     return {
-      scenarios,
+      scenarios: [...builtinScenarios, ...customScenarios],
       executors: [
         { mode: "local", available: true, description: "Local subprocess execution" },
       ],
@@ -154,6 +197,13 @@ export class RunManager {
 
     const ScenarioClass = SCENARIO_REGISTRY[scenario];
     if (!ScenarioClass) {
+      const customScenario = this.customScenarios.get(scenario);
+      if (customScenario) {
+        throw new Error(
+          `Scenario '${scenario}' is a saved custom ${customScenario.type} scenario. ` +
+          "It is discoverable in the TS control plane, but /run currently supports only built-in game scenarios.",
+        );
+      }
       throw new Error(`Unknown scenario: ${scenario}. Available: ${this.listScenarios().join(", ")}`);
     }
 
@@ -203,6 +253,59 @@ export class RunManager {
       });
 
     return id;
+  }
+
+  async createScenario(description: string): Promise<ScenarioPreviewInfo> {
+    const provider = this.buildProvider();
+    const created = await createScenarioFromDescription(description, provider);
+    const preview: CreatedScenarioResult = created.family === "agent_task"
+      ? created
+      : { ...created, family: "agent_task" };
+    const validation = new IntentValidator().validate(description, {
+      name: preview.name,
+      taskPrompt: preview.spec.taskPrompt,
+      rubric: preview.spec.rubric,
+      description: preview.spec.description,
+    });
+    const draft: PendingScenarioDraft = {
+      description,
+      detectedFamily: created.family,
+      preview,
+      validation,
+    };
+    this.pendingScenario = draft;
+    return this.buildScenarioPreview(draft);
+  }
+
+  async reviseScenario(feedback: string): Promise<ScenarioPreviewInfo> {
+    if (!this.pendingScenario) {
+      throw new Error("No scenario preview is pending. Create a scenario first.");
+    }
+    const revisedDescription = [
+      this.pendingScenario.description,
+      "",
+      "Revision guidance:",
+      feedback,
+    ].join("\n");
+    return this.createScenario(revisedDescription);
+  }
+
+  cancelScenario(): void {
+    this.pendingScenario = null;
+  }
+
+  async confirmScenario(): Promise<ScenarioReadyInfo> {
+    if (!this.pendingScenario) {
+      throw new Error("No scenario preview is pending. Create a scenario first.");
+    }
+    if (!this.pendingScenario.validation.valid) {
+      throw new Error(this.pendingScenario.validation.issues.join("; "));
+    }
+    const pending = this.pendingScenario;
+    this.persistPendingScenario(pending);
+    this.pendingScenario = null;
+    this.reloadCustomScenarios();
+    return { name: pending.preview.name, testScores: [] };
   }
 
   private buildProvider() {
@@ -265,5 +368,96 @@ export class RunManager {
         // State observers should never crash the active run.
       }
     }
+  }
+
+  private reloadCustomScenarios(): void {
+    const customDir = join(this.opts.knowledgeRoot, "_custom_scenarios");
+    const loaded = loadCustomScenarios(customDir);
+    registerCustomScenarios(loaded);
+    this.customScenarios = loaded;
+  }
+
+  private describeCustomScenario(entry: CustomScenarioEntry): string {
+    if (entry.type === "agent_task") {
+      const taskPrompt = typeof entry.spec.taskPrompt === "string"
+        ? entry.spec.taskPrompt
+        : entry.name;
+      return `Custom agent task: ${taskPrompt} (saved for custom-scenario tooling; not runnable via /run yet)`;
+    }
+    const description = typeof entry.spec.description === "string"
+      ? entry.spec.description
+      : `Custom ${entry.type} scenario`;
+    return `${description} (saved custom scenario; not runnable via /run yet)`;
+  }
+
+  private buildScenarioPreview(draft: PendingScenarioDraft): ScenarioPreviewInfo {
+    const constraints = draft.validation.valid
+      ? [`Intent validated at ${(draft.validation.confidence * 100).toFixed(0)}% confidence.`]
+      : draft.validation.issues;
+    if (draft.detectedFamily !== draft.preview.family) {
+      constraints.push(
+        `Detected ${draft.detectedFamily} signals, but the interactive TS creator currently saves agent-task scaffolds only.`,
+      );
+    }
+    return {
+      name: draft.preview.name,
+      displayName: this.humanizeName(draft.preview.name),
+      description: `${draft.preview.spec.description} [family: ${draft.preview.family}]`,
+      strategyParams: [
+        { name: "family", description: draft.preview.family },
+        { name: "task_prompt", description: draft.preview.spec.taskPrompt },
+      ],
+      scoringComponents: [
+        { name: "rubric", description: draft.preview.spec.rubric, weight: 1.0 },
+      ],
+      constraints,
+      winThreshold: Number(draft.validation.confidence.toFixed(3)),
+    };
+  }
+
+  private persistPendingScenario(draft: PendingScenarioDraft): void {
+    const scenarioDir = join(this.opts.knowledgeRoot, "_custom_scenarios", draft.preview.name);
+    if (!existsSync(scenarioDir)) {
+      mkdirSync(scenarioDir, { recursive: true });
+    }
+
+    const family = draft.preview.family as ScenarioFamilyName;
+    const scenarioType = getScenarioTypeMarker(family);
+    writeFileSync(join(scenarioDir, "scenario_type.txt"), scenarioType, "utf-8");
+    writeFileSync(
+      join(scenarioDir, "spec.json"),
+      JSON.stringify({
+        name: draft.preview.name,
+        scenario_type: scenarioType,
+        description: draft.preview.spec.description,
+        taskPrompt: draft.preview.spec.taskPrompt,
+        rubric: draft.preview.spec.rubric,
+        intent_confidence: draft.validation.confidence,
+        intent_issues: draft.validation.issues,
+      }, null, 2),
+      "utf-8",
+    );
+
+    if (family === "agent_task") {
+      writeFileSync(
+        join(scenarioDir, "agent_task_spec.json"),
+        JSON.stringify({
+          task_prompt: draft.preview.spec.taskPrompt,
+          judge_rubric: draft.preview.spec.rubric,
+          output_format: "free_text",
+          max_rounds: 1,
+          quality_threshold: 0.9,
+        }, null, 2),
+        "utf-8",
+      );
+    }
+  }
+
+  private humanizeName(name: string): string {
+    return name
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map((part) => part[0]!.toUpperCase() + part.slice(1))
+      .join(" ");
   }
 }

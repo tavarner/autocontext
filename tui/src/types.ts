@@ -111,8 +111,8 @@ export interface ServerEventMessage {
 export interface ServerStateMessage {
   type: "state";
   paused: boolean;
-  generation: number;
-  phase: string;
+  generation?: number;
+  phase?: string;
 }
 
 /** Server -> Client chat response. */
@@ -139,7 +139,7 @@ export interface ExecutorInfo {
     memory_gb: number;
     disk_gb: number;
     timeout_minutes: number;
-  };
+  } | null;
 }
 
 /** Server -> Client: available environments (scenarios + executors). */
@@ -163,7 +163,7 @@ export interface ServerRunAccepted {
 export interface ServerAck {
   type: "ack";
   action: string;
-  decision?: string;
+  decision?: string | null;
 }
 
 /** Server -> Client: scenario generation in progress. */
@@ -195,6 +195,18 @@ export interface ServerScenarioReady {
 export interface ServerScenarioError {
   type: "scenario_error";
   message: string;
+  stage?: string;
+}
+
+/** Server -> Client: monitor alert. */
+export interface ServerMonitorAlert {
+  type: "monitor_alert";
+  alert_id: string;
+  condition_id: string;
+  condition_name: string;
+  condition_type: string;
+  scope: string;
+  detail: Record<string, unknown> | string;
 }
 
 /** Server -> Client: error. */
@@ -215,7 +227,8 @@ export type ServerMessage =
   | ServerScenarioGenerating
   | ServerScenarioPreview
   | ServerScenarioReady
-  | ServerScenarioError;
+  | ServerScenarioError
+  | ServerMonitorAlert;
 
 /** Client -> Server: pause. */
 export interface ClientPause {
