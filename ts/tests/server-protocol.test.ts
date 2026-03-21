@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -206,6 +206,33 @@ describe("RunManager", () => {
     expect(info.currentExecutor).toBe("local");
   });
 
+  it("getEnvironmentInfo includes saved custom scenarios without touching the game registry", async () => {
+    const customDir = join(dir, "knowledge", "_custom_scenarios", "saved_task");
+    mkdirSync(customDir, { recursive: true });
+    writeFileSync(join(customDir, "scenario_type.txt"), "agent_task", "utf-8");
+    writeFileSync(
+      join(customDir, "spec.json"),
+      JSON.stringify({
+        name: "saved_task",
+        taskPrompt: "Summarize API incidents.",
+        rubric: "Evaluate incident-summary quality.",
+        description: "Custom summary task.",
+      }),
+      "utf-8",
+    );
+
+    const { RunManager } = await import("../src/server/run-manager.js");
+    const mgr = new RunManager({
+      dbPath: join(dir, "test.db"),
+      migrationsDir: join(__dirname, "..", "migrations"),
+      runsRoot: join(dir, "runs"),
+      knowledgeRoot: join(dir, "knowledge"),
+    });
+    const info = mgr.getEnvironmentInfo();
+    expect(info.scenarios.some((scenario) => scenario.name === "saved_task")).toBe(true);
+    await expect(mgr.startRun("saved_task", 1)).rejects.toThrow(/only built-in game scenarios/i);
+  });
+
   it("startRun returns runId and marks active", async () => {
     const { RunManager } = await import("../src/server/run-manager.js");
     const mgr = new RunManager({
@@ -318,6 +345,62 @@ describe("InteractiveServer", () => {
         "competitor_prompt.md",
       );
       expect(readFileSync(promptPath, "utf-8")).toContain("Operator Hint:\nHold the center lane.");
+    } finally {
+      socket.close();
+      await server.stop();
+    }
+  }, 15000);
+
+  it("creates, revises, confirms, and catalogs custom scenarios through the live server", async () => {
+    const { RunManager, InteractiveServer } = await import("../src/server/index.js");
+    const mgr = new RunManager({
+      dbPath: join(dir, "test.db"),
+      migrationsDir: join(__dirname, "..", "migrations"),
+      runsRoot: join(dir, "runs"),
+      knowledgeRoot: join(dir, "knowledge"),
+      providerType: "deterministic",
+    });
+    const server = new InteractiveServer({ runManager: mgr, port: 0 });
+    await server.start();
+
+    const socket = await openSocket(server.url);
+
+    try {
+      await socket.waitFor((msg) => msg.type === "hello");
+      await socket.waitFor((msg) => msg.type === "environments");
+      await socket.waitFor((msg) => msg.type === "state");
+
+      socket.send({
+        type: "create_scenario",
+        description: "Create a custom scenario that tests summarizing technical incident reports.",
+      });
+      expect((await socket.waitFor((msg) => msg.type === "scenario_generating")).type).toBe("scenario_generating");
+      const preview = await socket.waitFor((msg) => msg.type === "scenario_preview");
+      expect(preview.name).toBeDefined();
+      expect(preview.description).toContain("family");
+
+      socket.send({
+        type: "revise_scenario",
+        feedback: "Keep it focused on incident triage summaries.",
+      });
+      expect((await socket.waitFor((msg) => msg.type === "scenario_generating")).type).toBe("scenario_generating");
+      const revisedPreview = await socket.waitFor((msg) => msg.type === "scenario_preview");
+      expect(revisedPreview.name).toBeDefined();
+
+      socket.send({ type: "confirm_scenario" });
+      expect((await socket.waitFor((msg) => msg.type === "ack" && msg.action === "confirm_scenario")).action).toBe("confirm_scenario");
+      const ready = await socket.waitFor((msg) => msg.type === "scenario_ready");
+      const scenarioDir = join(
+        dir,
+        "knowledge",
+        "_custom_scenarios",
+        ready.name as string,
+      );
+      expect(readFileSync(join(scenarioDir, "scenario_type.txt"), "utf-8").trim()).toBe("agent_task");
+      const savedSpec = JSON.parse(readFileSync(join(scenarioDir, "spec.json"), "utf-8")) as Record<string, unknown>;
+      expect(savedSpec.taskPrompt).toBeDefined();
+      expect(savedSpec.scenario_type).toBe("agent_task");
+      expect(mgr.getEnvironmentInfo().scenarios.some((scenario) => scenario.name === ready.name)).toBe(true);
     } finally {
       socket.close();
       await server.stop();

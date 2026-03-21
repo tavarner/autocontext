@@ -69,7 +69,7 @@ export function ScenarioCreator({ scenarioCreation }: ScenarioCreatorProps) {
           )}
 
           <Box marginTop={1}>
-            <Text>Win threshold: <Text bold color="green">{preview.winThreshold}</Text></Text>
+            <Text>Intent confidence: <Text bold color="green">{preview.winThreshold.toFixed(3)}</Text></Text>
           </Box>
 
           <Box marginTop={1} gap={2}>
@@ -97,14 +97,14 @@ export function ScenarioCreator({ scenarioCreation }: ScenarioCreatorProps) {
           <Text color="green" bold>Scenario ready: {name}</Text>
           {testScores && testScores.length > 0 && (
             <Box marginTop={1} flexDirection="column">
-              <Text bold color="yellow">Test scores:</Text>
+              <Text bold color="yellow">Validation / smoke scores:</Text>
               {testScores.map((score, i) => (
                 <Text key={i}>  Match {i + 1}: {score.toFixed(3)}</Text>
               ))}
             </Box>
           )}
           <Box marginTop={1}>
-            <Text dimColor>Run with: <Text color="cyan" bold>/run {name} 5</Text></Text>
+            <Text dimColor>Saved to the custom scenario catalog under <Text color="cyan" bold>knowledge/_custom_scenarios/{name}</Text></Text>
           </Box>
           <Box marginTop={1}>
             <Text dimColor>

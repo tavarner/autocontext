@@ -139,14 +139,32 @@ export class InteractiveServer {
     this.sendState(ws, this.runManager.getState());
 
     ws.on("message", async (data: WebSocket.RawData) => {
+      let parsedMessage: ClientMessage | null = null;
       try {
-        const msg = this.parseMessage(data.toString());
-        await this.handleClientMessage(ws, msg);
+        parsedMessage = this.parseMessage(data.toString());
+        await this.handleClientMessage(ws, parsedMessage);
       } catch (err) {
-        this.send(ws, {
-          type: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        const message = err instanceof Error ? err.message : String(err);
+        if (
+          parsedMessage
+          && (
+            parsedMessage.type === "create_scenario"
+            || parsedMessage.type === "confirm_scenario"
+            || parsedMessage.type === "revise_scenario"
+            || parsedMessage.type === "cancel_scenario"
+          )
+        ) {
+          this.send(ws, {
+            type: "scenario_error",
+            message,
+            stage: "server",
+          });
+        } else {
+          this.send(ws, {
+            type: "error",
+            message,
+          });
+        }
       }
     });
 
@@ -200,15 +218,55 @@ export class InteractiveServer {
         });
         return;
       }
-      case "create_scenario":
-      case "confirm_scenario":
-      case "revise_scenario":
-      case "cancel_scenario":
+      case "create_scenario": {
         this.send(ws, {
-          type: "scenario_error",
-          message: "Scenario creation is not wired into the TS server yet.",
-          stage: "server",
+          type: "scenario_generating",
+          name: "custom_scenario",
         });
+        const preview = await this.runManager.createScenario(msg.description);
+        this.send(ws, {
+          type: "scenario_preview",
+          name: preview.name,
+          display_name: preview.displayName,
+          description: preview.description,
+          strategy_params: preview.strategyParams,
+          scoring_components: preview.scoringComponents,
+          constraints: preview.constraints,
+          win_threshold: preview.winThreshold,
+        });
+        return;
+      }
+      case "confirm_scenario": {
+        this.send(ws, { type: "ack", action: "confirm_scenario" });
+        const ready = await this.runManager.confirmScenario();
+        this.send(ws, {
+          type: "scenario_ready",
+          name: ready.name,
+          test_scores: ready.testScores,
+        });
+        return;
+      }
+      case "revise_scenario": {
+        this.send(ws, {
+          type: "scenario_generating",
+          name: "custom_scenario",
+        });
+        const preview = await this.runManager.reviseScenario(msg.feedback);
+        this.send(ws, {
+          type: "scenario_preview",
+          name: preview.name,
+          display_name: preview.displayName,
+          description: preview.description,
+          strategy_params: preview.strategyParams,
+          scoring_components: preview.scoringComponents,
+          constraints: preview.constraints,
+          win_threshold: preview.winThreshold,
+        });
+        return;
+      }
+      case "cancel_scenario":
+        this.runManager.cancelScenario();
+        this.send(ws, { type: "ack", action: "cancel_scenario" });
         return;
     }
   }
