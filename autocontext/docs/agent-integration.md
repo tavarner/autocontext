@@ -236,6 +236,24 @@ AUTOCONTEXT_AGENT_PROVIDER=ollama \
 AUTOCONTEXT_JUDGE_PROVIDER=ollama \
 autoctx run --scenario my_task --json
 
+# Hermes (via OpenAI-compatible gateway)
+AUTOCONTEXT_AGENT_PROVIDER=openai-compatible \
+AUTOCONTEXT_AGENT_BASE_URL=http://localhost:8080/v1 \
+AUTOCONTEXT_AGENT_API_KEY=hermes-key \
+AUTOCONTEXT_AGENT_DEFAULT_MODEL=hermes-3-llama-3.1-8b \
+autoctx run --scenario my_task --json
+
+# Hermes for both agent and judge
+AUTOCONTEXT_AGENT_PROVIDER=openai-compatible \
+AUTOCONTEXT_AGENT_BASE_URL=http://localhost:8080/v1 \
+AUTOCONTEXT_AGENT_API_KEY=hermes-key \
+AUTOCONTEXT_AGENT_DEFAULT_MODEL=hermes-3-llama-3.1-8b \
+AUTOCONTEXT_JUDGE_PROVIDER=openai-compatible \
+AUTOCONTEXT_JUDGE_BASE_URL=http://localhost:8080/v1 \
+AUTOCONTEXT_JUDGE_API_KEY=hermes-key \
+AUTOCONTEXT_JUDGE_MODEL=hermes-3-llama-3.1-70b \
+autoctx run --scenario my_task --json
+
 # Pi CLI (local Pi agent runtime)
 AUTOCONTEXT_AGENT_PROVIDER=pi \
 AUTOCONTEXT_PI_COMMAND=pi \
@@ -281,6 +299,24 @@ Key environment variables:
 - Remote Pi instances running as a service
 
 Both support **scenario-aware model handoff** when scenario context is available and no manual Pi model override is set. In that case, autocontext checks the distillation model registry for a scenario-specific checkpoint and routes to it automatically. If `AUTOCONTEXT_PI_MODEL` is set, that value is treated as a manual pin and used directly instead of consulting the registry. This enables the distill→deploy loop where a fine-tuned model is used for specific scenarios while still allowing operators to force a specific checkpoint when needed.
+
+#### Hermes via OpenAI-Compatible Gateway
+
+Hermes exposes an OpenAI-compatible API server, so the fastest way to connect autocontext to Hermes is through the existing `openai-compatible` provider — no native runtime needed.
+
+**When to use the gateway path:**
+- You have a Hermes instance already running (local or remote)
+- You want to get started immediately without waiting for native Hermes runtime support
+- The OpenAI chat completions API surface is sufficient for your use case
+
+**Caveats:**
+- **Model naming**: Use the exact model name your Hermes server reports (e.g. `hermes-3-llama-3.1-8b`). Check `GET /v1/models` on your Hermes endpoint.
+- **Determinism**: Hermes temperature behavior may differ from OpenAI. Set `AUTOCONTEXT_JUDGE_TEMPERATURE=0.0` explicitly for reproducible evaluations.
+- **Memory/sessions**: The gateway path is stateless per-request. Hermes memory and tool configuration are server-side concerns, not managed by autocontext.
+- **Tool access**: Hermes tool/function-calling support depends on your Hermes server configuration. autocontext sends standard chat completion requests.
+- **API key**: Local Hermes servers often don't require authentication. Set `AUTOCONTEXT_AGENT_API_KEY=""` or `AUTOCONTEXT_AGENT_API_KEY=no-key` for keyless servers.
+
+**Long-term**: A native Hermes runtime (similar to the Pi CLI/RPC runtimes) would enable deeper integration — session persistence, memory management, tool routing. The gateway path is the recommended approach today.
 
 ### Concrete CLI-First Integration Example
 
