@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -52,11 +53,11 @@ class HermesCLIRuntime(AgentRuntime):
         system: str | None = None,
         schema: dict | None = None,
     ) -> AgentOutput:
+        del schema
         full_prompt = prompt
         if system:
             full_prompt = f"{system}\n\n{prompt}"
-        args = self._build_args()
-        return self._invoke(full_prompt, args)
+        return self._invoke(full_prompt)
 
     def revise(
         self,
@@ -72,43 +73,51 @@ class HermesCLIRuntime(AgentRuntime):
             f"## Original Task\n{prompt}\n\n"
             "Produce an improved version:"
         )
-        return self._invoke(revision_prompt, self._build_args())
+        full_prompt = revision_prompt
+        if system:
+            full_prompt = f"{system}\n\n{revision_prompt}"
+        return self._invoke(full_prompt)
 
-    def _build_args(self) -> list[str]:
+    def _build_args(self, prompt: str) -> list[str]:
         hermes = self._hermes_path or self._config.hermes_command
-        args = [hermes, "--print"]
+        args = [hermes, "chat", "--query", prompt]
 
         if self._config.model:
             args.extend(["--model", self._config.model])
 
-        if self._config.workspace:
-            args.extend(["--cd", self._config.workspace])
-
-        if self._config.base_url:
-            args.extend(["--base-url", self._config.base_url])
-
-        if self._config.api_key:
-            args.extend(["--api-key", self._config.api_key])
+        # Hermes routes custom OpenAI-compatible endpoints through its "main"
+        # provider config rather than dedicated --base-url/--api-key flags.
+        if self._config.base_url or self._config.api_key:
+            args.extend(["--provider", "main"])
 
         args.extend(self._config.extra_args)
         return args
 
-    def _invoke(self, prompt: str, args: list[str]) -> AgentOutput:
-        logger.info("invoking hermes: %s", " ".join(args[:4]) + "...")
-        full_args = [*args, prompt]
+    def _build_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self._config.base_url:
+            env["OPENAI_BASE_URL"] = self._config.base_url
+        if self._config.api_key:
+            env["OPENAI_API_KEY"] = self._config.api_key
+        return env
 
+    def _invoke(self, prompt: str) -> AgentOutput:
+        args = self._build_args(prompt)
+        logger.info("invoking hermes: %s", " ".join(args[:6]) + "...")
         try:
             result = subprocess.run(
-                full_args,
+                args,
                 capture_output=True,
                 text=True,
                 timeout=self._config.timeout,
+                cwd=self._config.workspace or None,
+                env=self._build_env(),
             )
         except subprocess.TimeoutExpired:
             logger.error("hermes timed out after %.0fs", self._config.timeout)
             return AgentOutput(text="", metadata={"error": "timeout"})
         except FileNotFoundError:
-            logger.error("hermes CLI not found at: %s", args[0])
+            logger.error("hermes CLI not found at: %s", self._config.hermes_command)
             return AgentOutput(text="", metadata={"error": "hermes_not_found"})
 
         if result.returncode != 0:
@@ -116,7 +125,11 @@ class HermesCLIRuntime(AgentRuntime):
             if not result.stdout.strip():
                 return AgentOutput(
                     text="",
-                    metadata={"error": "nonzero_exit", "stderr": result.stderr[:500]},
+                    metadata={
+                        "error": "nonzero_exit",
+                        "exit_code": result.returncode,
+                        "stderr": result.stderr[:500],
+                    },
                 )
 
         return self._parse_output(result.stdout)

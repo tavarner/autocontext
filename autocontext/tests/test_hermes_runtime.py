@@ -53,10 +53,41 @@ class TestHermesCLIRuntime:
             workspace="/my/ws",
         )
         runtime = HermesCLIRuntime(config)
-        args = runtime._build_args()
+        args = runtime._build_args("Plan a strategy")
         assert "/usr/local/bin/hermes" in args[0] or args[0] == "/usr/local/bin/hermes"
+        assert args[1] == "chat"
+        assert "--query" in args
+        assert "Plan a strategy" in args
         assert "--model" in args
         assert "hermes-3-llama-3.1-8b" in args
+
+    def test_generate_uses_workspace_and_env_overrides(self) -> None:
+        from autocontext.runtimes.hermes_cli import HermesCLIConfig, HermesCLIRuntime
+
+        config = HermesCLIConfig(
+            hermes_command="/usr/local/bin/hermes",
+            model="hermes-3-llama-3.1-8b",
+            workspace="/my/ws",
+            base_url="http://localhost:8080/v1",
+            api_key="no-key",
+        )
+        runtime = HermesCLIRuntime(config)
+
+        completed = MagicMock(returncode=0, stdout="Hello from Hermes", stderr="")
+        with patch("subprocess.run", return_value=completed) as mock_run:
+            output = runtime.generate("Plan a strategy")
+
+        assert output.text == "Hello from Hermes"
+        call_args = mock_run.call_args
+        args = call_args.args[0]
+        assert args[:2] == ["/usr/local/bin/hermes", "chat"]
+        assert "--query" in args
+        assert "--provider" in args
+        assert "main" in args
+        assert call_args.kwargs["cwd"] == "/my/ws"
+        env = call_args.kwargs["env"]
+        assert env["OPENAI_BASE_URL"] == "http://localhost:8080/v1"
+        assert env["OPENAI_API_KEY"] == "no-key"
 
     def test_parse_output_plain_text(self) -> None:
         from autocontext.runtimes.hermes_cli import HermesCLIRuntime
