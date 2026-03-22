@@ -1,23 +1,27 @@
 """Smoke tests for AC-359: top-level Pi provider paths and documented examples.
 
 Exercises the documented ``AUTOCONTEXT_AGENT_PROVIDER=pi`` and
-``AUTOCONTEXT_AGENT_PROVIDER=pi-rpc`` paths through the same surfaces
-users see — ``load_settings`` → ``build_client_from_settings`` — and
-verifies that scenario-aware routing, env var alignment, and error
-messages work as documented.
+``AUTOCONTEXT_AGENT_PROVIDER=pi-rpc`` paths through both construction-level
+surfaces and a lightweight ``autoctx run`` path, so regressions in the live
+CLI/runner/orchestrator entrypoint are caught as well.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
 
 from autocontext.agents.llm_client import build_client_from_settings
 from autocontext.agents.provider_bridge import RuntimeBridgeClient
+from autocontext.cli import app
 from autocontext.config.settings import AppSettings, load_settings
+
+runner = CliRunner()
 
 
 def _settings(**overrides: object) -> AppSettings:
@@ -27,6 +31,64 @@ def _settings(**overrides: object) -> AppSettings:
     }
     defaults.update(overrides)
     return AppSettings(**defaults)  # type: ignore[arg-type]
+
+
+def _runner_settings(tmp_path: Path, **overrides: object) -> AppSettings:
+    defaults: dict[str, object] = {
+        "db_path": tmp_path / "runs" / "autocontext.sqlite3",
+        "runs_root": tmp_path / "runs",
+        "knowledge_root": tmp_path / "knowledge",
+        "skills_root": tmp_path / "skills",
+        "claude_skills_path": tmp_path / ".claude" / "skills",
+        "event_stream_path": tmp_path / "runs" / "events.ndjson",
+        "agent_provider": "deterministic",
+        "judge_provider": "anthropic",
+        "anthropic_api_key": "test-key",
+        "session_reports_enabled": False,
+        "cross_run_inheritance": False,
+    }
+    defaults.update(overrides)
+    return AppSettings(**defaults)  # type: ignore[arg-type]
+
+
+def _complete_smoke_generation(
+    pipeline: Any,
+    ctx: Any,
+    *,
+    resolved_clients: dict[str, Any],
+) -> Any:
+    orchestrator = pipeline._orchestrator
+    sqlite = pipeline._sqlite
+    competitor_client, _ = orchestrator.resolve_role_execution(
+        "competitor",
+        generation=ctx.generation,
+        scenario_name=ctx.scenario_name,
+    )
+    analyst_client, _ = orchestrator.resolve_role_execution(
+        "analyst",
+        generation=ctx.generation,
+        scenario_name=ctx.scenario_name,
+    )
+    resolved_clients["competitor"] = competitor_client
+    resolved_clients["analyst"] = analyst_client
+    sqlite.upsert_generation(
+        ctx.run_id,
+        ctx.generation,
+        mean_score=0.72,
+        best_score=0.72,
+        elo=1012.0,
+        wins=1,
+        losses=0,
+        gate_decision="advance",
+        status="completed",
+        scoring_backend=ctx.settings.scoring_backend,
+        rating_uncertainty=55.0,
+    )
+    ctx.previous_best = 0.72
+    ctx.challenger_elo = 1012.0
+    ctx.challenger_uncertainty = 55.0
+    ctx.gate_decision = "advance"
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +238,96 @@ class TestPiRoleOverride:
             client = create_role_client("pi-rpc", settings)
         assert client is not None
         assert isinstance(client, RuntimeBridgeClient)
+
+
+# ---------------------------------------------------------------------------
+# Live autoctx run smoke path
+# ---------------------------------------------------------------------------
+
+class TestPiRunSmoke:
+    """Verify the documented Pi setup survives the real CLI/runner entrypoint."""
+
+    def test_autoctx_run_pi_cli_resolves_scenario_handoff(self, tmp_path: Path) -> None:
+        settings = _runner_settings(
+            tmp_path,
+            agent_provider="pi",
+            pi_command="pi",
+        )
+        resolved_clients: dict[str, Any] = {}
+
+        def _run_generation(pipeline: Any, ctx: Any) -> Any:
+            return _complete_smoke_generation(
+                pipeline,
+                ctx,
+                resolved_clients=resolved_clients,
+            )
+
+        with (
+            patch("autocontext.cli.load_settings", return_value=settings),
+            patch(
+                "autocontext.providers.scenario_routing.resolve_pi_model",
+                return_value=SimpleNamespace(checkpoint_path="/models/grid-ctf/pi-v4"),
+            ) as mock_resolve,
+            patch("autocontext.runtimes.pi_cli.PiCLIRuntime") as mock_runtime,
+            patch("autocontext.loop.generation_pipeline.GenerationPipeline.run_generation", new=_run_generation),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_progress_report"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_aggregate_analytics"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_run_trace_artifacts"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_trace_grounded_reports"),
+        ):
+            mock_runtime.return_value = MagicMock()
+            result = runner.invoke(app, ["run", "--scenario", "grid_ctf", "--gens", "1"])
+
+        assert result.exit_code == 0, result.output
+        assert "competitor" in resolved_clients
+        assert "analyst" in resolved_clients
+        assert any(
+            call.kwargs.get("scenario") == "grid_ctf"
+            for call in mock_resolve.call_args_list
+        )
+        assert any(
+            (call.args[0].model if call.args else call.kwargs["config"].model) == "/models/grid-ctf/pi-v4"
+            for call in mock_runtime.call_args_list
+        )
+
+    def test_autoctx_run_pi_rpc_uses_distinct_role_clients(self, tmp_path: Path) -> None:
+        settings = _runner_settings(
+            tmp_path,
+            agent_provider="pi-rpc",
+            pi_rpc_endpoint="http://localhost:3284",
+        )
+        resolved_clients: dict[str, Any] = {}
+        runtime_instances = [
+            MagicMock(name="shared-runtime"),
+            MagicMock(name="competitor-runtime"),
+            MagicMock(name="analyst-runtime"),
+        ]
+
+        def _run_generation(pipeline: Any, ctx: Any) -> Any:
+            return _complete_smoke_generation(
+                pipeline,
+                ctx,
+                resolved_clients=resolved_clients,
+            )
+
+        with (
+            patch("autocontext.cli.load_settings", return_value=settings),
+            patch("autocontext.runtimes.pi_rpc.PiRPCRuntime", side_effect=runtime_instances) as mock_runtime,
+            patch("autocontext.loop.generation_pipeline.GenerationPipeline.run_generation", new=_run_generation),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_progress_report"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_aggregate_analytics"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_run_trace_artifacts"),
+            patch("autocontext.loop.generation_runner.GenerationRunner._generate_trace_grounded_reports"),
+        ):
+            result = runner.invoke(app, ["run", "--scenario", "grid_ctf", "--gens", "1"])
+
+        assert result.exit_code == 0, result.output
+        competitor_client = resolved_clients["competitor"]
+        analyst_client = resolved_clients["analyst"]
+        assert competitor_client is not analyst_client
+        assert competitor_client._runtime is runtime_instances[1]
+        assert analyst_client._runtime is runtime_instances[2]
+        assert mock_runtime.call_count >= 3
 
 
 # ---------------------------------------------------------------------------
