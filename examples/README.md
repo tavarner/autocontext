@@ -144,9 +144,17 @@ export AUTOCONTEXT_AGENT_DEFAULT_MODEL=hermes-3-llama-3.1-8b
 
 # Run → status → export loop
 RUN_ID="hermes_$(date +%s)"
-uv run autoctx run --scenario grid_ctf --gens 3 --run-id "$RUN_ID" --json | jq .
-uv run autoctx status "$RUN_ID" --json | jq '.generations[-1]'
+mkdir -p logs
+uv run autoctx run --scenario grid_ctf --gens 3 --run-id "$RUN_ID" --json >"logs/${RUN_ID}.json" 2>"logs/${RUN_ID}.err" &
+RUN_PID=$!
+while kill -0 "$RUN_PID" 2>/dev/null; do
+  uv run autoctx status "$RUN_ID" --json | jq '.generations[-1]'
+  sleep 5
+done
+wait "$RUN_PID"
+cat "logs/${RUN_ID}.json" | jq .
 uv run autoctx export --scenario grid_ctf --output "exports/${RUN_ID}.json" --json | jq .
+uv run autoctx solve --description "Design a safe, adaptive grid capture-the-flag strategy." --gens 2 --json | jq .
 ```
 
 For the full walkthrough including polling, timeouts, and integration path comparison, see [autocontext/docs/agent-integration.md](../autocontext/docs/agent-integration.md#hermes-cli-first-starter-workflow).

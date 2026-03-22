@@ -389,32 +389,38 @@ autoctx list --json | jq '.[].run_id'        # list past runs
 
 ```bash
 RUN_ID="hermes_$(date +%s)"
-result=$(autoctx run \
+mkdir -p logs
+
+autoctx run \
   --scenario grid_ctf \
   --gens 5 \
   --run-id "$RUN_ID" \
-  --json 2>/dev/null)
-echo "$result" | jq .
+  --json \
+  >"logs/${RUN_ID}.json" \
+  2>"logs/${RUN_ID}.err" &
+RUN_PID=$!
 ```
 
-The `--json` flag makes stdout fully machine-readable. `stderr` receives diagnostics.
+The `--json` flag makes stdout fully machine-readable. `stderr` receives diagnostics. Because `autoctx run` is synchronous, background it when you want to poll progress from another shell loop.
 
 #### Step 3: Poll for completion (long-running jobs)
 
-For runs with many generations, poll `autoctx status`:
+For runs with many generations, poll `autoctx status` while the backgrounded `run` process is still active:
 
 ```bash
-while true; do
+while kill -0 "$RUN_PID" 2>/dev/null; do
   status=$(autoctx status "$RUN_ID" --json 2>/dev/null)
   last_gate=$(echo "$status" | jq -r '.generations[-1].gate_decision // "pending"')
   last_gen=$(echo "$status" | jq -r '.generations | length')
   echo "Generation $last_gen: gate=$last_gate" >&2
-  if [ "$last_gen" -ge 5 ]; then break; fi
   sleep 10
 done
+
+wait "$RUN_PID"
+jq . "logs/${RUN_ID}.json"
 ```
 
-**Timeouts**: Each `autoctx` command has its own timeout. For runs with many generations, the CLI may take minutes — poll with `status` rather than waiting on `run`.
+**Timeouts**: Each `autoctx` command has its own timeout. For runs with many generations, the CLI may take minutes, so run it in the background and poll `status` from the foreground shell.
 
 **Idempotency**: `autoctx run` with the same `--run-id` is idempotent (INSERT OR IGNORE). Re-running is safe.
 
@@ -431,10 +437,13 @@ autoctx export \
 
 ```bash
 autoctx solve \
-  --scenario grid_ctf \
-  --strategy '{"aggression": 0.65, "defense": 0.50, "path_bias": 0.55}' \
+  --description "Design a grid capture-the-flag strategy that prioritizes safe flag captures, defends home base when behind, and adapts pathing when lanes are contested." \
+  --gens 3 \
+  --output "logs/${RUN_ID}_solve_package.json" \
   --json | jq .
 ```
+
+`autoctx solve` is a synchronous CLI wrapper around the solve-on-demand pipeline. Use the server or MCP solve APIs if you need background job submission and later result retrieval from a long-lived process.
 
 #### When to use which integration path
 
