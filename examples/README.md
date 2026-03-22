@@ -129,6 +129,28 @@ export AUTOCONTEXT_PROVIDER=anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Hermes CLI-First Workflow
+
+A Hermes agent can drive autocontext entirely through CLI commands. Set the gateway env vars and use `--json` for machine-readable output.
+
+```bash
+cd autocontext
+
+# Configure Hermes gateway
+export AUTOCONTEXT_AGENT_PROVIDER=openai-compatible
+export AUTOCONTEXT_AGENT_BASE_URL=http://localhost:8080/v1
+export AUTOCONTEXT_AGENT_API_KEY=no-key
+export AUTOCONTEXT_AGENT_DEFAULT_MODEL=hermes-3-llama-3.1-8b
+
+# Run → status → export loop
+RUN_ID="hermes_$(date +%s)"
+uv run autoctx run --scenario grid_ctf --gens 3 --run-id "$RUN_ID" --json | jq .
+uv run autoctx status "$RUN_ID" --json | jq '.generations[-1]'
+uv run autoctx export --scenario grid_ctf --output "exports/${RUN_ID}.json" --json | jq .
+```
+
+For the full walkthrough including polling, timeouts, and integration path comparison, see [autocontext/docs/agent-integration.md](../autocontext/docs/agent-integration.md#hermes-cli-first-starter-workflow).
+
 ## Read Next
 
 - Repo overview: [README.md](../README.md)
