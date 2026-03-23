@@ -8,6 +8,9 @@
 import { ProviderError } from "../types/index.js";
 import type { CompletionResult, LLMProvider } from "../types/index.js";
 import { DeterministicProvider } from "./deterministic.js";
+import { PiCLIRuntime, PiCLIConfig } from "../runtimes/pi-cli.js";
+import { PiRPCRuntime, PiRPCConfig } from "../runtimes/pi-rpc.js";
+import { RuntimeBridgeProvider } from "../agents/provider-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Anthropic Provider
@@ -178,12 +181,22 @@ export function createProvider(opts: CreateProviderOpts): LLMProvider {
     return { ...inner, name: "hermes-gateway" };
   }
 
+  if (type === "pi") {
+    const runtime = new PiCLIRuntime(new PiCLIConfig({ model: opts.model }));
+    return new RuntimeBridgeProvider(runtime as any, opts.model ?? "pi-default");
+  }
+
+  if (type === "pi-rpc") {
+    const runtime = new PiRPCRuntime(new PiRPCConfig({ endpoint: opts.baseUrl, apiKey: opts.apiKey }));
+    return new RuntimeBridgeProvider(runtime as any, opts.model ?? "pi-rpc-default");
+  }
+
   if (type === "deterministic") {
     return new DeterministicProvider();
   }
 
   throw new ProviderError(
-    `Unknown provider type: ${JSON.stringify(type)}. Supported: anthropic, openai, openai-compatible, ollama, vllm, hermes, deterministic`,
+    `Unknown provider type: ${JSON.stringify(type)}. Supported: anthropic, openai, openai-compatible, ollama, vllm, hermes, pi, pi-rpc, deterministic`,
   );
 }
 
@@ -260,6 +273,10 @@ export function resolveProviderConfig(overrides: Partial<ProviderConfig> = {}): 
       baseUrl: baseUrl ?? "http://localhost:8080/v1",
       model: model ?? "hermes-3-llama-3.1-8b",
     };
+  }
+
+  if (type === "pi" || type === "pi-rpc") {
+    return { providerType: type, apiKey: genericKey, baseUrl, model };
   }
 
   // openai, openai-compatible, and other generic types

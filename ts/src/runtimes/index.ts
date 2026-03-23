@@ -4,3 +4,7 @@ export { ClaudeCLIRuntime, createSessionRuntime } from "./claude-cli.js";
 export type { ClaudeCLIConfig } from "./claude-cli.js";
 export { CodexCLIRuntime, CodexCLIConfig } from "./codex-cli.js";
 export type { CodexCLIConfigOpts } from "./codex-cli.js";
+export { PiCLIRuntime, PiCLIConfig } from "./pi-cli.js";
+export type { PiCLIConfigOpts } from "./pi-cli.js";
+export { PiRPCRuntime, PiRPCConfig } from "./pi-rpc.js";
+export type { PiRPCConfigOpts } from "./pi-rpc.js";
