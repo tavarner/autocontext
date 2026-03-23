@@ -8,7 +8,8 @@
  *   autoctx repl      — run a direct REPL-loop session
  *   autoctx queue     — add task to background queue
  *   autoctx status    — check queue status
- *   autoctx serve     — start MCP server on stdio
+ *   autoctx serve     — start HTTP dashboard + API server
+ *   autoctx mcp-serve — start MCP server on stdio
  */
 
 import { parseArgs } from "node:util";
