@@ -3,6 +3,8 @@
  * Mirrors Python's autocontext/mcp/sandbox.py.
  */
 
+import { ArtifactStore } from "../knowledge/artifact-store.js";
+import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
 import type { LLMProvider } from "../types/index.js";
 import type { SQLiteStore } from "../storage/index.js";
 
@@ -43,6 +45,10 @@ export class SandboxManager {
     if (this.sandboxes.size >= this.maxSandboxes) {
       throw new Error(`Maximum sandbox limit (${this.maxSandboxes}) reached`);
     }
+    if (!(scenarioName in SCENARIO_REGISTRY)) {
+      const supported = Object.keys(SCENARIO_REGISTRY).sort().join(", ");
+      throw new Error(`Unknown scenario '${scenarioName}'. Supported: ${supported}`);
+    }
     const sandboxId = `sb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const sandbox: Sandbox = {
       sandboxId,
@@ -74,8 +80,6 @@ export class SandboxManager {
 
     try {
       const { GenerationRunner } = await import("../loop/generation-runner.js");
-      const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
-
       const ScenarioClass = SCENARIO_REGISTRY[sandbox.scenarioName];
       if (!ScenarioClass) throw new Error(`Unknown scenario: ${sandbox.scenarioName}`);
 
@@ -99,8 +103,9 @@ export class SandboxManager {
 
   readPlaybook(sandboxId: string): string {
     const sandbox = this.sandboxes.get(sandboxId);
-    if (!sandbox) return "";
-    const { ArtifactStore } = require("../knowledge/artifact-store.js") as { ArtifactStore: new (opts: { runsRoot: string; knowledgeRoot: string }) => { readPlaybook(s: string): string } };
+    if (!sandbox) {
+      throw new Error(`Sandbox ${sandboxId} not found`);
+    }
     const artifacts = new ArtifactStore({ runsRoot: this.runsRoot, knowledgeRoot: this.knowledgeRoot });
     return artifacts.readPlaybook(sandbox.scenarioName);
   }

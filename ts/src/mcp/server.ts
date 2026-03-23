@@ -12,9 +12,11 @@ import type { LLMProvider } from "../types/index.js";
 import { LLMJudge } from "../judge/index.js";
 import { ImprovementLoop } from "../execution/improvement-loop.js";
 import { enqueueTask } from "../execution/task-runner.js";
+import { SandboxManager } from "../execution/sandbox.js";
 import { SQLiteStore } from "../storage/index.js";
 import { SimpleAgentTask } from "../execution/task-runner.js";
 import { loadSettings } from "../config/index.js";
+import { SolveManager } from "../knowledge/solver.js";
 import { runAgentTaskRlmSession } from "../rlm/index.js";
 
 export interface MtsServerOpts {
@@ -70,8 +72,10 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
   const { runsRoot, knowledgeRoot } = resolveMcpArtifactRoots(opts);
   const server = new McpServer({
     name: "autocontext",
-    version: "0.2.0",
+    version: "0.2.3",
   });
+  const solveManager = new SolveManager({ provider, store, runsRoot, knowledgeRoot });
+  const sandboxManager = new SandboxManager({ provider, store, runsRoot, knowledgeRoot });
 
   // -- evaluate_output --
   server.tool(
@@ -803,9 +807,7 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Submit a problem for on-demand solving. Returns a job_id for polling.",
     { description: z.string(), generations: z.number().int().default(5) },
     async (args) => {
-      const { SolveManager } = await import("../knowledge/solver.js");
-      const mgr = new SolveManager({ provider, store, runsRoot, knowledgeRoot });
-      const jobId = mgr.submit(args.description, args.generations);
+      const jobId = solveManager.submit(args.description, args.generations);
       return { content: [{ type: "text" as const, text: JSON.stringify({ jobId, status: "pending" }) }] };
     },
   );
@@ -816,7 +818,23 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Check status of a solve-on-demand job",
     { jobId: z.string() },
     async (args) => {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ jobId: args.jobId, status: "unknown", note: "Solve jobs are ephemeral — poll within the same server session" }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(solveManager.getStatus(args.jobId), null, 2) }] };
+    },
+  );
+
+  // -- solve_result (AC-370) --
+  server.tool(
+    "solve_result",
+    "Get the exported skill package result of a completed solve-on-demand job",
+    { jobId: z.string() },
+    async (args) => {
+      const result = solveManager.getResult(args.jobId);
+      if (!result) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: "Job not completed or not found", jobId: args.jobId }) }],
+        };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     },
   );
 
@@ -826,10 +844,8 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Create an isolated sandbox for scenario execution",
     { scenario: z.string(), userId: z.string().default("anonymous") },
     async (args) => {
-      const { SandboxManager } = await import("../execution/sandbox.js");
-      const mgr = new SandboxManager({ provider, store, runsRoot, knowledgeRoot });
-      const sb = mgr.create(args.scenario, args.userId);
-      return { content: [{ type: "text" as const, text: JSON.stringify({ sandboxId: sb.sandboxId, scenario: sb.scenarioName, userId: sb.userId }) }] };
+      const sb = sandboxManager.create(args.scenario, args.userId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(sb, null, 2) }] };
     },
   );
 
@@ -839,7 +855,8 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Run generation(s) in a sandbox",
     { sandboxId: z.string(), generations: z.number().int().default(1) },
     async (args) => {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ sandboxId: args.sandboxId, note: "Sandbox state is ephemeral — use within the same server session" }) }] };
+      const result = await sandboxManager.run(args.sandboxId, args.generations);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     },
   );
 
@@ -849,7 +866,21 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Get sandbox status",
     { sandboxId: z.string() },
     async (args) => {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ sandboxId: args.sandboxId, status: "unknown" }) }] };
+      const sandbox = sandboxManager.getStatus(args.sandboxId);
+      if (!sandbox) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Sandbox '${args.sandboxId}' not found` }) }] };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(sandbox, null, 2) }] };
+    },
+  );
+
+  // -- sandbox_playbook (AC-370) --
+  server.tool(
+    "sandbox_playbook",
+    "Read the current playbook for a sandbox",
+    { sandboxId: z.string() },
+    async (args) => {
+      return { content: [{ type: "text" as const, text: sandboxManager.readPlaybook(args.sandboxId) }] };
     },
   );
 
@@ -859,7 +890,7 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "List active sandboxes",
     {},
     async () => {
-      return { content: [{ type: "text" as const, text: JSON.stringify([]) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(sandboxManager.list(), null, 2) }] };
     },
   );
 
@@ -869,7 +900,7 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     "Destroy a sandbox and clean up its data",
     { sandboxId: z.string() },
     async (args) => {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ destroyed: false, sandboxId: args.sandboxId, note: "Sandbox state is ephemeral" }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ destroyed: sandboxManager.destroy(args.sandboxId), sandboxId: args.sandboxId }) }] };
     },
   );
 

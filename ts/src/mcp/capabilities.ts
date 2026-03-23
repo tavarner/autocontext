@@ -15,7 +15,7 @@ export interface Capabilities {
 
 export function getCapabilities(): Capabilities {
   return {
-    version: "0.2.2",
+    version: "0.2.3",
     scenarios: Object.keys(SCENARIO_REGISTRY).sort(),
     providers: [
       "anthropic",

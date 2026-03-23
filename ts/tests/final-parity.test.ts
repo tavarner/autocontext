@@ -1,5 +1,5 @@
 /**
- * Tests for AC-370: Final TS package parity — solve flows, sandbox,
+ * Tests for AC-370: remaining TS package parity — solve flows, sandbox,
  * agent task CRUD, package management, capabilities, and exclusion docs.
  */
 
@@ -17,9 +17,55 @@ function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "ac-final-parity-"));
 }
 
-// ---------------------------------------------------------------------------
-// MCP tool registration — final count
-// ---------------------------------------------------------------------------
+type ToolResult = { content: Array<{ text: string }> };
+
+type RegisteredToolServer = {
+  _registeredTools: Record<
+    string,
+    {
+      handler: (
+        args: Record<string, unknown>,
+        extra: unknown,
+      ) => Promise<ToolResult>;
+    }
+  >;
+};
+
+async function createToolServer(dir: string): Promise<{
+  store: import("../src/storage/index.js").SQLiteStore;
+  server: RegisteredToolServer;
+}> {
+  const { SQLiteStore } = await import("../src/storage/index.js");
+  const { DeterministicProvider } = await import("../src/providers/deterministic.js");
+  const { createMcpServer } = await import("../src/mcp/server.js");
+
+  const store = new SQLiteStore(join(dir, "test.db"));
+  store.migrate(join(__dirname, "..", "migrations"));
+  const server = createMcpServer({
+    store,
+    provider: new DeterministicProvider(),
+    runsRoot: join(dir, "runs"),
+    knowledgeRoot: join(dir, "knowledge"),
+  }) as unknown as RegisteredToolServer;
+
+  return { store, server };
+}
+
+async function waitForSolveTerminalState(
+  server: RegisteredToolServer,
+  jobId: string,
+): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const result = await server._registeredTools.solve_status.handler({ jobId }, {});
+    const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
+    const status = String(payload.status ?? "");
+    if (status === "completed" || status === "failed" || status === "not_found") {
+      return payload;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for solve job ${jobId}`);
+}
 
 describe("MCP final tool count", () => {
   let dir: string;
@@ -28,57 +74,34 @@ describe("MCP final tool count", () => {
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
   it("registers >= 35 tools for package-surface parity", async () => {
-    const { SQLiteStore } = await import("../src/storage/index.js");
-    const { DeterministicProvider } = await import("../src/providers/deterministic.js");
-    const { createMcpServer } = await import("../src/mcp/server.js");
-
-    const store = new SQLiteStore(join(dir, "test.db"));
-    store.migrate(join(__dirname, "..", "migrations"));
-    const server = createMcpServer({
-      store,
-      provider: new DeterministicProvider(),
-      runsRoot: join(dir, "runs"),
-      knowledgeRoot: join(dir, "knowledge"),
-    });
-
-    const tools = (server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
-    const names = Object.keys(tools);
+    const { store, server } = await createToolServer(dir);
+    const names = Object.keys(server._registeredTools);
 
     expect(names.length).toBeGreaterThanOrEqual(35);
 
-    // Solve flows
     expect(names).toContain("solve_scenario");
     expect(names).toContain("solve_status");
+    expect(names).toContain("solve_result");
 
-    // Sandbox lifecycle
     expect(names).toContain("sandbox_create");
     expect(names).toContain("sandbox_run");
     expect(names).toContain("sandbox_status");
+    expect(names).toContain("sandbox_playbook");
     expect(names).toContain("sandbox_list");
     expect(names).toContain("sandbox_destroy");
 
-    // Agent task CRUD
     expect(names).toContain("create_agent_task");
     expect(names).toContain("list_agent_tasks");
     expect(names).toContain("get_agent_task");
 
-    // Package management
     expect(names).toContain("export_package");
     expect(names).toContain("import_package");
-
-    // Capabilities
     expect(names).toContain("capabilities");
-
-    // Generate output
     expect(names).toContain("generate_output");
 
     store.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Solve flow helpers
-// ---------------------------------------------------------------------------
 
 describe("Solve flow", () => {
   let dir: string;
@@ -86,34 +109,46 @@ describe("Solve flow", () => {
   beforeEach(() => { dir = makeTempDir(); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it("SolveManager can start and track a job", async () => {
-    const { SolveManager } = await import("../src/knowledge/solver.js");
-    const { DeterministicProvider } = await import("../src/providers/deterministic.js");
-    const { SQLiteStore } = await import("../src/storage/index.js");
+  it("solve tools share state and return the completed package export", async () => {
+    const { store, server } = await createToolServer(dir);
 
-    const store = new SQLiteStore(join(dir, "test.db"));
-    store.migrate(join(__dirname, "..", "migrations"));
-    const mgr = new SolveManager({
-      provider: new DeterministicProvider(),
-      store,
-      runsRoot: join(dir, "runs"),
-      knowledgeRoot: join(dir, "knowledge"),
-    });
+    const submitted = await server._registeredTools.solve_scenario.handler({
+      description: "grid ctf",
+      generations: 1,
+    }, {});
+    const submittedPayload = JSON.parse(submitted.content[0].text) as Record<string, unknown>;
+    const jobId = String(submittedPayload.jobId);
 
-    const jobId = mgr.submit("Optimize a grid capture strategy", 1);
-    expect(typeof jobId).toBe("string");
-    expect(jobId.length).toBeGreaterThan(0);
+    const status = await waitForSolveTerminalState(server, jobId);
+    expect(status.status).toBe("completed");
+    expect(status.scenarioName).toBe("grid_ctf");
 
-    const status = mgr.getStatus(jobId);
-    expect(["pending", "running", "completed", "failed"]).toContain(status.status);
+    const result = await server._registeredTools.solve_result.handler({ jobId }, {});
+    const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
+    expect(payload.scenario_name).toBe("grid_ctf");
+    expect(payload.skill_markdown).toBeTypeOf("string");
+
+    store.close();
+  });
+
+  it("fails honestly for generated scenarios that are not runnable in the TS loop", async () => {
+    const { store, server } = await createToolServer(dir);
+
+    const submitted = await server._registeredTools.solve_scenario.handler({
+      description: "Optimize a grid capture strategy with custom constraints",
+      generations: 1,
+    }, {});
+    const submittedPayload = JSON.parse(submitted.content[0].text) as Record<string, unknown>;
+    const jobId = String(submittedPayload.jobId);
+
+    const status = await waitForSolveTerminalState(server, jobId);
+    expect(status.status).toBe("failed");
+    expect(status.scenarioName).not.toBe("grid_ctf");
+    expect(String(status.error ?? "")).toContain("not runnable by the TS solve manager yet");
 
     store.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Sandbox lifecycle helpers
-// ---------------------------------------------------------------------------
 
 describe("Sandbox lifecycle", () => {
   let dir: string;
@@ -121,39 +156,48 @@ describe("Sandbox lifecycle", () => {
   beforeEach(() => { dir = makeTempDir(); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it("SandboxManager creates and lists sandboxes", async () => {
-    const { SandboxManager } = await import("../src/execution/sandbox.js");
-    const { DeterministicProvider } = await import("../src/providers/deterministic.js");
-    const { SQLiteStore } = await import("../src/storage/index.js");
+  it("sandbox tools share lifecycle state across MCP calls", async () => {
+    const { store, server } = await createToolServer(dir);
 
-    const store = new SQLiteStore(join(dir, "test.db"));
-    store.migrate(join(__dirname, "..", "migrations"));
-    const mgr = new SandboxManager({
-      provider: new DeterministicProvider(),
-      store,
-      runsRoot: join(dir, "runs"),
-      knowledgeRoot: join(dir, "knowledge"),
-    });
+    const created = await server._registeredTools.sandbox_create.handler({
+      scenario: "grid_ctf",
+      userId: "test-user",
+    }, {});
+    const createdPayload = JSON.parse(created.content[0].text) as Record<string, unknown>;
+    const sandboxId = String(createdPayload.sandboxId);
+    expect(createdPayload.scenarioName).toBe("grid_ctf");
 
-    const sandbox = mgr.create("grid_ctf", "test-user");
-    expect(sandbox.sandboxId).toBeDefined();
-    expect(sandbox.scenarioName).toBe("grid_ctf");
+    const status = await server._registeredTools.sandbox_status.handler({ sandboxId }, {});
+    const statusPayload = JSON.parse(status.content[0].text) as Record<string, unknown>;
+    expect(statusPayload.userId).toBe("test-user");
+    expect(statusPayload.status).toBe("active");
 
-    const list = mgr.list();
-    expect(list.length).toBe(1);
-    expect(list[0].sandboxId).toBe(sandbox.sandboxId);
+    const listed = await server._registeredTools.sandbox_list.handler({}, {});
+    const listedPayload = JSON.parse(listed.content[0].text) as Array<Record<string, unknown>>;
+    expect(listedPayload).toHaveLength(1);
+    expect(listedPayload[0]?.sandboxId).toBe(sandboxId);
 
-    const destroyed = mgr.destroy(sandbox.sandboxId);
-    expect(destroyed).toBe(true);
-    expect(mgr.list().length).toBe(0);
+    const run = await server._registeredTools.sandbox_run.handler({
+      sandboxId,
+      generations: 1,
+    }, {});
+    const runPayload = JSON.parse(run.content[0].text) as Record<string, unknown>;
+    expect(runPayload.runId).toBeTypeOf("string");
+    expect(runPayload.bestScore).toBeTypeOf("number");
+
+    const playbook = await server._registeredTools.sandbox_playbook.handler({ sandboxId }, {});
+    expect(playbook.content[0].text).toContain("Strategy Updates");
+
+    const destroyed = await server._registeredTools.sandbox_destroy.handler({ sandboxId }, {});
+    const destroyedPayload = JSON.parse(destroyed.content[0].text) as Record<string, unknown>;
+    expect(destroyedPayload.destroyed).toBe(true);
+
+    const listedAfterDestroy = await server._registeredTools.sandbox_list.handler({}, {});
+    expect(JSON.parse(listedAfterDestroy.content[0].text)).toEqual([]);
 
     store.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Agent task CRUD helpers
-// ---------------------------------------------------------------------------
 
 describe("Agent task CRUD", () => {
   let dir: string;
@@ -185,17 +229,13 @@ describe("Agent task CRUD", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Capabilities
-// ---------------------------------------------------------------------------
-
 describe("Capabilities discovery", () => {
   it("returns capability metadata", async () => {
     const { getCapabilities } = await import("../src/mcp/capabilities.js");
     const caps = getCapabilities();
     expect(caps.scenarios).toBeDefined();
     expect(caps.providers).toBeDefined();
-    expect(caps.version).toBeDefined();
+    expect(caps.version).toBe("0.2.3");
     expect(Array.isArray(caps.scenarios)).toBe(true);
     expect(caps.scenarios.length).toBeGreaterThan(0);
   });
