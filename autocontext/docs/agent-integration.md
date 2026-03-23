@@ -302,11 +302,11 @@ Both support **scenario-aware model handoff** when scenario context is available
 
 #### Hermes via OpenAI-Compatible Gateway
 
-Hermes exposes an OpenAI-compatible API server, so the fastest way to connect autocontext to Hermes is through the existing `openai-compatible` provider — no native runtime needed.
+Hermes exposes an OpenAI-compatible API server, so the fastest way to connect autocontext to Hermes is through the existing `openai-compatible` provider.
 
 **When to use the gateway path:**
 - You have a Hermes instance already running (local or remote)
-- You want to get started immediately without waiting for native Hermes runtime support
+- You want the lowest-friction setup with standard chat-completions semantics
 - The OpenAI chat completions API surface is sufficient for your use case
 
 **Caveats:**
@@ -316,7 +316,32 @@ Hermes exposes an OpenAI-compatible API server, so the fastest way to connect au
 - **Tool access**: Hermes tool/function-calling support depends on your Hermes server configuration. autocontext sends standard chat completion requests.
 - **API key**: Local Hermes servers often don't require authentication. Set `AUTOCONTEXT_AGENT_API_KEY=""` or `AUTOCONTEXT_AGENT_API_KEY=no-key` for keyless servers.
 
-**Long-term**: A native Hermes runtime (similar to the Pi CLI/RPC runtimes) would enable deeper integration — session persistence, memory management, tool routing. The gateway path is the recommended approach today.
+#### Native Hermes Runtime
+
+autocontext also supports Hermes directly through `AUTOCONTEXT_AGENT_PROVIDER=hermes`, which shells out to `hermes chat --query ...` instead of using the OpenAI-compatible gateway.
+
+**When to use the native runtime path:**
+- You want Hermes CLI behavior directly, including local SOUL/skill/tool configuration that Hermes applies in its own runtime
+- You want Hermes to run in a specific working directory via `AUTOCONTEXT_HERMES_WORKSPACE`
+- You want autocontext to call the local Hermes CLI without standing up a separate OpenAI-compatible server
+
+**Tradeoffs:**
+- **Still one-shot**: autocontext invokes Hermes in single-query mode. This is not the same thing as resuming a long-lived interactive Hermes chat session.
+- **CLI dependency**: The `hermes` binary must be installed and available on `PATH` (or configured via `AUTOCONTEXT_HERMES_COMMAND`).
+- **Endpoint overrides**: `AUTOCONTEXT_HERMES_BASE_URL` and `AUTOCONTEXT_HERMES_API_KEY` are forwarded into Hermes's provider env for custom OpenAI-compatible backends.
+- **Operational fit**: Prefer the gateway path when you already have a remote/shared Hermes server and want the most conventional stateless provider behavior.
+
+Example native setup:
+
+```bash
+export AUTOCONTEXT_AGENT_PROVIDER=hermes
+export AUTOCONTEXT_HERMES_COMMAND=hermes
+export AUTOCONTEXT_HERMES_MODEL=hermes-3-llama-3.1-8b
+
+# Optional: point Hermes at a specific OpenAI-compatible backend
+export AUTOCONTEXT_HERMES_BASE_URL=http://localhost:8080/v1
+export AUTOCONTEXT_HERMES_API_KEY=no-key
+```
 
 ### Concrete CLI-First Integration Example
 
@@ -452,9 +477,9 @@ autoctx solve \
 | **CLI-first** (this section) | Hermes agents driving `autoctx` via shell commands | Lowest |
 | **OpenAI-compatible provider** | autocontext calling Hermes for agent/judge completions | Low |
 | **MCP server** | Tool-catalog agents (Claude Code, MCP clients) | Medium |
-| **Native Hermes runtime** (future) | Session persistence, memory, tool routing | Highest |
+| **Native Hermes runtime** | autocontext calling the local Hermes CLI with Hermes-side workspace/skill context | Highest |
 
-The CLI-first path is recommended for getting started. Move to the provider path when you want autocontext to call Hermes instead of Hermes calling autocontext.
+The CLI-first path is recommended for getting started. Move to the gateway or native provider paths when you want autocontext to call Hermes instead of Hermes calling autocontext.
 
 ## MCP Integration (Secondary)
 
