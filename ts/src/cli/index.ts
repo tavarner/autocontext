@@ -598,7 +598,7 @@ async function cmdList(dbPath: string): Promise<void> {
   }
 }
 
-async function cmdReplay(dbPath: string): Promise<void> {
+async function cmdReplay(_dbPath: string): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(3),
     options: {
@@ -618,18 +618,31 @@ async function cmdReplay(dbPath: string): Promise<void> {
     process.exit(1);
   }
 
-  const { SQLiteStore } = await import("../storage/index.js");
-  const store = new SQLiteStore(dbPath);
-  store.migrate(getMigrationsDir());
+  const { existsSync, readdirSync, readFileSync } = await import("node:fs");
+  const { loadSettings } = await import("../config/index.js");
 
-  try {
-    const gen = parseInt(values.generation ?? "1", 10);
-    const matches = store.getMatchesForGeneration(values["run-id"], gen);
-    const outputs = store.getAgentOutputs(values["run-id"], gen);
-    console.log(JSON.stringify({ runId: values["run-id"], generation: gen, matches, outputs }, null, 2));
-  } finally {
-    store.close();
+  const gen = parseInt(values.generation ?? "1", 10);
+  const settings = loadSettings();
+  const replayDir = join(
+    resolve(settings.runsRoot),
+    values["run-id"],
+    "generations",
+    `gen_${gen}`,
+    "replays",
+  );
+  if (!existsSync(replayDir)) {
+    console.error(`No replay files found under ${replayDir}`);
+    process.exit(1);
   }
+  const replayFiles = readdirSync(replayDir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  if (replayFiles.length === 0) {
+    console.error(`No replay files found under ${replayDir}`);
+    process.exit(1);
+  }
+  const payload = JSON.parse(readFileSync(join(replayDir, replayFiles[0]), "utf-8"));
+  console.log(JSON.stringify(payload, null, 2));
 }
 
 async function cmdBenchmark(dbPath: string): Promise<void> {
@@ -702,7 +715,7 @@ async function cmdBenchmark(dbPath: string): Promise<void> {
   }
 }
 
-async function cmdExport(_dbPath: string): Promise<void> {
+async function cmdExport(dbPath: string): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(3),
     options: {
@@ -725,36 +738,33 @@ async function cmdExport(_dbPath: string): Promise<void> {
 
   const { loadSettings } = await import("../config/index.js");
   const { ArtifactStore } = await import("../knowledge/artifact-store.js");
-  const { SkillPackage } = await import("../knowledge/skill-package.js");
+  const { exportStrategyPackage } = await import("../knowledge/package.js");
+  const { SQLiteStore } = await import("../storage/index.js");
 
   const settings = loadSettings();
+  const store = new SQLiteStore(dbPath);
+  store.migrate(getMigrationsDir());
   const artifacts = new ArtifactStore({
     runsRoot: resolve(settings.runsRoot),
     knowledgeRoot: resolve(settings.knowledgeRoot),
   });
+  try {
+    const result = exportStrategyPackage({
+      scenarioName: values.scenario,
+      artifacts,
+      store,
+    });
 
-  const playbook = artifacts.readPlaybook(values.scenario);
-  const pkg = new SkillPackage({
-    scenarioName: values.scenario,
-    displayName: values.scenario.replace(/_/g, " "),
-    description: `Exported knowledge for ${values.scenario}`,
-    playbook,
-    lessons: [],
-    bestStrategy: null,
-    bestScore: 0,
-    bestElo: 1000,
-    hints: "",
-  });
-
-  const result = { ...pkg.toDict(), skill_markdown: pkg.toSkillMarkdown() };
-
-  if (values.output) {
-    const { writeFileSync, mkdirSync } = await import("node:fs");
-    mkdirSync(dirname(values.output), { recursive: true });
-    writeFileSync(values.output, JSON.stringify(result, null, 2), "utf-8");
-    console.log(values.json ? JSON.stringify({ output: values.output }) : `Exported to ${values.output}`);
-  } else {
-    console.log(JSON.stringify(result, null, 2));
+    if (values.output) {
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      mkdirSync(dirname(values.output), { recursive: true });
+      writeFileSync(values.output, JSON.stringify(result, null, 2), "utf-8");
+      console.log(values.json ? JSON.stringify({ output: values.output }) : `Exported to ${values.output}`);
+    } else {
+      console.log(JSON.stringify(result, null, 2));
+    }
+  } finally {
+    store.close();
   }
 }
 
@@ -763,13 +773,15 @@ async function cmdImportPackage(_dbPath: string): Promise<void> {
     args: process.argv.slice(3),
     options: {
       file: { type: "string", short: "f" },
+      scenario: { type: "string", short: "s" },
+      conflict: { type: "string", default: "overwrite" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
 
   if (values.help) {
-    console.log("autoctx import-package --file <path> [--json]");
+    console.log("autoctx import-package --file <path> [--scenario <name>] [--conflict overwrite|merge|skip] [--json]");
     process.exit(0);
   }
 
@@ -778,25 +790,29 @@ async function cmdImportPackage(_dbPath: string): Promise<void> {
     process.exit(1);
   }
 
-  const { readFileSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { readFileSync } = await import("node:fs");
   const { loadSettings } = await import("../config/index.js");
   const { ArtifactStore } = await import("../knowledge/artifact-store.js");
+  const { importStrategyPackage } = await import("../knowledge/package.js");
 
   const settings = loadSettings();
   const raw = readFileSync(values.file, "utf-8");
-  const pkg = JSON.parse(raw);
-
-  const scenarioName = pkg.scenario_name ?? pkg.scenarioName ?? "unknown";
   const artifacts = new ArtifactStore({
     runsRoot: resolve(settings.runsRoot),
     knowledgeRoot: resolve(settings.knowledgeRoot),
   });
-
-  if (pkg.playbook) {
-    artifacts.writePlaybook(scenarioName, pkg.playbook);
+  const conflict = (values.conflict ?? "overwrite") as "overwrite" | "merge" | "skip";
+  if (!["overwrite", "merge", "skip"].includes(conflict)) {
+    console.error("Error: --conflict must be one of overwrite, merge, skip");
+    process.exit(1);
   }
-
-  const result = { scenario: scenarioName, imported: true, playbook_written: !!pkg.playbook };
+  const result = importStrategyPackage({
+    rawPackage: JSON.parse(raw) as Record<string, unknown>,
+    artifacts,
+    skillsRoot: resolve(settings.skillsRoot),
+    scenarioOverride: values.scenario,
+    conflictPolicy: conflict,
+  });
   console.log(JSON.stringify(result, null, 2));
 }
 
