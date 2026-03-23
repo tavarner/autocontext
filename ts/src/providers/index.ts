@@ -198,20 +198,24 @@ export interface ProviderConfig {
   model?: string;
 }
 
-export function resolveProviderConfig(): ProviderConfig {
+export function resolveProviderConfig(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
   // Python-compatible: AUTOCONTEXT_AGENT_PROVIDER takes precedence
   const providerType =
+    overrides.providerType ??
     process.env.AUTOCONTEXT_AGENT_PROVIDER ??
     process.env.AUTOCONTEXT_PROVIDER ??
     "anthropic";
   // Agent-specific env vars (Python-compatible) with fallback to generic
   const model =
+    overrides.model ??
     process.env.AUTOCONTEXT_AGENT_DEFAULT_MODEL ??
     process.env.AUTOCONTEXT_MODEL;
   const baseUrl =
+    overrides.baseUrl ??
     process.env.AUTOCONTEXT_AGENT_BASE_URL ??
     process.env.AUTOCONTEXT_BASE_URL;
   const genericKey =
+    overrides.apiKey ??
     process.env.AUTOCONTEXT_AGENT_API_KEY ??
     process.env.AUTOCONTEXT_API_KEY;
 
@@ -266,4 +270,95 @@ export function resolveProviderConfig(): ProviderConfig {
     );
   }
   return { providerType: type, apiKey, baseUrl, model };
+}
+
+export function createConfiguredProvider(overrides: Partial<ProviderConfig> = {}): {
+  provider: LLMProvider;
+  config: ProviderConfig;
+} {
+  const config = resolveProviderConfig(overrides);
+  return {
+    provider: createProvider(config),
+    config,
+  };
+}
+
+export type GenerationRole = "competitor" | "analyst" | "coach" | "architect" | "curator";
+
+export interface RoleProviderSettings {
+  agentProvider: string;
+  competitorProvider?: string;
+  analystProvider?: string;
+  coachProvider?: string;
+  architectProvider?: string;
+  modelCompetitor?: string;
+  modelAnalyst?: string;
+  modelCoach?: string;
+  modelArchitect?: string;
+  modelCurator?: string;
+}
+
+export interface RoleProviderBundle {
+  defaultProvider: LLMProvider;
+  defaultConfig: ProviderConfig;
+  roleProviders: Partial<Record<GenerationRole, LLMProvider>>;
+  roleModels: Partial<Record<GenerationRole, string>>;
+}
+
+export function buildRoleProviderBundle(
+  settings: RoleProviderSettings,
+  overrides: Partial<ProviderConfig> = {},
+): RoleProviderBundle {
+  const defaultConfig = resolveProviderConfig({
+    ...overrides,
+    providerType: overrides.providerType ?? settings.agentProvider,
+  });
+  const defaultProvider = createProvider(defaultConfig);
+
+  const roleConfigs: Record<GenerationRole, ProviderConfig> = {
+    competitor: resolveProviderConfig({
+      ...overrides,
+      providerType: settings.competitorProvider || defaultConfig.providerType,
+      model: settings.modelCompetitor ?? defaultConfig.model,
+    }),
+    analyst: resolveProviderConfig({
+      ...overrides,
+      providerType: settings.analystProvider || defaultConfig.providerType,
+      model: settings.modelAnalyst ?? defaultConfig.model,
+    }),
+    coach: resolveProviderConfig({
+      ...overrides,
+      providerType: settings.coachProvider || defaultConfig.providerType,
+      model: settings.modelCoach ?? defaultConfig.model,
+    }),
+    architect: resolveProviderConfig({
+      ...overrides,
+      providerType: settings.architectProvider || defaultConfig.providerType,
+      model: settings.modelArchitect ?? defaultConfig.model,
+    }),
+    curator: resolveProviderConfig({
+      ...overrides,
+      providerType: defaultConfig.providerType,
+      model: settings.modelCurator ?? defaultConfig.model,
+    }),
+  };
+
+  return {
+    defaultProvider,
+    defaultConfig,
+    roleProviders: {
+      competitor: createProvider(roleConfigs.competitor),
+      analyst: createProvider(roleConfigs.analyst),
+      coach: createProvider(roleConfigs.coach),
+      architect: createProvider(roleConfigs.architect),
+      curator: createProvider(roleConfigs.curator),
+    },
+    roleModels: {
+      competitor: roleConfigs.competitor.model,
+      analyst: roleConfigs.analyst.model,
+      coach: roleConfigs.coach.model,
+      architect: roleConfigs.architect.model,
+      curator: roleConfigs.curator.model,
+    },
+  };
 }
