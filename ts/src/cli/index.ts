@@ -775,6 +775,7 @@ async function cmdExportTrainingData(dbPath: string): Promise<void> {
     options: {
       "run-id": { type: "string" },
       scenario: { type: "string" },
+      "all-runs": { type: "boolean" },
       output: { type: "string", short: "o" },
       "include-matches": { type: "boolean" },
       "kept-only": { type: "boolean" },
@@ -783,7 +784,7 @@ async function cmdExportTrainingData(dbPath: string): Promise<void> {
   });
 
   if (values.help) {
-    console.log("autoctx export-training-data --run-id <id> [--scenario <name>] [--output <file>] [--include-matches] [--kept-only]");
+    console.log("autoctx export-training-data --run-id <id> [--scenario <name> --all-runs] [--output <file>] [--include-matches] [--kept-only]");
     console.log("\nExports training data as JSONL with Python-compatible snake_case fields.");
     console.log("\nUnsupported Python commands: train, trigger-distillation (require MLX/CUDA backends)");
     process.exit(0);
@@ -794,14 +795,26 @@ async function cmdExportTrainingData(dbPath: string): Promise<void> {
     process.exit(1);
   }
 
+  if (values.scenario && !values["run-id"] && !values["all-runs"]) {
+    console.error("Error: --all-runs is required with --scenario");
+    process.exit(1);
+  }
+
   const { SQLiteStore } = await import("../storage/index.js");
+  const { loadSettings } = await import("../config/index.js");
+  const { ArtifactStore } = await import("../knowledge/artifact-store.js");
   const { exportTrainingData } = await import("../training/export.js");
 
+  const settings = loadSettings();
   const store = new SQLiteStore(dbPath);
   store.migrate(getMigrationsDir());
+  const artifacts = new ArtifactStore({
+    runsRoot: resolve(settings.runsRoot),
+    knowledgeRoot: resolve(settings.knowledgeRoot),
+  });
 
   try {
-    const records = exportTrainingData(store, {
+    const records = exportTrainingData(store, artifacts, {
       runId: values["run-id"],
       scenario: values.scenario,
       includeMatches: values["include-matches"],
