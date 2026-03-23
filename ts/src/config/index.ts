@@ -189,6 +189,17 @@ export const AppSettingsSchema = z.object({
   openclawDistillSidecarFactory: z.string().default(""),
   openclawDistillSidecarCommand: z.string().default(""),
 
+  // Pi CLI runtime
+  piCommand: z.string().default("pi"),
+  piTimeout: z.number().min(1).default(120.0),
+  piWorkspace: z.string().default(""),
+  piModel: z.string().default(""),
+
+  // Pi RPC runtime
+  piRpcEndpoint: z.string().default(""),
+  piRpcApiKey: z.string().default(""),
+  piRpcSessionPersistence: z.boolean().default(true),
+
   // Feature flags
   ablationNoFeedback: z.boolean().default(false),
   rlmEnabled: z.boolean().default(false),
