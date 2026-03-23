@@ -12,9 +12,11 @@ import type { LLMProvider } from "../types/index.js";
 import { LLMJudge } from "../judge/index.js";
 import { ImprovementLoop } from "../execution/improvement-loop.js";
 import { enqueueTask } from "../execution/task-runner.js";
+import { SandboxManager } from "../execution/sandbox.js";
 import { SQLiteStore } from "../storage/index.js";
 import { SimpleAgentTask } from "../execution/task-runner.js";
 import { loadSettings } from "../config/index.js";
+import { SolveManager } from "../knowledge/solver.js";
 import { runAgentTaskRlmSession } from "../rlm/index.js";
 
 export interface MtsServerOpts {
@@ -70,8 +72,10 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
   const { runsRoot, knowledgeRoot } = resolveMcpArtifactRoots(opts);
   const server = new McpServer({
     name: "autocontext",
-    version: "0.2.0",
+    version: "0.2.3",
   });
+  const solveManager = new SolveManager({ provider, store, runsRoot, knowledgeRoot });
+  const sandboxManager = new SandboxManager({ provider, store, runsRoot, knowledgeRoot });
 
   // -- evaluate_output --
   server.tool(
@@ -794,6 +798,201 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
       };
+    },
+  );
+
+  // -- solve_scenario (AC-370) --
+  server.tool(
+    "solve_scenario",
+    "Submit a problem for on-demand solving. Returns a job_id for polling.",
+    { description: z.string(), generations: z.number().int().default(5) },
+    async (args) => {
+      const jobId = solveManager.submit(args.description, args.generations);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ jobId, status: "pending" }) }] };
+    },
+  );
+
+  // -- solve_status (AC-370) --
+  server.tool(
+    "solve_status",
+    "Check status of a solve-on-demand job",
+    { jobId: z.string() },
+    async (args) => {
+      return { content: [{ type: "text" as const, text: JSON.stringify(solveManager.getStatus(args.jobId), null, 2) }] };
+    },
+  );
+
+  // -- solve_result (AC-370) --
+  server.tool(
+    "solve_result",
+    "Get the exported skill package result of a completed solve-on-demand job",
+    { jobId: z.string() },
+    async (args) => {
+      const result = solveManager.getResult(args.jobId);
+      if (!result) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: "Job not completed or not found", jobId: args.jobId }) }],
+        };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // -- sandbox_create (AC-370) --
+  server.tool(
+    "sandbox_create",
+    "Create an isolated sandbox for scenario execution",
+    { scenario: z.string(), userId: z.string().default("anonymous") },
+    async (args) => {
+      const sb = sandboxManager.create(args.scenario, args.userId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(sb, null, 2) }] };
+    },
+  );
+
+  // -- sandbox_run (AC-370) --
+  server.tool(
+    "sandbox_run",
+    "Run generation(s) in a sandbox",
+    { sandboxId: z.string(), generations: z.number().int().default(1) },
+    async (args) => {
+      const result = await sandboxManager.run(args.sandboxId, args.generations);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // -- sandbox_status (AC-370) --
+  server.tool(
+    "sandbox_status",
+    "Get sandbox status",
+    { sandboxId: z.string() },
+    async (args) => {
+      const sandbox = sandboxManager.getStatus(args.sandboxId);
+      if (!sandbox) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ error: `Sandbox '${args.sandboxId}' not found` }) }] };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(sandbox, null, 2) }] };
+    },
+  );
+
+  // -- sandbox_playbook (AC-370) --
+  server.tool(
+    "sandbox_playbook",
+    "Read the current playbook for a sandbox",
+    { sandboxId: z.string() },
+    async (args) => {
+      return { content: [{ type: "text" as const, text: sandboxManager.readPlaybook(args.sandboxId) }] };
+    },
+  );
+
+  // -- sandbox_list (AC-370) --
+  server.tool(
+    "sandbox_list",
+    "List active sandboxes",
+    {},
+    async () => {
+      return { content: [{ type: "text" as const, text: JSON.stringify(sandboxManager.list(), null, 2) }] };
+    },
+  );
+
+  // -- sandbox_destroy (AC-370) --
+  server.tool(
+    "sandbox_destroy",
+    "Destroy a sandbox and clean up its data",
+    { sandboxId: z.string() },
+    async (args) => {
+      return { content: [{ type: "text" as const, text: JSON.stringify({ destroyed: sandboxManager.destroy(args.sandboxId), sandboxId: args.sandboxId }) }] };
+    },
+  );
+
+  // -- create_agent_task (AC-370) --
+  server.tool(
+    "create_agent_task",
+    "Create a named agent task spec for evaluation",
+    { name: z.string(), taskPrompt: z.string(), rubric: z.string(), referenceContext: z.string().optional() },
+    async (args) => {
+      const { AgentTaskStore } = await import("../scenarios/agent-task-store.js");
+      const taskStore = new AgentTaskStore(join(knowledgeRoot, "_agent_tasks"));
+      taskStore.create({ name: args.name, taskPrompt: args.taskPrompt, rubric: args.rubric, referenceContext: args.referenceContext });
+      return { content: [{ type: "text" as const, text: JSON.stringify({ name: args.name, created: true }) }] };
+    },
+  );
+
+  // -- list_agent_tasks (AC-370) --
+  server.tool(
+    "list_agent_tasks",
+    "List created agent task specs",
+    {},
+    async () => {
+      const { AgentTaskStore } = await import("../scenarios/agent-task-store.js");
+      const taskStore = new AgentTaskStore(join(knowledgeRoot, "_agent_tasks"));
+      return { content: [{ type: "text" as const, text: JSON.stringify(taskStore.list(), null, 2) }] };
+    },
+  );
+
+  // -- get_agent_task (AC-370) --
+  server.tool(
+    "get_agent_task",
+    "Get a specific agent task spec by name",
+    { name: z.string() },
+    async (args) => {
+      const { AgentTaskStore } = await import("../scenarios/agent-task-store.js");
+      const taskStore = new AgentTaskStore(join(knowledgeRoot, "_agent_tasks"));
+      const task = taskStore.get(args.name);
+      if (!task) return { content: [{ type: "text" as const, text: JSON.stringify({ error: "Task not found" }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }] };
+    },
+  );
+
+  // -- generate_output (AC-370) --
+  server.tool(
+    "generate_output",
+    "Generate an initial agent output for a task prompt",
+    { taskPrompt: z.string(), systemPrompt: z.string().default("") },
+    async (args) => {
+      const result = await provider.complete({ systemPrompt: args.systemPrompt, userPrompt: args.taskPrompt });
+      return { content: [{ type: "text" as const, text: JSON.stringify({ output: result.text, model: result.model }) }] };
+    },
+  );
+
+  // -- export_package (AC-370) --
+  server.tool(
+    "export_package",
+    "Export a versioned strategy package for a scenario",
+    { scenario: z.string() },
+    async (args) => {
+      const { ArtifactStore } = await import("../knowledge/artifact-store.js");
+      const { exportStrategyPackage } = await import("../knowledge/package.js");
+      const artifacts = new ArtifactStore({ runsRoot, knowledgeRoot });
+      const pkg = exportStrategyPackage({ scenarioName: args.scenario, artifacts, store });
+      return { content: [{ type: "text" as const, text: JSON.stringify(pkg, null, 2) }] };
+    },
+  );
+
+  // -- import_package (AC-370) --
+  server.tool(
+    "import_package",
+    "Import a strategy package into scenario knowledge",
+    { packageData: z.string(), conflictPolicy: z.string().default("merge") },
+    async (args) => {
+      const { ArtifactStore } = await import("../knowledge/artifact-store.js");
+      const { importStrategyPackage } = await import("../knowledge/package.js");
+      const { loadSettings } = await import("../config/index.js");
+      const settings = loadSettings();
+      const artifacts = new ArtifactStore({ runsRoot, knowledgeRoot });
+      const pkg = JSON.parse(args.packageData) as Record<string, unknown>;
+      const result = importStrategyPackage({ rawPackage: pkg, artifacts, skillsRoot: settings.skillsRoot, conflictPolicy: args.conflictPolicy as "overwrite" | "merge" | "skip" });
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  // -- capabilities (AC-370) --
+  server.tool(
+    "capabilities",
+    "Return capability metadata for this autocontext instance",
+    {},
+    async () => {
+      const { getCapabilities } = await import("./capabilities.js");
+      return { content: [{ type: "text" as const, text: JSON.stringify(getCapabilities(), null, 2) }] };
     },
   );
 
