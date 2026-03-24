@@ -62,6 +62,15 @@ class SQLiteStore:
             ).fetchone()
             return row is not None
 
+    def get_generation(self, run_id: str, generation_index: int) -> dict[str, Any] | None:
+        """Return a single generation row by run_id and index."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM generations WHERE run_id = ? AND generation_index = ?",
+                (run_id, generation_index),
+            ).fetchone()
+            return dict(row) if row else None
+
     def upsert_generation(
         self,
         run_id: str,

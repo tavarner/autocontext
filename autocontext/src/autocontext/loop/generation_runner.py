@@ -1121,6 +1121,32 @@ class GenerationRunner:
                         {"run_id": active_run_id, "generation": generation, "error": str(exc)},
                     )
                     raise
+                finally:
+                    # Safety net: if the generation is still in "running" status
+                    # (e.g. due to a hang, signal interrupt, or unhandled edge case),
+                    # mark it as failed so it doesn't appear stuck in the DB. (AC-378)
+                    try:
+                        gen_row = self.sqlite.get_generation(active_run_id, generation)
+                        if gen_row and gen_row.get("status") == "running":
+                            LOGGER.warning(
+                                "generation %d for run %s still in 'running' state after pipeline exit; marking as stalled",
+                                generation, active_run_id,
+                            )
+                            self.sqlite.upsert_generation(
+                                active_run_id,
+                                generation,
+                                mean_score=0.0,
+                                best_score=previous_best,
+                                elo=challenger_elo,
+                                wins=0,
+                                losses=0,
+                                gate_decision="stalled",
+                                status="failed",
+                                scoring_backend=self.settings.scoring_backend,
+                                rating_uncertainty=challenger_uncertainty,
+                            )
+                    except Exception:
+                        pass  # Safety net must never crash the outer handler
             self.sqlite.mark_run_completed(active_run_id)
             if completed > 0:
                 self.artifacts.mutation_log.create_checkpoint(
