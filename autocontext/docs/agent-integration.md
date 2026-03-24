@@ -571,26 +571,28 @@ Hermes supports MCP servers natively. Add the autocontext MCP server to your Her
 
 #### Configuration
 
-Add to your Hermes `mcp_servers` config (typically `~/.hermes/config.json` or the workspace config):
+Add to your Hermes config file (`~/.hermes/config.yaml` or workspace `.hermes/config.yaml`):
 
-```json
-{
-  "mcp_servers": {
-    "autocontext": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/autocontext", "autoctx", "mcp-serve"],
-      "env": {
-        "AUTOCONTEXT_AGENT_PROVIDER": "openai-compatible",
-        "AUTOCONTEXT_AGENT_BASE_URL": "http://localhost:8080/v1",
-        "AUTOCONTEXT_AGENT_API_KEY": "no-key",
-        "AUTOCONTEXT_AGENT_DEFAULT_MODEL": "hermes-3-llama-3.1-8b"
-      }
-    }
-  }
-}
+```yaml
+mcp_servers:
+  autocontext:
+    command: uv
+    args:
+      - run
+      - --directory
+      - /path/to/autocontext
+      - autoctx
+      - mcp-serve
+    env:
+      AUTOCONTEXT_AGENT_PROVIDER: openai-compatible
+      AUTOCONTEXT_AGENT_BASE_URL: http://localhost:8080/v1
+      AUTOCONTEXT_AGENT_API_KEY: no-key
+      AUTOCONTEXT_AGENT_DEFAULT_MODEL: hermes-3-llama-3.1-8b
 ```
 
-This starts the autocontext MCP server on stdio when Hermes connects. The server exposes all `autocontext_*` tools.
+This starts the autocontext MCP server on stdio when Hermes connects.
+
+**Tool naming in Hermes:** Hermes registers MCP tools with the prefix `mcp_<server_name>_<tool_name>`. So autocontext tools appear in Hermes as `mcp_autocontext_list_scenarios`, `mcp_autocontext_run_match`, etc. The walkthrough below uses the base tool names for clarity — prepend `mcp_autocontext_` when calling from Hermes.
 
 #### Recommended Tool Allowlists
 

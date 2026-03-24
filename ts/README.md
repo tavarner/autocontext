@@ -80,10 +80,14 @@ autoctx run --scenario grid_ctf --json
 # Ollama (local)
 AUTOCONTEXT_AGENT_PROVIDER=ollama autoctx run --scenario grid_ctf --json
 
-# Hermes gateway
-AUTOCONTEXT_AGENT_PROVIDER=hermes \
+# Hermes (via OpenAI-compatible gateway)
+AUTOCONTEXT_AGENT_PROVIDER=openai-compatible \
 AUTOCONTEXT_AGENT_BASE_URL=http://localhost:8080/v1 \
+AUTOCONTEXT_AGENT_DEFAULT_MODEL=hermes-3-llama-3.1-8b \
 autoctx run --scenario grid_ctf --json
+
+# Hermes (native CLI runtime — requires hermes binary)
+AUTOCONTEXT_AGENT_PROVIDER=hermes autoctx run --scenario grid_ctf --json
 
 # Pi CLI
 AUTOCONTEXT_AGENT_PROVIDER=pi autoctx run --scenario grid_ctf --json
