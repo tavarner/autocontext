@@ -3,6 +3,7 @@
  * Converts a natural language description into a scenario spec via LLM.
  */
 
+import { SCENARIO_TYPE_MARKERS, type ScenarioFamilyName } from "./families.js";
 import type { LLMProvider } from "../types/index.js";
 
 export interface CreatedScenarioResult {
@@ -19,7 +20,7 @@ export interface CreatedScenarioResult {
 /**
  * Derive a snake_case scenario name from a description.
  */
-function deriveName(description: string): string {
+export function deriveScenarioName(description: string): string {
   return description
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
@@ -32,19 +33,54 @@ function deriveName(description: string): string {
 /**
  * Detect likely family from description keywords.
  */
-function detectFamily(description: string): string {
+export function detectScenarioFamily(description: string): ScenarioFamilyName {
   const lower = description.toLowerCase();
-  const signals: Record<string, string[]> = {
+  const signals: Record<Exclude<ScenarioFamilyName, "game">, string[]> = {
     simulation: ["deploy", "pipeline", "orchestrat", "workflow", "incident", "state machine", "mock api"],
     investigation: ["investigat", "debug", "root cause", "diagnos"],
     workflow: ["step by step", "process", "checklist"],
     negotiation: ["negotiat", "bargain", "trade"],
+    agent_task: [],
+    artifact_editing: [],
+    schema_evolution: [],
+    tool_fragility: [],
+    operator_loop: [],
+    coordination: [],
   };
 
   for (const [family, keywords] of Object.entries(signals)) {
-    if (keywords.some((k) => lower.includes(k))) return family;
+    if (keywords.some((k) => lower.includes(k))) return family as ScenarioFamilyName;
   }
   return "agent_task";
+}
+
+export function isScenarioFamilyName(value: string): value is ScenarioFamilyName {
+  return value in SCENARIO_TYPE_MARKERS;
+}
+
+function scenarioCreationInstructions(): string {
+  const familyNames = Object.keys(SCENARIO_TYPE_MARKERS)
+    .filter((family) => family !== "game")
+    .sort()
+    .join(", ");
+  return [
+    "You are a scenario designer for an agent evaluation harness.",
+    "Given a user's description, generate a JSON spec with these fields:",
+    "  - name: a short snake_case scenario identifier",
+    `  - family: the best-fit scenario family (${familyNames})`,
+    "  - taskPrompt: the task the agent will be given",
+    "  - rubric: evaluation criteria for judging the output",
+    "  - description: a brief description of what the scenario tests",
+    "Respond with ONLY the JSON object, no markdown fences.",
+  ].join("\n");
+}
+
+export function buildScenarioCreationPrompt(description: string): string {
+  return [
+    scenarioCreationInstructions(),
+    "",
+    `User description: ${description}`,
+  ].join("\n");
 }
 
 /**
@@ -55,18 +91,11 @@ export async function createScenarioFromDescription(
   description: string,
   provider: LLMProvider,
 ): Promise<CreatedScenarioResult> {
-  const name = deriveName(description);
-  const family = detectFamily(description);
+  const defaultName = deriveScenarioName(description);
+  const defaultFamily = detectScenarioFamily(description);
 
   const result = await provider.complete({
-    systemPrompt: [
-      "You are a scenario designer for an agent evaluation harness.",
-      "Given a user's description, generate a JSON spec with these fields:",
-      '  - taskPrompt: the task the agent will be given',
-      '  - rubric: evaluation criteria for judging the output',
-      '  - description: a brief description of what the scenario tests',
-      "Respond with ONLY the JSON object, no markdown fences.",
-    ].join("\n"),
+    systemPrompt: scenarioCreationInstructions(),
     userPrompt: description,
   });
 
@@ -94,10 +123,17 @@ export async function createScenarioFromDescription(
   if (!spec.taskPrompt) spec.taskPrompt = description;
   if (!spec.rubric) spec.rubric = `Evaluate the quality of the response.`;
   if (!spec.description) spec.description = `Custom scenario: ${description}`;
+  const name = typeof spec.name === "string" && spec.name.trim()
+    ? spec.name.trim()
+    : defaultName;
+  const family = typeof spec.family === "string" && isScenarioFamilyName(spec.family)
+    ? spec.family
+    : defaultFamily;
+  const { name: _ignoredName, family: _ignoredFamily, ...specFields } = spec;
 
   return {
     name,
     family,
-    spec: spec as CreatedScenarioResult["spec"],
+    spec: specFields as CreatedScenarioResult["spec"],
   };
 }

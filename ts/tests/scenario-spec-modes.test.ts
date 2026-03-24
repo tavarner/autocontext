@@ -48,6 +48,7 @@ describe("new-scenario --from-spec", () => {
     const specPath = join(dir, "spec.json");
     writeFileSync(specPath, JSON.stringify({
       name: "summarization_quality",
+      family: "investigation",
       description: "Evaluate summarization of documents",
       taskPrompt: "Given a source document, produce a summary under 200 words.",
       rubric: "Factual accuracy, coverage, conciseness",
@@ -57,6 +58,7 @@ describe("new-scenario --from-spec", () => {
     expect(exitCode).toBe(0);
     const result = JSON.parse(stdout);
     expect(result.name).toBe("summarization_quality");
+    expect(result.family).toBe("investigation");
     expect(result.spec.taskPrompt).toContain("summary");
   });
 
@@ -66,6 +68,21 @@ describe("new-scenario --from-spec", () => {
 
     const { exitCode, stderr } = runCli(["new-scenario", "--from-spec", specPath]);
     expect(exitCode).toBe(1);
+  });
+
+  it("derives family from the spec when family is omitted", () => {
+    const specPath = join(dir, "derived.json");
+    writeFileSync(specPath, JSON.stringify({
+      name: "incident_root_cause",
+      description: "Investigate the root cause of a production outage",
+      taskPrompt: "Investigate the root cause of the outage and explain the failure chain.",
+      rubric: "Root cause accuracy, evidence, remediation quality",
+    }), "utf-8");
+
+    const { stdout, exitCode } = runCli(["new-scenario", "--from-spec", specPath, "--json"]);
+    expect(exitCode).toBe(0);
+    const result = JSON.parse(stdout);
+    expect(result.family).toBe("investigation");
   });
 });
 
@@ -82,6 +99,7 @@ describe("new-scenario --from-stdin", () => {
   it("reads spec from stdin", () => {
     const spec = JSON.stringify({
       name: "code_review",
+      family: "workflow",
       description: "Evaluate code review quality",
       taskPrompt: "Review this pull request diff.",
       rubric: "Thoroughness, accuracy, actionability",
@@ -94,6 +112,7 @@ describe("new-scenario --from-stdin", () => {
     expect(exitCode).toBe(0);
     const result = JSON.parse(stdout);
     expect(result.name).toBe("code_review");
+    expect(result.family).toBe("workflow");
   });
 });
 
@@ -116,6 +135,8 @@ describe("new-scenario --prompt-only", () => {
     expect(exitCode).toBe(0);
     // Should contain the system prompt for scenario generation
     expect(stdout).toContain("scenario");
+    expect(stdout).toContain("name");
+    expect(stdout).toContain("family");
     expect(stdout).toContain("taskPrompt");
     expect(stdout).toContain("rubric");
     // Should NOT contain a generated scenario (no LLM was called)

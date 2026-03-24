@@ -987,13 +987,63 @@ Modes:
   --prompt-only           Output the generation prompt without calling an LLM
 
 Spec schema (for --from-spec and --from-stdin):
-  { "name": "...", "taskPrompt": "...", "rubric": "...", "description": "..." }
+  {
+    "name": "...",
+    "family": "agent_task|simulation|artifact_editing|investigation|workflow|schema_evolution|tool_fragility|negotiation|operator_loop|coordination|game",
+    "taskPrompt": "...",
+    "rubric": "...",
+    "description": "..."
+  }
+  If family is omitted, autoctx derives the best-fit family from the spec text.
 
 Options:
   --json                  Output as JSON
   -h, --help              Show this help`);
     process.exit(0);
   }
+
+  const {
+    createScenarioFromDescription,
+    buildScenarioCreationPrompt,
+    detectScenarioFamily,
+    isScenarioFamilyName,
+  } = await import("../scenarios/scenario-creator.js");
+  const { SCENARIO_TYPE_MARKERS } = await import("../scenarios/families.js");
+  const validFamilies = Object.keys(SCENARIO_TYPE_MARKERS).sort();
+
+  const normalizeImportedScenario = (spec: Record<string, unknown>) => {
+    const name = typeof spec.name === "string" ? spec.name.trim() : "";
+    const taskPrompt = typeof spec.taskPrompt === "string" ? spec.taskPrompt.trim() : "";
+    const rubric = typeof spec.rubric === "string" ? spec.rubric.trim() : "";
+    const description = typeof spec.description === "string" ? spec.description : "";
+
+    if (!name || !taskPrompt || !rubric) {
+      console.error("Error: spec must contain name, taskPrompt, and rubric fields");
+      process.exit(1);
+    }
+
+    let family = detectScenarioFamily([description, taskPrompt].filter(Boolean).join("\n"));
+    if (typeof spec.family === "string" && spec.family.trim()) {
+      const requestedFamily = spec.family.trim();
+      if (!isScenarioFamilyName(requestedFamily)) {
+        console.error(`Error: family must be one of ${validFamilies.join(", ")}`);
+        process.exit(1);
+      }
+      family = requestedFamily;
+    }
+
+    const { name: _ignoredName, family: _ignoredFamily, ...specFields } = spec;
+    return {
+      name,
+      family,
+      spec: {
+        ...specFields,
+        taskPrompt,
+        rubric,
+        description,
+      },
+    };
+  };
 
   // Mode 1: --from-spec <file>
   if (values["from-spec"]) {
@@ -1005,19 +1055,7 @@ Options:
       console.error(`Error reading spec file: ${(err as Error).message}`);
       process.exit(1);
     }
-    if (!spec.name || !spec.taskPrompt || !spec.rubric) {
-      console.error("Error: spec must contain name, taskPrompt, and rubric fields");
-      process.exit(1);
-    }
-    const result = {
-      name: spec.name as string,
-      family: "agent_task",
-      spec: {
-        taskPrompt: spec.taskPrompt as string,
-        rubric: spec.rubric as string,
-        description: (spec.description as string) ?? "",
-      },
-    };
+    const result = normalizeImportedScenario(spec);
     console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
     return;
   }
@@ -1036,19 +1074,7 @@ Options:
       console.error("Error: stdin must contain valid JSON");
       process.exit(1);
     }
-    if (!spec.name || !spec.taskPrompt || !spec.rubric) {
-      console.error("Error: spec must contain name, taskPrompt, and rubric fields");
-      process.exit(1);
-    }
-    const result = {
-      name: spec.name as string,
-      family: "agent_task",
-      spec: {
-        taskPrompt: spec.taskPrompt as string,
-        rubric: spec.rubric as string,
-        description: (spec.description as string) ?? "",
-      },
-    };
+    const result = normalizeImportedScenario(spec);
     console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
     return;
   }
@@ -1059,16 +1085,7 @@ Options:
       console.error("Error: --description is required with --prompt-only");
       process.exit(1);
     }
-    const prompt = [
-      "You are a scenario designer for an agent evaluation harness.",
-      "Given a user's description, generate a JSON spec with these fields:",
-      '  - taskPrompt: the task the agent will be given',
-      '  - rubric: evaluation criteria for judging the output',
-      '  - description: a brief description of what the scenario tests',
-      "Respond with ONLY the JSON object, no markdown fences.",
-      "",
-      `User description: ${values.description}`,
-    ].join("\n");
+    const prompt = buildScenarioCreationPrompt(values.description);
     console.log(prompt);
     return;
   }
@@ -1078,8 +1095,6 @@ Options:
     console.error("Error: --description, --from-spec, --from-stdin, or --prompt-only is required");
     process.exit(1);
   }
-
-  const { createScenarioFromDescription } = await import("../scenarios/scenario-creator.js");
 
   let provider;
   try {
