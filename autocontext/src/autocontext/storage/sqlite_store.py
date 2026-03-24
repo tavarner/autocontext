@@ -62,6 +62,36 @@ class SQLiteStore:
             ).fetchone()
             return row is not None
 
+    def get_generation(self, run_id: str, generation_index: int) -> dict[str, Any] | None:
+        """Return a single generation row by run_id and index."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM generations WHERE run_id = ? AND generation_index = ?",
+                (run_id, generation_index),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def update_generation_status(
+        self,
+        run_id: str,
+        generation_index: int,
+        *,
+        status: str,
+        gate_decision: str,
+    ) -> None:
+        """Update only the terminal state fields for an existing generation row."""
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE generations
+                SET status = ?,
+                    gate_decision = ?,
+                    updated_at = datetime('now')
+                WHERE run_id = ? AND generation_index = ?
+                """,
+                (status, gate_decision, run_id, generation_index),
+            )
+
     def upsert_generation(
         self,
         run_id: str,
@@ -627,6 +657,29 @@ class SQLiteStore:
     def mark_run_completed(self, run_id: str) -> None:
         with self.connect() as conn:
             conn.execute("UPDATE runs SET status = 'completed', updated_at = datetime('now') WHERE run_id = ?", (run_id,))
+
+    def mark_run_failed(self, run_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE run_id = ?", (run_id,))
+
+    def mark_run_running(self, run_id: str, target_generations: int | None = None) -> None:
+        with self.connect() as conn:
+            if target_generations is None:
+                conn.execute(
+                    "UPDATE runs SET status = 'running', updated_at = datetime('now') WHERE run_id = ?",
+                    (run_id,),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE runs
+                    SET status = 'running',
+                        target_generations = ?,
+                        updated_at = datetime('now')
+                    WHERE run_id = ?
+                    """,
+                    (target_generations, run_id),
+                )
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         """Return a single run row by id."""

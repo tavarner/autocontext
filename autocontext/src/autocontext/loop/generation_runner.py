@@ -942,20 +942,144 @@ class GenerationRunner:
         except (TypeError, ValueError):
             return default
 
+    def _optional_float_value(
+        self,
+        value: object,
+        default: float | None = None,
+    ) -> float | None:
+        if value is None:
+            return default
+        try:
+            return float(cast(int | float | str, value))
+        except (TypeError, ValueError):
+            return default
+
+    def _recover_stale_run_state(self, run_id: str) -> None:
+        """Repair an interrupted run before attempting a resume.
+
+        This handles the persisted broken state left behind after a prior process
+        died or was interrupted while a run still had `running` rows in SQLite.
+        """
+        run_row = self.sqlite.get_run(run_id)
+        if run_row is None or str(run_row.get("status") or "") != "running":
+            return
+
+        generation_rows = self.sqlite.get_generation_metrics(run_id)
+        running_generations = [
+            self._int_value(row.get("generation_index"))
+            for row in generation_rows
+            if str(row.get("status") or "") == "running"
+        ]
+        if running_generations:
+            recovery_markers = self.sqlite.get_recovery_markers_for_run(run_id)
+            retry_counts: dict[int, int] = defaultdict(int)
+            for marker in recovery_markers:
+                retry_counts[self._int_value(marker.get("generation_index"))] += 1
+            for generation_index in running_generations:
+                self.sqlite.update_generation_status(
+                    run_id,
+                    generation_index,
+                    status="failed",
+                    gate_decision="stalled",
+                )
+                self.sqlite.append_recovery_marker(
+                    run_id,
+                    generation_index,
+                    decision="mark_failed",
+                    reason="Recovered stale running generation from a prior interrupted run",
+                    retry_count=retry_counts[generation_index] + 1,
+                )
+            self.sqlite.mark_run_failed(run_id)
+            LOGGER.warning(
+                "recovered stale running generations for run %s: %s",
+                run_id,
+                ", ".join(str(gen) for gen in running_generations),
+            )
+            return
+
+        completed_generations = sum(
+            1 for row in generation_rows if str(row.get("status") or "") == "completed"
+        )
+        target_generations = self._int_value(run_row.get("target_generations"), 0)
+        if target_generations > 0 and completed_generations >= target_generations:
+            self.sqlite.mark_run_completed(run_id)
+            LOGGER.info(
+                "marking run %s completed during recovery (%d/%d generations already completed)",
+                run_id,
+                completed_generations,
+                target_generations,
+            )
+            return
+
+        self.sqlite.mark_run_failed(run_id)
+        LOGGER.warning(
+            "marking run %s failed during recovery; run was still 'running' without an active generation",
+            run_id,
+        )
+
+    def _hydrate_run_state(
+        self,
+        run_id: str,
+    ) -> tuple[float, float, float | None, list[float], list[str]]:
+        """Restore prior completed-generation state for resume/retry flows."""
+        default_uncertainty = self._optional_float_value(
+            get_backend(self.settings.scoring_backend).default_uncertainty,
+        )
+        generation_rows = self.sqlite.get_generation_metrics(run_id)
+        completed_rows = [
+            row for row in generation_rows if str(row.get("status") or "") == "completed"
+        ]
+        if not completed_rows:
+            return 0.0, 1000.0, default_uncertainty, [], []
+
+        latest = completed_rows[-1]
+        previous_best = self._float_value(latest.get("best_score"), 0.0)
+        challenger_elo = self._float_value(latest.get("elo"), 1000.0)
+        challenger_uncertainty = self._optional_float_value(
+            latest.get("rating_uncertainty"),
+            default_uncertainty,
+        )
+        score_history = [
+            self._float_value(row.get("best_score"), 0.0) for row in completed_rows
+        ]
+        gate_decision_history = [
+            str(row.get("gate_decision") or "") for row in completed_rows if row.get("gate_decision")
+        ]
+        return (
+            previous_best,
+            challenger_elo,
+            challenger_uncertainty,
+            score_history,
+            gate_decision_history,
+        )
+
     def run(self, scenario_name: str, generations: int, run_id: str | None = None) -> RunSummary:
         scenario = self._scenario(scenario_name)
         active_run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
         run_start_time = time.monotonic()
-        self.sqlite.create_run(
-            active_run_id, scenario_name, generations, self.settings.executor_mode,
-            agent_provider=self.settings.agent_provider,
-        )
-        previous_best = 0.0
-        challenger_elo = 1000.0
-        challenger_uncertainty = get_backend(self.settings.scoring_backend).default_uncertainty
+        existing_run = self.sqlite.get_run(active_run_id)
+        if existing_run is None:
+            self.sqlite.create_run(
+                active_run_id, scenario_name, generations, self.settings.executor_mode,
+                agent_provider=self.settings.agent_provider,
+            )
+        else:
+            self._recover_stale_run_state(active_run_id)
+            refreshed_run = self.sqlite.get_run(active_run_id) or existing_run
+            if str(refreshed_run.get("status") or "") != "completed":
+                target_generations = max(
+                    self._int_value(refreshed_run.get("target_generations"), generations),
+                    generations,
+                )
+                self.sqlite.mark_run_running(active_run_id, target_generations=target_generations)
+        (
+            previous_best,
+            challenger_elo,
+            challenger_uncertainty,
+            score_history,
+            gate_decision_history,
+        ) = self._hydrate_run_state(active_run_id)
         completed = 0
-        score_history: list[float] = []
-        gate_decision_history: list[str] = []
         self.events.emit("run_started", {"run_id": active_run_id, "scenario": scenario_name})
 
         # Seed scenario-specific tools before first generation
@@ -1009,9 +1133,22 @@ class GenerationRunner:
                     hint = self.controller.take_hint()
                     if hint:
                         coach_competitor_hints += f"\n\n[User guidance]: {hint}"
-                if self.sqlite.generation_exists(active_run_id, generation):
-                    LOGGER.info("generation %s already exists for run %s, skipping for idempotency", generation, active_run_id)
-                    continue
+                existing_generation = self.sqlite.get_generation(active_run_id, generation)
+                if existing_generation is not None:
+                    status = str(existing_generation.get("status") or "")
+                    if status == "completed":
+                        LOGGER.info(
+                            "generation %s already completed for run %s, skipping for idempotency",
+                            generation,
+                            active_run_id,
+                        )
+                        continue
+                    LOGGER.warning(
+                        "generation %s for run %s exists with status '%s'; rerunning generation",
+                        generation,
+                        active_run_id,
+                        status or "unknown",
+                    )
                 self.events.emit("generation_started", {"run_id": active_run_id, "generation": generation})
                 self.sqlite.upsert_generation(
                     active_run_id,
@@ -1088,7 +1225,10 @@ class GenerationRunner:
                     )
                     previous_best = ctx.previous_best
                     challenger_elo = ctx.challenger_elo
-                    challenger_uncertainty = ctx.challenger_uncertainty
+                    challenger_uncertainty = self._optional_float_value(
+                        ctx.challenger_uncertainty,
+                        challenger_uncertainty,
+                    )
                     replay_narrative = ctx.replay_narrative
                     coach_competitor_hints = ctx.coach_competitor_hints
                     completed += 1
@@ -1121,6 +1261,24 @@ class GenerationRunner:
                         {"run_id": active_run_id, "generation": generation, "error": str(exc)},
                     )
                     raise
+                finally:
+                    # Post-unwind safety net: if the pipeline exited without
+                    # persisting a terminal status, mark the generation failed.
+                    try:
+                        gen_row = self.sqlite.get_generation(active_run_id, generation)
+                        if gen_row and gen_row.get("status") == "running":
+                            LOGGER.warning(
+                                "generation %d for run %s still in 'running' state after pipeline exit; marking as stalled",
+                                generation, active_run_id,
+                            )
+                            self.sqlite.update_generation_status(
+                                active_run_id,
+                                generation,
+                                status="failed",
+                                gate_decision="stalled",
+                            )
+                    except Exception:
+                        pass  # Safety net must never crash the outer handler
             self.sqlite.mark_run_completed(active_run_id)
             if completed > 0:
                 self.artifacts.mutation_log.create_checkpoint(
@@ -1129,6 +1287,14 @@ class GenerationRunner:
                     run_id=active_run_id,
                 )
             self.artifacts.flush_writes()
+        except BaseException:
+            try:
+                run_row = self.sqlite.get_run(active_run_id)
+                if run_row is not None and str(run_row.get("status") or "") == "running":
+                    self._recover_stale_run_state(active_run_id)
+            except Exception:
+                LOGGER.warning("failed to recover stale run state for %s", active_run_id, exc_info=True)
+            raise
         finally:
             self.artifacts.shutdown_writer()
 
