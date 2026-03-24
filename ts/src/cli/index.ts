@@ -122,6 +122,16 @@ async function main(): Promise<void> {
   }
 }
 
+function formatFatalCliError(err: unknown): string {
+  if (err instanceof Error && err.name === "PortInUseError") {
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.stack ?? err.message;
+  }
+  return String(err);
+}
+
 async function getProvider(overrides: { providerType?: string; apiKey?: string; baseUrl?: string; model?: string } = {}) {
   const { createConfiguredProvider } = await import("../providers/index.js");
   const { loadSettings } = await import("../config/index.js");
@@ -996,6 +1006,6 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(formatFatalCliError(err));
   process.exit(1);
 });
