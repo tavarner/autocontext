@@ -10,7 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from autocontext.scenarios.simulation import ActionSpec, SimulationInterface
+from autocontext.scenarios.base import Result
+from autocontext.scenarios.simulation import ActionResult, ActionSpec, SimulationInterface
 
 
 class _MinimalSimulation(SimulationInterface):
@@ -43,7 +44,17 @@ class _MinimalSimulation(SimulationInterface):
         ]
 
     def execute_action(self, state: dict[str, Any], action: Any) -> tuple[Any, dict[str, Any]]:
-        return (None, state)
+        next_state = dict(state)
+        next_state["terminal"] = True
+        next_state["last_action"] = action.name
+        return (
+            ActionResult(
+                success=True,
+                output=f"executed {action.name}",
+                state_changes={"last_action": action.name},
+            ),
+            next_state,
+        )
 
     def is_terminal(self, state: Mapping[str, Any]) -> bool:
         return bool(state.get("terminal"))
@@ -58,11 +69,18 @@ class _MinimalSimulation(SimulationInterface):
         return None
 
     def step(self, state: Mapping[str, Any], actions: Mapping[str, Any]) -> dict[str, Any]:
-        return dict(state)
+        return super().step(state, actions)
 
     def get_result(self, state: Mapping[str, Any]) -> Any:
-        from autocontext.scenarios.base import Result
-        return Result(score=0.5, winner=None, summary="test")
+        trace = state.get("_simulation_trace", {"records": []})
+        records = trace.get("records", []) if isinstance(trace, Mapping) else []
+        return Result(
+            score=1.0 if records else 0.0,
+            winner="challenger" if records else "incumbent",
+            summary="test",
+            replay=list(records),
+            metrics={"actions_taken": float(len(records))},
+        )
 
     def replay_to_narrative(self, replay: list[dict[str, Any]]) -> str:
         return ""
@@ -98,6 +116,29 @@ class TestSingleActionCoercion:
             "parameters": {},
         })
         assert valid is True, f"Expected valid=True but got reason: {reason}"
+
+    def test_single_action_dict_executes_in_step(self) -> None:
+        """Coerced single-action dicts should execute when stepped."""
+        scenario = _make_scenario()
+        next_state = scenario.step(
+            scenario.initial_state(),
+            {"name": "examine_clue", "parameters": {}},
+        )
+        assert next_state["last_action"] == "examine_clue"
+        trace = next_state["_simulation_trace"]
+        assert len(trace["records"]) == 1
+        assert trace["records"][0]["action"]["name"] == "examine_clue"
+
+    def test_single_action_dict_executes_in_match(self) -> None:
+        """The execute_match path should not drop a coerced single action."""
+        scenario = _make_scenario()
+        result = scenario.execute_match(
+            {"name": "examine_clue", "parameters": {}},
+            seed=0,
+        )
+        assert result.metrics["actions_taken"] == 1.0
+        assert len(result.replay) == 1
+        assert result.replay[0]["action"]["name"] == "examine_clue"
 
     def test_single_action_dict_with_reasoning(self) -> None:
         """Single action dict with extra reasoning field should coerce."""
