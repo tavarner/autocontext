@@ -969,22 +969,132 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
     args: process.argv.slice(3),
     options: {
       description: { type: "string", short: "d" },
+      "from-spec": { type: "string" },
+      "from-stdin": { type: "boolean" },
+      "prompt-only": { type: "boolean" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
 
   if (values.help) {
-    console.log("autoctx new-scenario --description <text> [--json]");
+    console.log(`autoctx new-scenario — create a scenario
+
+Modes:
+  --description <text>    Generate scenario from natural language (requires LLM provider)
+  --from-spec <file>      Register a scenario from a JSON spec file (no LLM needed)
+  --from-stdin            Read a JSON spec from stdin (no LLM needed)
+  --prompt-only           Output the generation prompt without calling an LLM
+
+Spec schema (for --from-spec and --from-stdin):
+  {
+    "name": "...",
+    "family": "agent_task|simulation|artifact_editing|investigation|workflow|schema_evolution|tool_fragility|negotiation|operator_loop|coordination|game",
+    "taskPrompt": "...",
+    "rubric": "...",
+    "description": "..."
+  }
+  If family is omitted, autoctx derives the best-fit family from the spec text.
+
+Options:
+  --json                  Output as JSON
+  -h, --help              Show this help`);
     process.exit(0);
   }
 
-  if (!values.description) {
-    console.error("Error: --description is required");
-    process.exit(1);
+  const {
+    createScenarioFromDescription,
+    buildScenarioCreationPrompt,
+    detectScenarioFamily,
+    isScenarioFamilyName,
+  } = await import("../scenarios/scenario-creator.js");
+  const { SCENARIO_TYPE_MARKERS } = await import("../scenarios/families.js");
+  const validFamilies = Object.keys(SCENARIO_TYPE_MARKERS).sort();
+
+  const normalizeImportedScenario = (spec: Record<string, unknown>) => {
+    const name = typeof spec.name === "string" ? spec.name.trim() : "";
+    const taskPrompt = typeof spec.taskPrompt === "string" ? spec.taskPrompt.trim() : "";
+    const rubric = typeof spec.rubric === "string" ? spec.rubric.trim() : "";
+    const description = typeof spec.description === "string" ? spec.description : "";
+
+    if (!name || !taskPrompt || !rubric) {
+      console.error("Error: spec must contain name, taskPrompt, and rubric fields");
+      process.exit(1);
+    }
+
+    let family = detectScenarioFamily([description, taskPrompt].filter(Boolean).join("\n"));
+    if (typeof spec.family === "string" && spec.family.trim()) {
+      const requestedFamily = spec.family.trim();
+      if (!isScenarioFamilyName(requestedFamily)) {
+        console.error(`Error: family must be one of ${validFamilies.join(", ")}`);
+        process.exit(1);
+      }
+      family = requestedFamily;
+    }
+
+    const { name: _ignoredName, family: _ignoredFamily, ...specFields } = spec;
+    return {
+      name,
+      family,
+      spec: {
+        ...specFields,
+        taskPrompt,
+        rubric,
+        description,
+      },
+    };
+  };
+
+  // Mode 1: --from-spec <file>
+  if (values["from-spec"]) {
+    const { readFileSync } = await import("node:fs");
+    let spec: Record<string, unknown>;
+    try {
+      spec = JSON.parse(readFileSync(values["from-spec"], "utf-8"));
+    } catch (err) {
+      console.error(`Error reading spec file: ${(err as Error).message}`);
+      process.exit(1);
+    }
+    const result = normalizeImportedScenario(spec);
+    console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
+    return;
   }
 
-  const { createScenarioFromDescription } = await import("../scenarios/scenario-creator.js");
+  // Mode 2: --from-stdin
+  if (values["from-stdin"]) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk as Buffer);
+    }
+    const raw = Buffer.concat(chunks).toString("utf-8");
+    let spec: Record<string, unknown>;
+    try {
+      spec = JSON.parse(raw);
+    } catch {
+      console.error("Error: stdin must contain valid JSON");
+      process.exit(1);
+    }
+    const result = normalizeImportedScenario(spec);
+    console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
+    return;
+  }
+
+  // Mode 3: --prompt-only (output the prompt, no LLM call)
+  if (values["prompt-only"]) {
+    if (!values.description) {
+      console.error("Error: --description is required with --prompt-only");
+      process.exit(1);
+    }
+    const prompt = buildScenarioCreationPrompt(values.description);
+    console.log(prompt);
+    return;
+  }
+
+  // Default: --description mode (requires LLM)
+  if (!values.description) {
+    console.error("Error: --description, --from-spec, --from-stdin, or --prompt-only is required");
+    process.exit(1);
+  }
 
   let provider;
   try {
