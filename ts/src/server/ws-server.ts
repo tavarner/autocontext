@@ -77,7 +77,16 @@ export class InteractiveServer {
     });
 
     await new Promise<void>((resolve, reject) => {
-      httpServer.once("error", reject);
+      httpServer.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          reject(new Error(
+            `Port ${this.requestedPort} is already in use. ` +
+            `Try a different port with --port <N>, or use port 0 for auto-assignment.`,
+          ));
+        } else {
+          reject(err);
+        }
+      });
       httpServer.listen(this.requestedPort, this.host, () => {
         resolve();
       });
