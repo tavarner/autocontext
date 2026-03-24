@@ -1,45 +1,90 @@
-"""Pi RPC runtime — spike for deeper session/branch integration.
+"""Pi RPC runtime — stdin/stdout JSONL subprocess communication (AC-375).
 
-Prototype runtime that communicates with Pi via HTTP RPC rather than
-CLI subprocess. Supports session persistence and branching for retry
-strategies.
+Pi RPC mode (`pi --mode rpc`) communicates over the process's stdin/stdout
+using strict JSONL framing (LF-delimited). This is NOT an HTTP protocol.
 
-NOTE: This is a spike (AC-225). The RPC protocol may not be finalized.
+Protocol reference:
+  https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/rpc.md
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
+import subprocess
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from autocontext.runtimes.base import AgentOutput, AgentRuntime
-from autocontext.runtimes.pi_artifacts import PiExecutionTrace
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class PiRPCConfig:
-    """Configuration for the Pi RPC runtime."""
+    """Configuration for the Pi RPC runtime.
 
-    endpoint: str = "http://localhost:3284"
-    api_key: str = ""
+    Pi RPC is a subprocess protocol over stdin/stdout JSONL — not HTTP.
+    The ``endpoint`` field is intentionally absent.
+    """
+
+    pi_command: str = "pi"
+    model: str = ""
     timeout: float = 120.0
     session_persistence: bool = True
     branch_on_retry: bool = True
+    extra_args: list[str] = field(default_factory=list)
 
 
 class PiRPCRuntime(AgentRuntime):
-    """Agent runtime that communicates with Pi via HTTP RPC.
+    """Agent runtime that communicates with Pi via stdin/stdout RPC.
 
-    Supports session persistence and branching for multi-round
-    improvement loops.
+    Launches ``pi --mode rpc`` as a subprocess and exchanges JSONL
+    messages on stdin/stdout per Pi's documented RPC protocol.
     """
 
     def __init__(self, config: PiRPCConfig | None = None) -> None:
         self._config = config or PiRPCConfig()
+        self._pi_path = shutil.which(self._config.pi_command)
         self._current_session_id: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return self._pi_path is not None
+
+    def _build_args(self) -> list[str]:
+        """Build the pi --mode rpc argument list."""
+        pi = self._pi_path or self._config.pi_command
+        args = [pi, "--mode", "rpc"]
+        if self._config.model:
+            args.extend(["--model", self._config.model])
+        if not self._config.session_persistence:
+            args.append("--no-session")
+        args.extend(self._config.extra_args)
+        return args
+
+    def _build_prompt_command(self, prompt: str) -> dict[str, object]:
+        """Build a Pi RPC prompt command.
+
+        Pi's documented RPC protocol expects the user payload under ``message``.
+        """
+        return {
+            "type": "prompt",
+            "id": uuid.uuid4().hex[:8],
+            "message": prompt,
+        }
+
+    def _nonzero_exit_output(self, exit_code: int, stderr: str, stdout: str = "") -> AgentOutput:
+        metadata: dict[str, object] = {
+            "error": "nonzero_exit",
+            "exit_code": exit_code,
+        }
+        if stderr:
+            metadata["stderr"] = stderr[:500]
+        if stdout:
+            metadata["stdout"] = stdout[:500]
+        return AgentOutput(text="", metadata=metadata)
 
     def generate(
         self,
@@ -47,54 +92,44 @@ class PiRPCRuntime(AgentRuntime):
         system: str | None = None,
         schema: dict | None = None,
     ) -> AgentOutput:
-        import httpx
-
-        payload: dict[str, object] = {"prompt": prompt}
+        """Send a prompt command and collect the response."""
+        full_prompt = prompt
         if system:
-            payload["system"] = system
-        if schema:
-            payload["schema"] = schema
-        if self._current_session_id and self._config.session_persistence:
-            payload["session_id"] = self._current_session_id
+            full_prompt = f"{system}\n\n{prompt}"
 
+        command = self._build_prompt_command(full_prompt)
+
+        args = self._build_args()
         try:
-            response = httpx.post(
-                f"{self._config.endpoint}/v1/generate",
-                json=payload,
-                headers=self._headers(),
+            # Send the prompt command as JSONL on stdin, read response on stdout
+            input_line = json.dumps(command) + "\n"
+            result = subprocess.run(
+                args,
+                input=input_line,
+                capture_output=True,
+                text=True,
                 timeout=self._config.timeout,
             )
-            response.raise_for_status()
-            data = response.json()
-        except httpx.TimeoutException:
-            logger.error("Pi RPC timed out after %.0fs", self._config.timeout)
+        except subprocess.TimeoutExpired:
+            logger.error("pi RPC timed out after %.0fs", self._config.timeout)
             return AgentOutput(text="", metadata={"error": "timeout"})
-        except httpx.HTTPError as exc:
-            logger.error("Pi RPC error: %s", exc)
-            return AgentOutput(text="", metadata={"error": "rpc_error", "detail": str(exc)})
+        except FileNotFoundError:
+            logger.error("pi CLI not found at %r", self._config.pi_command)
+            return AgentOutput(text="", metadata={"error": "pi_not_found"})
 
-        text = data.get("result", data.get("output", ""))
-        session_id = data.get("session_id")
-        if session_id:
-            self._current_session_id = session_id
+        if result.returncode != 0 and not result.stdout.strip():
+            logger.warning("pi RPC exited with code %d: %s", result.returncode, result.stderr[:200])
+            return self._nonzero_exit_output(result.returncode, result.stderr)
 
-        trace = PiExecutionTrace(
-            session_id=session_id or "",
-            prompt_context=prompt,
-            raw_output=str(data),
-            normalized_output=text,
-            cost_usd=data.get("cost_usd", 0.0),
-            model=data.get("model", "pi"),
-            metadata={"rpc_response": data},
+        output = self._parse_rpc_output(
+            result.stdout,
+            exit_code=result.returncode,
+            stderr=result.stderr,
         )
-
-        return AgentOutput(
-            text=text,
-            cost_usd=data.get("cost_usd", 0.0),
-            model=data.get("model", "pi"),
-            session_id=session_id,
-            metadata={"pi_trace": trace},
-        )
+        if result.returncode != 0 and not output.metadata.get("error"):
+            logger.warning("pi RPC exited with code %d: %s", result.returncode, result.stderr[:200])
+            return self._nonzero_exit_output(result.returncode, result.stderr, result.stdout)
+        return output
 
     def revise(
         self,
@@ -103,9 +138,6 @@ class PiRPCRuntime(AgentRuntime):
         feedback: str,
         system: str | None = None,
     ) -> AgentOutput:
-        if self._config.branch_on_retry and self._current_session_id:
-            self._current_session_id = self.branch_session(self._current_session_id)
-
         revision_prompt = (
             f"Revise the following output based on the judge's feedback.\n\n"
             f"## Original Output\n{previous_output}\n\n"
@@ -115,54 +147,69 @@ class PiRPCRuntime(AgentRuntime):
         )
         return self.generate(revision_prompt, system=system)
 
-    def create_session(self) -> str:
-        """Create a new Pi session and return its ID."""
-        import httpx
+    def _parse_rpc_output(
+        self,
+        raw: str,
+        *,
+        exit_code: int = 0,
+        stderr: str = "",
+    ) -> AgentOutput:
+        """Parse JSONL output from pi --mode rpc.
 
-        try:
-            response = httpx.post(
-                f"{self._config.endpoint}/v1/sessions",
-                headers=self._headers(),
-                timeout=self._config.timeout,
-            )
-            response.raise_for_status()
-            data = response.json()
-            session_id: str = data.get("session_id", str(uuid.uuid4()))
-            self._current_session_id = session_id
-            return session_id
-        except httpx.HTTPError as exc:
-            logger.error("failed to create Pi session: %s", exc)
-            fallback = str(uuid.uuid4())
-            self._current_session_id = fallback
-            return fallback
+        Collects message_end events to extract the assistant's response.
+        Falls back to the last non-empty line if no structured events found.
+        """
+        text_parts: list[str] = []
 
-    def branch_session(self, session_id: str) -> str:
-        """Branch an existing session for retry divergence."""
-        import httpx
+        for line in raw.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                event_type = event.get("type", "")
 
-        try:
-            response = httpx.post(
-                f"{self._config.endpoint}/v1/sessions/{session_id}/branch",
-                headers=self._headers(),
-                timeout=self._config.timeout,
-            )
-            response.raise_for_status()
-            data = response.json()
-            branch_id: str = data.get("branch_id", str(uuid.uuid4()))
-            self._current_session_id = branch_id
-            return branch_id
-        except httpx.HTTPError as exc:
-            logger.error("failed to branch Pi session: %s", exc)
-            fallback = str(uuid.uuid4())
-            self._current_session_id = fallback
-            return fallback
+                # Collect assistant text from message_end or response events
+                if event_type == "response":
+                    if event.get("success") is False:
+                        metadata: dict[str, object] = {
+                            "error": "rpc_response_error",
+                            "rpc_command": str(event.get("command", "")),
+                            "exit_code": exit_code,
+                        }
+                        error_message = event.get("error")
+                        if error_message is not None:
+                            metadata["rpc_message"] = str(error_message)
+                        if stderr:
+                            metadata["stderr"] = stderr[:500]
+                        return AgentOutput(text="", metadata=metadata)
 
-    def resume_session(self, session_id: str) -> None:
-        """Resume an existing session by setting the current session ID."""
-        self._current_session_id = session_id
+                    data = event.get("data", {})
+                    if isinstance(data, dict) and "content" in data:
+                        text_parts.append(str(data["content"]))
+                elif event_type == "message_end":
+                    msg = event.get("message", {})
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and content:
+                        text_parts.append(content)
+                elif event_type == "agent_end":
+                    # Final messages array
+                    messages = event.get("messages", [])
+                    for msg in messages:
+                        if isinstance(msg, dict) and msg.get("role") == "assistant":
+                            content = msg.get("content", "")
+                            if isinstance(content, str) and content:
+                                text_parts.append(content)
+            except (json.JSONDecodeError, TypeError):
+                # Not JSONL — treat as plain text fallback
+                if not text_parts:
+                    if exit_code != 0:
+                        return self._nonzero_exit_output(exit_code, stderr, raw.strip())
+                    return AgentOutput(text=raw.strip(), metadata={"exit_code": exit_code})
 
-    def _headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._config.api_key:
-            headers["Authorization"] = f"Bearer {self._config.api_key}"
-        return headers
+        if text_parts:
+            return AgentOutput(text=text_parts[-1], metadata={"exit_code": exit_code})  # Last assistant message
+
+        if exit_code != 0:
+            return self._nonzero_exit_output(exit_code, stderr, raw.strip())
+        return AgentOutput(text=raw.strip(), metadata={"exit_code": exit_code})
