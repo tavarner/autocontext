@@ -305,6 +305,11 @@ def create_role_client(
             workspace=settings.hermes_workspace,
             base_url=settings.hermes_base_url,
             api_key=settings.hermes_api_key,
+            toolsets=settings.hermes_toolsets,
+            skills=settings.hermes_skills,
+            worktree=settings.hermes_worktree,
+            quiet=settings.hermes_quiet,
+            provider=settings.hermes_provider,
         )
         return RuntimeBridgeClient(HermesCLIRuntime(hermes_config))
 

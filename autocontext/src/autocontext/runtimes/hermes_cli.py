@@ -21,14 +21,23 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class HermesCLIConfig:
-    """Configuration for the Hermes CLI runtime."""
+    """Configuration for the Hermes CLI runtime.
+
+    Matches Hermes Agent's documented CLI flags:
+    https://hermes-agent.nousresearch.com/docs/user-guide/cli/
+    """
 
     hermes_command: str = "hermes"
     model: str = ""
     timeout: float = 120.0
     workspace: str = ""
-    base_url: str = ""
-    api_key: str = ""
+    base_url: str = ""       # Passed via OPENAI_BASE_URL env (not a CLI flag)
+    api_key: str = ""        # Passed via OPENAI_API_KEY env (not a CLI flag)
+    toolsets: str = ""       # -t/--toolsets: comma-separated toolset names
+    skills: str = ""         # -s/--skills: skill name to preload
+    worktree: bool = False   # --worktree: isolated git worktree
+    quiet: bool = False      # --quiet: suppress UI chrome
+    provider: str = ""       # --provider: force specific provider
     extra_args: list[str] = field(default_factory=list)
 
 
@@ -85,10 +94,25 @@ class HermesCLIRuntime(AgentRuntime):
         if self._config.model:
             args.extend(["--model", self._config.model])
 
-        # Hermes routes custom OpenAI-compatible endpoints through its "main"
-        # provider config rather than dedicated --base-url/--api-key flags.
-        if self._config.base_url or self._config.api_key:
-            args.extend(["--provider", "main"])
+        if self._config.provider:
+            args.extend(["--provider", self._config.provider])
+        elif self._config.base_url or self._config.api_key:
+            # Hermes routes custom OpenAI-compatible endpoints through env vars.
+            # CLI args > config > env in Hermes's precedence, but for custom
+            # endpoints the env var path is the documented mechanism.
+            args.extend(["--provider", "custom"])
+
+        if self._config.toolsets:
+            args.extend(["--toolsets", self._config.toolsets])
+
+        if self._config.skills:
+            args.extend(["--skills", self._config.skills])
+
+        if self._config.worktree:
+            args.append("--worktree")
+
+        if self._config.quiet:
+            args.append("--quiet")
 
         args.extend(self._config.extra_args)
         return args
