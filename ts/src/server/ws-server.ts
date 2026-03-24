@@ -23,6 +23,19 @@ export interface InteractiveServerOpts {
   dashboardDirOverride?: string;
 }
 
+export class PortInUseError extends Error {
+  readonly port: number;
+
+  constructor(port: number) {
+    super(
+      `Port ${port} is already in use. ` +
+      `Try a different port with --port <N>, or use port 0 for auto-assignment.`,
+    );
+    this.name = "PortInUseError";
+    this.port = port;
+  }
+}
+
 export class InteractiveServer {
   private readonly runManager: RunManager;
   private readonly host: string;
@@ -77,7 +90,13 @@ export class InteractiveServer {
     });
 
     await new Promise<void>((resolve, reject) => {
-      httpServer.once("error", reject);
+      httpServer.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          reject(new PortInUseError(this.requestedPort));
+        } else {
+          reject(err);
+        }
+      });
       httpServer.listen(this.requestedPort, this.host, () => {
         resolve();
       });
