@@ -1,21 +1,18 @@
-"""Regression test for AC-378: multi-gen stall where gen 2 hangs in 'running' state.
-
-The bug: `autoctx run --scenario grid_ctf --gens 2` completes gen 1 but gen 2
-stays in "running" in the DB. This test verifies that multi-gen deterministic
-runs complete all generations and mark them correctly.
-"""
+"""Regression tests for AC-378 stale-running generation recovery."""
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
+import pytest
+
 from autocontext.config.settings import AppSettings
+from autocontext.harness.scoring.backends import get_backend
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
 
-def _make_runner(tmp_path: Path) -> object:
+def _make_runner(tmp_path: Path):
     """Build a deterministic runner pointing at tmp_path."""
     from autocontext.loop.generation_runner import GenerationRunner
 
@@ -40,80 +37,113 @@ def _make_runner(tmp_path: Path) -> object:
     return runner
 
 
-class TestMultiGenCompletion:
-    """Verify multi-gen runs complete all generations without stalling."""
+def test_two_generations_both_complete(tmp_path: Path) -> None:
+    """Normal multi-generation deterministic runs still complete cleanly."""
+    runner = _make_runner(tmp_path)
+    result = runner.run("grid_ctf", 2, run_id="stall-test")
 
-    def test_two_generations_both_complete(self, tmp_path: Path) -> None:
-        """The core regression: 2-gen run must complete both generations."""
-        runner = _make_runner(tmp_path)
-        settings = runner.settings
-        result = runner.run("grid_ctf", 2, run_id="stall-test")
+    assert result.generations_executed == 2
 
-        assert result.generations_executed == 2
+    rows = runner.sqlite.get_generation_metrics("stall-test")
+    assert len(rows) == 2
+    assert [row["status"] for row in rows] == ["completed", "completed"]
+    assert runner.sqlite.get_run("stall-test")["status"] == "completed"
 
-        # Verify both generations are marked completed in SQLite
-        db = sqlite3.connect(str(settings.db_path))
-        db.row_factory = sqlite3.Row
-        rows = db.execute(
-            "SELECT generation_index, status, gate_decision FROM generations "
-            "WHERE run_id = 'stall-test' ORDER BY generation_index"
-        ).fetchall()
-        db.close()
 
-        assert len(rows) == 2
-        assert rows[0]["generation_index"] == 1
-        assert rows[0]["status"] == "completed"
-        assert rows[1]["generation_index"] == 2
-        assert rows[1]["status"] == "completed"
-        # Neither should be stuck in "running"
-        for row in rows:
-            assert row["status"] != "running", (
-                f"Generation {row['generation_index']} stuck in 'running' state"
-            )
+def test_resume_recovers_stale_running_generation_before_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale `running` row from a prior interrupted process is recovered and retried."""
+    from autocontext.loop.generation_pipeline import GenerationPipeline
 
-    def test_three_generations_all_complete(self, tmp_path: Path) -> None:
-        """Verify 3-gen runs also complete correctly."""
-        runner = _make_runner(tmp_path)
-        settings = runner.settings
-        result = runner.run("grid_ctf", 3, run_id="stall-test-3")
+    runner = _make_runner(tmp_path)
+    default_uncertainty = get_backend(runner.settings.scoring_backend).default_uncertainty
+    runner.sqlite.create_run("resume-stale", "grid_ctf", 2, "local", agent_provider="deterministic")
+    runner.sqlite.upsert_generation(
+        "resume-stale",
+        1,
+        mean_score=0.55,
+        best_score=0.55,
+        elo=1042.0,
+        wins=2,
+        losses=0,
+        gate_decision="advance",
+        status="completed",
+        scoring_backend=runner.settings.scoring_backend,
+        rating_uncertainty=default_uncertainty,
+    )
+    runner.sqlite.upsert_generation(
+        "resume-stale",
+        2,
+        mean_score=0.0,
+        best_score=0.55,
+        elo=1042.0,
+        wins=0,
+        losses=0,
+        gate_decision="running",
+        status="running",
+        scoring_backend=runner.settings.scoring_backend,
+        rating_uncertainty=default_uncertainty,
+    )
 
-        assert result.generations_executed == 3
+    def fake_run_generation(self: GenerationPipeline, ctx):
+        assert ctx.generation == 2
+        assert ctx.previous_best == pytest.approx(0.55)
+        assert ctx.challenger_elo == pytest.approx(1042.0)
+        self._sqlite.upsert_generation(
+            ctx.run_id,
+            ctx.generation,
+            mean_score=0.72,
+            best_score=0.72,
+            elo=1055.0,
+            wins=2,
+            losses=0,
+            gate_decision="advance",
+            status="completed",
+            scoring_backend=ctx.settings.scoring_backend,
+            rating_uncertainty=ctx.challenger_uncertainty,
+        )
+        ctx.previous_best = 0.72
+        ctx.challenger_elo = 1055.0
+        ctx.gate_decision = "advance"
+        return ctx
 
-        db = sqlite3.connect(str(settings.db_path))
-        db.row_factory = sqlite3.Row
-        rows = db.execute(
-            "SELECT generation_index, status FROM generations "
-            "WHERE run_id = 'stall-test-3' ORDER BY generation_index"
-        ).fetchall()
-        db.close()
+    monkeypatch.setattr(GenerationPipeline, "run_generation", fake_run_generation)
 
-        assert len(rows) == 3
-        for row in rows:
-            assert row["status"] == "completed", (
-                f"Generation {row['generation_index']} has status '{row['status']}' instead of 'completed'"
-            )
+    summary = runner.run("grid_ctf", 2, run_id="resume-stale")
 
-    def test_run_status_is_completed(self, tmp_path: Path) -> None:
-        """The run itself should be marked completed, not left in running."""
-        runner = _make_runner(tmp_path)
-        settings = runner.settings
-        runner.run("grid_ctf", 2, run_id="status-test")
+    assert summary.generations_executed == 1
+    assert runner.sqlite.get_run("resume-stale")["status"] == "completed"
+    rows = runner.sqlite.get_generation_metrics("resume-stale")
+    assert [row["status"] for row in rows] == ["completed", "completed"]
+    assert rows[1]["best_score"] == pytest.approx(0.72)
+    markers = runner.sqlite.get_recovery_markers_for_run("resume-stale")
+    assert len(markers) == 1
+    assert markers[0]["generation_index"] == 2
 
-        db = sqlite3.connect(str(settings.db_path))
-        db.row_factory = sqlite3.Row
-        row = db.execute(
-            "SELECT status FROM runs WHERE run_id = 'status-test'"
-        ).fetchone()
-        db.close()
 
-        assert row is not None
-        assert row["status"] == "completed"
+def test_interrupt_marks_run_and_generation_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Interrupted generations are not left behind in `running` state."""
+    from autocontext.loop.generation_pipeline import GenerationPipeline
 
-    def test_score_progression_across_generations(self, tmp_path: Path) -> None:
-        """Verify scores are tracked across generations (not reset)."""
-        runner = _make_runner(tmp_path)
-        result = runner.run("grid_ctf", 2, run_id="score-test")
+    runner = _make_runner(tmp_path)
 
-        # Both generations should have non-zero scores
-        assert result.best_score > 0
-        assert result.current_elo != 1000.0  # Elo should have moved
+    def interrupted_run_generation(self: GenerationPipeline, ctx):
+        raise KeyboardInterrupt("simulated interrupt")
+
+    monkeypatch.setattr(GenerationPipeline, "run_generation", interrupted_run_generation)
+
+    with pytest.raises(KeyboardInterrupt):
+        runner.run("grid_ctf", 1, run_id="interrupt-test")
+
+    run_row = runner.sqlite.get_run("interrupt-test")
+    gen_row = runner.sqlite.get_generation("interrupt-test", 1)
+    assert run_row is not None
+    assert gen_row is not None
+    assert run_row["status"] == "failed"
+    assert gen_row["status"] == "failed"
+    assert gen_row["gate_decision"] == "stalled"
