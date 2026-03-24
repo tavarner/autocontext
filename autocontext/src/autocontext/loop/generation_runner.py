@@ -1010,7 +1010,10 @@ class GenerationRunner:
         run_id: str,
     ) -> tuple[float, float, float, list[float], list[str]]:
         """Restore prior completed-generation state for resume/retry flows."""
-        default_uncertainty = get_backend(self.settings.scoring_backend).default_uncertainty
+        default_uncertainty = self._float_value(
+            get_backend(self.settings.scoring_backend).default_uncertainty,
+            0.0,
+        )
         generation_rows = self.sqlite.get_generation_metrics(run_id)
         completed_rows = [
             row for row in generation_rows if str(row.get("status") or "") == "completed"
@@ -1211,7 +1214,10 @@ class GenerationRunner:
                     )
                     previous_best = ctx.previous_best
                     challenger_elo = ctx.challenger_elo
-                    challenger_uncertainty = ctx.challenger_uncertainty
+                    challenger_uncertainty = self._float_value(
+                        ctx.challenger_uncertainty,
+                        challenger_uncertainty,
+                    )
                     replay_narrative = ctx.replay_narrative
                     coach_competitor_hints = ctx.coach_competitor_hints
                     completed += 1
