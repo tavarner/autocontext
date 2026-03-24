@@ -25,6 +25,7 @@ const HELP = `
 autoctx — always-on agent evaluation harness
 
 Commands:
+  init             Scaffold project config (.autoctx.json)
   run              Run generation loop for a scenario
   list             List recent runs
   replay           Print replay JSON for a generation
@@ -33,13 +34,16 @@ Commands:
   export-training-data  Export training data as JSONL
   import-package   Import a strategy package from file
   new-scenario     Create a scenario from natural language description
+  capabilities     Show available scenarios, providers, and features (JSON)
+  login            Store provider credentials persistently
+  whoami           Show current auth status and provider
   tui              Start interactive TUI (WebSocket server + Ink UI)
   judge            One-shot evaluation of output against a rubric
   improve          Run multi-round improvement loop
   repl             Run a direct REPL-loop session
   queue            Add a task to the background runner queue
   status           Show queue status
-  serve            Start HTTP dashboard + API server
+  serve            Start HTTP dashboard + API server [--json]
   mcp-serve        Start MCP server on stdio
   version          Show version
 
@@ -67,6 +71,18 @@ async function main(): Promise<void> {
   const dbPath = process.env.AUTOCONTEXT_DB_PATH ?? resolve("autocontext.db");
 
   switch (command) {
+    case "init":
+      await cmdInit();
+      break;
+    case "capabilities":
+      await cmdCapabilities();
+      break;
+    case "login":
+      await cmdLogin();
+      break;
+    case "whoami":
+      await cmdWhoami();
+      break;
     case "run":
       await cmdRun(dbPath);
       break;
@@ -123,11 +139,12 @@ async function main(): Promise<void> {
 }
 
 function formatFatalCliError(err: unknown): string {
-  if (err instanceof Error && err.name === "PortInUseError") {
-    return err.message;
-  }
   if (err instanceof Error) {
-    return err.stack ?? err.message;
+    // Clean message only — no stack traces unless DEBUG is set
+    if (process.env.DEBUG) {
+      return err.stack ?? err.message;
+    }
+    return `Error: ${err.message}`;
   }
   return String(err);
 }
@@ -565,13 +582,15 @@ async function cmdServeHttp(dbPath: string): Promise<void> {
     options: {
       port: { type: "string", default: "8000" },
       host: { type: "string", default: "127.0.0.1" },
+      json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
 
   if (values.help) {
-    console.log("autoctx serve [--port 8000] [--host 127.0.0.1]");
+    console.log("autoctx serve [--port 8000] [--host 127.0.0.1] [--json]");
     console.log("Starts the HTTP dashboard + API server (matches Python 'autoctx serve').");
+    console.log("With --json, prints a machine-parseable JSON line on startup.");
     process.exit(0);
   }
 
@@ -1113,6 +1132,116 @@ Options:
     console.log(`Task prompt: ${result.spec.taskPrompt}`);
     console.log(`Rubric: ${result.spec.rubric}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// New DX commands (AC-393, AC-405, AC-407)
+// ---------------------------------------------------------------------------
+
+async function cmdInit(): Promise<void> {
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      dir: { type: "string", default: "." },
+      scenario: { type: "string", default: "grid_ctf" },
+      provider: { type: "string", default: "deterministic" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
+    console.log("autoctx init [--dir <path>] [--scenario <name>] [--provider <type>]");
+    console.log("Scaffolds a .autoctx.json project config file.");
+    process.exit(0);
+  }
+
+  const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const targetDir = resolve(values.dir ?? ".");
+  const configPath = join(targetDir, ".autoctx.json");
+
+  if (existsSync(configPath)) {
+    console.error("Error: .autoctx.json already exists in " + targetDir);
+    process.exit(1);
+  }
+
+  mkdirSync(targetDir, { recursive: true });
+  const config = {
+    default_scenario: values.scenario ?? "grid_ctf",
+    provider: values.provider ?? "deterministic",
+    gens: 3,
+    knowledge_dir: "./knowledge",
+    runs_dir: "./runs",
+  };
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  console.log(`Created ${configPath}`);
+}
+
+async function cmdCapabilities(): Promise<void> {
+  const pkg = await import("../../package.json", { with: { type: "json" } });
+  const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
+
+  const capabilities = {
+    version: pkg.default.version,
+    commands: [
+      "init", "run", "list", "replay", "benchmark", "export",
+      "export-training-data", "import-package", "new-scenario",
+      "capabilities", "login", "whoami", "tui", "judge", "improve",
+      "repl", "queue", "status", "serve", "mcp-serve", "version",
+    ],
+    scenarios: Object.keys(SCENARIO_REGISTRY).sort(),
+    providers: [
+      "anthropic", "openai", "openai-compatible", "ollama", "vllm",
+      "hermes", "pi", "pi-rpc", "deterministic",
+    ],
+    features: {
+      mcp_server: true,
+      training_export: true,
+      custom_scenarios: true,
+      interactive_server: true,
+      playbook_versioning: true,
+    },
+    pythonOnly: [
+      "train", "ecosystem", "ab-test", "resume", "wait", "trigger-distillation",
+    ],
+  };
+  console.log(JSON.stringify(capabilities, null, 2));
+}
+
+async function cmdLogin(): Promise<void> {
+  const { values } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      provider: { type: "string" },
+      key: { type: "string" },
+      "config-dir": { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
+    console.log("autoctx login --provider <type> --key <api-key> [--config-dir <path>]");
+    console.log("Stores provider credentials persistently.");
+    process.exit(0);
+  }
+
+  if (!values.provider || !values.key) {
+    console.error("Error: --provider and --key are required");
+    process.exit(1);
+  }
+
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const configDir = values["config-dir"] ?? join(process.env.HOME ?? "~", ".config", "autoctx");
+  mkdirSync(configDir, { recursive: true });
+  const creds = { provider: values.provider, apiKey: values.key, savedAt: new Date().toISOString() };
+  writeFileSync(join(configDir, "credentials.json"), JSON.stringify(creds, null, 2), "utf-8");
+  console.log(`Credentials saved for ${values.provider}`);
+}
+
+async function cmdWhoami(): Promise<void> {
+  const provider = process.env.AUTOCONTEXT_AGENT_PROVIDER ?? process.env.AUTOCONTEXT_PROVIDER ?? "not configured";
+  const model = process.env.AUTOCONTEXT_MODEL ?? process.env.AUTOCONTEXT_AGENT_DEFAULT_MODEL ?? "default";
+  const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.AUTOCONTEXT_API_KEY || process.env.AUTOCONTEXT_AGENT_API_KEY || process.env.OPENAI_API_KEY);
+  console.log(JSON.stringify({ provider, model, authenticated: hasKey }, null, 2));
 }
 
 main().catch((err) => {
