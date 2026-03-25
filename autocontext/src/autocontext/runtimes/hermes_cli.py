@@ -97,10 +97,9 @@ class HermesCLIRuntime(AgentRuntime):
         if self._config.provider:
             args.extend(["--provider", self._config.provider])
         elif self._config.base_url or self._config.api_key:
-            # Hermes routes custom OpenAI-compatible endpoints through env vars.
-            # CLI args > config > env in Hermes's precedence, but for custom
-            # endpoints the env var path is the documented mechanism.
-            args.extend(["--provider", "custom"])
+            # Hermes uses the "main" provider for custom OpenAI-compatible
+            # endpoints configured via OPENAI_BASE_URL / OPENAI_API_KEY.
+            args.extend(["--provider", "main"])
 
         if self._config.toolsets:
             args.extend(["--toolsets", self._config.toolsets])
@@ -119,9 +118,10 @@ class HermesCLIRuntime(AgentRuntime):
 
     def _build_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        if self._config.base_url:
+        use_custom_endpoint = not self._config.provider or self._config.provider == "main"
+        if use_custom_endpoint and self._config.base_url:
             env["OPENAI_BASE_URL"] = self._config.base_url
-        if self._config.api_key:
+        if use_custom_endpoint and self._config.api_key:
             env["OPENAI_API_KEY"] = self._config.api_key
         return env
 
