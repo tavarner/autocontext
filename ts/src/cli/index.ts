@@ -57,8 +57,20 @@ Run \`autoctx <command> --help\` for command-specific options.
 async function main(): Promise<void> {
   const command = process.argv[2];
 
-  if (!command || command === "--help" || command === "-h") {
+  if (command === "--help" || command === "-h") {
     console.log(HELP);
+    process.exit(0);
+  }
+
+  // AC-394: Smart no-args — show project status if config exists, suggest init otherwise
+  if (!command) {
+    const projectConfig = await buildProjectConfigSummary();
+    if (projectConfig) {
+      console.log(JSON.stringify(projectConfig, null, 2));
+    } else {
+      console.log(HELP);
+      console.log("\nTip: Run `autoctx init` to set up this project with a .autoctx.json config.");
+    }
     process.exit(0);
   }
 
@@ -206,13 +218,13 @@ async function summarizeDirectory(root: string): Promise<{ exists: boolean; dire
 }
 
 async function buildProjectConfigSummary(): Promise<Record<string, unknown> | null> {
-  const { findProjectConfigPath, loadProjectConfig, loadSettings } = await import("../config/index.js");
+  const { findProjectConfigLocation, loadProjectConfig, loadSettings } = await import("../config/index.js");
   const projectConfig = loadProjectConfig();
   if (!projectConfig) {
     return null;
   }
 
-  const configPath = findProjectConfigPath();
+  const configLocation = findProjectConfigLocation();
   const settings = loadSettings();
   const dbPath = resolve(settings.dbPath);
   const knowledgeRoot = resolve(settings.knowledgeRoot);
@@ -234,7 +246,8 @@ async function buildProjectConfigSummary(): Promise<Record<string, unknown> | nu
   }
 
   return {
-    path: configPath,
+    path: configLocation?.path ?? null,
+    config_source: configLocation?.source ?? null,
     default_scenario: projectConfig.defaultScenario ?? null,
     provider: projectConfig.provider ?? null,
     model: projectConfig.model ?? null,

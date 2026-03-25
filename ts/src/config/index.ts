@@ -356,6 +356,11 @@ export interface ProjectConfig {
   dbPath?: string;
 }
 
+export interface ProjectConfigLocation {
+  path: string;
+  source: "autoctx_json" | "package_json";
+}
+
 export interface StoredCredentials {
   provider?: string;
   apiKey?: string;
@@ -409,17 +414,60 @@ export function findProjectConfigPath(startDir = process.cwd()): string | null {
   }
 }
 
+function findProjectConfigSource(startDir = process.cwd()): {
+  location: ProjectConfigLocation;
+  raw: Record<string, unknown>;
+} | null {
+  let current = resolve(startDir);
+  while (true) {
+    const configPath = join(current, PROJECT_CONFIG_FILE);
+    if (existsSync(configPath)) {
+      return {
+        location: { path: configPath, source: "autoctx_json" },
+        raw: readJsonObject(configPath, PROJECT_CONFIG_FILE),
+      };
+    }
+
+    const pkgJsonPath = join(current, "package.json");
+    if (existsSync(pkgJsonPath)) {
+      const pkg = readJsonObject(pkgJsonPath, "package.json");
+      if (isRecord(pkg.autoctx)) {
+        return {
+          location: { path: pkgJsonPath, source: "package_json" },
+          raw: pkg.autoctx as Record<string, unknown>,
+        };
+      }
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
+
+export function findProjectConfigLocation(startDir = process.cwd()): ProjectConfigLocation | null {
+  return findProjectConfigSource(startDir)?.location ?? null;
+}
+
 export function loadProjectConfig(startDir = process.cwd()): ProjectConfig | null {
-  const configPath = findProjectConfigPath(startDir);
-  if (!configPath) {
+  const configSource = findProjectConfigSource(startDir);
+  if (!configSource) {
     return null;
   }
+  return parseProjectConfigRaw(configSource.raw);
+}
 
-  const raw = readJsonObject(configPath, PROJECT_CONFIG_FILE);
+function parseProjectConfigRaw(raw: Record<string, unknown>): ProjectConfig {
   const config: ProjectConfig = {};
 
   if (typeof raw.default_scenario === "string" && raw.default_scenario.trim()) {
     config.defaultScenario = raw.default_scenario.trim();
+  }
+  // Also accept camelCase (for package.json convention)
+  if (!config.defaultScenario && typeof raw.defaultScenario === "string" && (raw.defaultScenario as string).trim()) {
+    config.defaultScenario = (raw.defaultScenario as string).trim();
   }
   if (typeof raw.provider === "string" && raw.provider.trim()) {
     config.provider = raw.provider.trim();
@@ -430,11 +478,20 @@ export function loadProjectConfig(startDir = process.cwd()): ProjectConfig | nul
   if (typeof raw.knowledge_dir === "string" && raw.knowledge_dir.trim()) {
     config.knowledgeDir = raw.knowledge_dir.trim();
   }
+  if (!config.knowledgeDir && typeof raw.knowledgeDir === "string" && raw.knowledgeDir.trim()) {
+    config.knowledgeDir = raw.knowledgeDir.trim();
+  }
   if (typeof raw.runs_dir === "string" && raw.runs_dir.trim()) {
     config.runsDir = raw.runs_dir.trim();
   }
+  if (!config.runsDir && typeof raw.runsDir === "string" && raw.runsDir.trim()) {
+    config.runsDir = raw.runsDir.trim();
+  }
   if (typeof raw.db_path === "string" && raw.db_path.trim()) {
     config.dbPath = raw.db_path.trim();
+  }
+  if (!config.dbPath && typeof raw.dbPath === "string" && raw.dbPath.trim()) {
+    config.dbPath = raw.dbPath.trim();
   }
   config.gens = coercePositiveInt(raw.gens);
 
