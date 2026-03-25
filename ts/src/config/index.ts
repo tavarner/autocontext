@@ -456,10 +456,10 @@ export function loadProjectConfig(startDir = process.cwd()): ProjectConfig | nul
   if (!configSource) {
     return null;
   }
-  return parseProjectConfigRaw(configSource.raw);
+  return parseProjectConfigRaw(configSource.raw, dirname(configSource.location.path));
 }
 
-function parseProjectConfigRaw(raw: Record<string, unknown>): ProjectConfig {
+function parseProjectConfigRaw(raw: Record<string, unknown>, rootDir: string): ProjectConfig {
   const config: ProjectConfig = {};
 
   if (typeof raw.default_scenario === "string" && raw.default_scenario.trim()) {
@@ -476,22 +476,25 @@ function parseProjectConfigRaw(raw: Record<string, unknown>): ProjectConfig {
     config.model = raw.model.trim();
   }
   if (typeof raw.knowledge_dir === "string" && raw.knowledge_dir.trim()) {
-    config.knowledgeDir = raw.knowledge_dir.trim();
+    config.knowledgeDir = resolve(rootDir, raw.knowledge_dir.trim());
   }
   if (!config.knowledgeDir && typeof raw.knowledgeDir === "string" && raw.knowledgeDir.trim()) {
-    config.knowledgeDir = raw.knowledgeDir.trim();
+    config.knowledgeDir = resolve(rootDir, raw.knowledgeDir.trim());
   }
   if (typeof raw.runs_dir === "string" && raw.runs_dir.trim()) {
-    config.runsDir = raw.runs_dir.trim();
+    config.runsDir = resolve(rootDir, raw.runs_dir.trim());
   }
   if (!config.runsDir && typeof raw.runsDir === "string" && raw.runsDir.trim()) {
-    config.runsDir = raw.runsDir.trim();
+    config.runsDir = resolve(rootDir, raw.runsDir.trim());
   }
   if (typeof raw.db_path === "string" && raw.db_path.trim()) {
-    config.dbPath = raw.db_path.trim();
+    config.dbPath = resolve(rootDir, raw.db_path.trim());
   }
   if (!config.dbPath && typeof raw.dbPath === "string" && raw.dbPath.trim()) {
-    config.dbPath = raw.dbPath.trim();
+    config.dbPath = resolve(rootDir, raw.dbPath.trim());
+  }
+  if (!config.dbPath && config.runsDir) {
+    config.dbPath = join(config.runsDir, "autocontext.sqlite3");
   }
   config.gens = coercePositiveInt(raw.gens);
 
@@ -554,12 +557,20 @@ export function loadSettings(): AppSettings {
     if (projectConfig.provider) {
       kwargs.agentProvider = projectConfig.provider;
     }
+    if (projectConfig.model) {
+      kwargs.modelCompetitor = projectConfig.model;
+      kwargs.modelAnalyst = projectConfig.model;
+      kwargs.modelCoach = projectConfig.model;
+      kwargs.modelArchitect = projectConfig.model;
+      kwargs.modelTranslator = projectConfig.model;
+      kwargs.modelCurator = projectConfig.model;
+      kwargs.modelSkeptic = projectConfig.model;
+    }
     if (projectConfig.knowledgeDir) {
       kwargs.knowledgeRoot = projectConfig.knowledgeDir;
     }
     if (projectConfig.runsDir) {
       kwargs.runsRoot = projectConfig.runsDir;
-      kwargs.dbPath = join(projectConfig.runsDir, "autocontext.sqlite3");
     }
     if (projectConfig.dbPath) {
       kwargs.dbPath = projectConfig.dbPath;

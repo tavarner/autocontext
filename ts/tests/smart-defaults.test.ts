@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -14,7 +14,7 @@ const SANITIZED_KEYS = [
   "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AUTOCONTEXT_API_KEY",
   "AUTOCONTEXT_AGENT_API_KEY", "AUTOCONTEXT_PROVIDER", "AUTOCONTEXT_AGENT_PROVIDER",
   "AUTOCONTEXT_DB_PATH", "AUTOCONTEXT_RUNS_ROOT", "AUTOCONTEXT_KNOWLEDGE_ROOT",
-  "AUTOCONTEXT_CONFIG_DIR",
+  "AUTOCONTEXT_CONFIG_DIR", "AUTOCONTEXT_AGENT_DEFAULT_MODEL", "AUTOCONTEXT_MODEL",
 ];
 
 function buildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
@@ -74,6 +74,48 @@ describe("AC-394: smart no-args", () => {
     expect(parsed).toHaveProperty("active_runs");
     expect(parsed).toHaveProperty("total_runs");
   });
+
+  it("init scaffolds project config, artifact roots, and AGENTS guidance", () => {
+    const { exitCode } = runCli(["init", "--dir", dir]);
+    expect(exitCode).toBe(0);
+
+    const configPath = join(dir, ".autoctx.json");
+    expect(existsSync(configPath)).toBe(true);
+    expect(existsSync(join(dir, "runs"))).toBe(true);
+    expect(existsSync(join(dir, "knowledge"))).toBe(true);
+    expect(existsSync(join(dir, "AGENTS.md"))).toBe(true);
+
+    const parsed = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    expect(parsed.default_scenario).toBe("grid_ctf");
+    expect(parsed.provider).toBe("deterministic");
+    expect(parsed.gens).toBe(3);
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf-8")).toContain("## AutoContext");
+  });
+
+  it("run uses project config defaults from a nested directory", () => {
+    writeFileSync(join(dir, ".autoctx.json"), JSON.stringify({
+      default_scenario: "grid_ctf",
+      provider: "deterministic",
+      gens: 2,
+      runs_dir: "state/runs",
+      knowledge_dir: "state/knowledge",
+    }, null, 2), "utf-8");
+
+    mkdirSync(join(dir, "nested", "deeper"), { recursive: true });
+    mkdirSync(join(dir, "state", "runs"), { recursive: true });
+    mkdirSync(join(dir, "state", "knowledge"), { recursive: true });
+
+    const { stdout, exitCode } = runCli(["run"], { cwd: join(dir, "nested", "deeper") });
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("2 generations");
+    expect(existsSync(join(dir, "state", "runs", "autocontext.sqlite3"))).toBe(true);
+  });
+
+  it("run without defaults points users to init", () => {
+    const { stderr, exitCode } = runCli(["run"], { cwd: dir });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("autoctx init");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -100,7 +142,7 @@ describe("AC-397: package.json autoctx key", () => {
     expect(config).not.toBeNull();
     expect(config!.defaultScenario).toBe("othello");
     expect(config!.provider).toBe("ollama");
-    expect(config!.runsDir).toBe("./custom-runs");
+    expect(config!.runsDir?.endsWith(join("custom-runs"))).toBe(true);
   });
 
   it(".autoctx.json takes precedence over package.json", async () => {

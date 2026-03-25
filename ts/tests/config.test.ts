@@ -4,6 +4,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("AppSettingsSchema", () => {
   it("should export a Zod schema", async () => {
@@ -260,5 +263,76 @@ describe("AppSettings type", () => {
     const settings: AppSettings = AppSettingsSchema.parse({});
     // TypeScript compile-time check — if this compiles, the type exists
     expect(settings.agentProvider).toBeDefined();
+  });
+});
+
+describe("project config integration", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+  let originalCwd = process.cwd();
+  let dir = "";
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    dir = mkdtempSync(join(tmpdir(), "ac-config-project-"));
+
+    for (const key of Object.keys(process.env)) {
+      if (
+        key.startsWith("AUTOCONTEXT_")
+        || key === "ANTHROPIC_API_KEY"
+        || key === "OPENAI_API_KEY"
+      ) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(dir, { recursive: true, force: true });
+
+    for (const key of Object.keys(process.env)) {
+      if (
+        key.startsWith("AUTOCONTEXT_")
+        || key === "ANTHROPIC_API_KEY"
+        || key === "OPENAI_API_KEY"
+      ) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value !== undefined) {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  it("loads project defaults from parent directories and resolves relative paths from project root", async () => {
+    writeFileSync(join(dir, ".autoctx.json"), JSON.stringify({
+      default_scenario: "grid_ctf",
+      provider: "ollama",
+      model: "llama3.2",
+      gens: 4,
+      runs_dir: "state/runs",
+      knowledge_dir: "state/knowledge",
+    }, null, 2), "utf-8");
+    mkdirSync(join(dir, "nested", "deeper"), { recursive: true });
+    process.chdir(join(dir, "nested", "deeper"));
+
+    const { loadProjectConfig, loadSettings } = await import("../src/config/index.js");
+
+    const projectConfig = loadProjectConfig();
+    expect(projectConfig?.defaultScenario).toBe("grid_ctf");
+    expect(projectConfig?.runsDir?.endsWith(join("state", "runs"))).toBe(true);
+    expect(projectConfig?.knowledgeDir?.endsWith(join("state", "knowledge"))).toBe(true);
+
+    const settings = loadSettings();
+    expect(settings.agentProvider).toBe("ollama");
+    expect(settings.modelCompetitor).toBe("llama3.2");
+    expect(settings.modelAnalyst).toBe("llama3.2");
+    expect(settings.defaultGenerations).toBe(4);
+    expect(settings.runsRoot.endsWith(join("state", "runs"))).toBe(true);
+    expect(settings.knowledgeRoot.endsWith(join("state", "knowledge"))).toBe(true);
+    expect(settings.dbPath.endsWith(join("state", "runs", "autocontext.sqlite3"))).toBe(true);
   });
 });

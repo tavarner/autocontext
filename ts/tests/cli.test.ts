@@ -23,6 +23,7 @@ describe("CLI", () => {
     const { stdout, exitCode } = runCli(["--help"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("autoctx");
+    expect(stdout).toContain("init");
     expect(stdout).toContain("judge");
     expect(stdout).toContain("improve");
     expect(stdout).toContain("repl");

@@ -72,6 +72,7 @@ describe("Full CLI command contract", () => {
   it("help lists all expected commands", () => {
     const { stdout } = runCli(["--help"]);
     const expected = [
+      "init",
       "run",
       "list",
       "replay",
