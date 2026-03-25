@@ -410,16 +410,33 @@ export function findProjectConfigPath(startDir = process.cwd()): string | null {
 }
 
 export function loadProjectConfig(startDir = process.cwd()): ProjectConfig | null {
+  // Priority: .autoctx.json > package.json "autoctx" key
   const configPath = findProjectConfigPath(startDir);
-  if (!configPath) {
-    return null;
+  if (configPath) {
+    return parseProjectConfigRaw(readJsonObject(configPath, PROJECT_CONFIG_FILE));
   }
 
-  const raw = readJsonObject(configPath, PROJECT_CONFIG_FILE);
+  // Fallback: check package.json for "autoctx" key (AC-397)
+  const pkgJsonPath = join(resolve(startDir), "package.json");
+  if (existsSync(pkgJsonPath)) {
+    const pkg = readJsonObject(pkgJsonPath, "package.json");
+    if (isRecord(pkg.autoctx)) {
+      return parseProjectConfigRaw(pkg.autoctx as Record<string, unknown>);
+    }
+  }
+
+  return null;
+}
+
+function parseProjectConfigRaw(raw: Record<string, unknown>): ProjectConfig {
   const config: ProjectConfig = {};
 
   if (typeof raw.default_scenario === "string" && raw.default_scenario.trim()) {
     config.defaultScenario = raw.default_scenario.trim();
+  }
+  // Also accept camelCase (for package.json convention)
+  if (!config.defaultScenario && typeof raw.defaultScenario === "string" && (raw.defaultScenario as string).trim()) {
+    config.defaultScenario = (raw.defaultScenario as string).trim();
   }
   if (typeof raw.provider === "string" && raw.provider.trim()) {
     config.provider = raw.provider.trim();

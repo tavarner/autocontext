@@ -57,8 +57,28 @@ Run \`autoctx <command> --help\` for command-specific options.
 async function main(): Promise<void> {
   const command = process.argv[2];
 
-  if (!command || command === "--help" || command === "-h") {
+  if (command === "--help" || command === "-h") {
     console.log(HELP);
+    process.exit(0);
+  }
+
+  // AC-394: Smart no-args — show project status if config exists, suggest init otherwise
+  if (!command) {
+    const { loadProjectConfig } = await import("../config/index.js");
+    const projectConfig = loadProjectConfig();
+    if (projectConfig) {
+      console.log(JSON.stringify({
+        project: true,
+        defaultScenario: projectConfig.defaultScenario ?? null,
+        provider: projectConfig.provider ?? null,
+        model: projectConfig.model ?? null,
+        gens: projectConfig.gens ?? null,
+        hint: "Run `autoctx run` to execute the default scenario, or `autoctx capabilities` for full details.",
+      }, null, 2));
+    } else {
+      console.log(HELP);
+      console.log("\nTip: Run `autoctx init` to set up this project with a .autoctx.json config.");
+    }
     process.exit(0);
   }
 
