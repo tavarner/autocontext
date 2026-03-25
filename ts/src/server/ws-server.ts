@@ -507,6 +507,109 @@ export class InteractiveServer {
         this.runManager.cancelScenario();
         this.send(ws, { type: "ack", action: "cancel_scenario" });
         return;
+      case "login": {
+        const { handleTuiLogin, handleTuiWhoami, resolveTuiAuthSelection } = await import("./tui-auth.js");
+        const { resolveConfigDir } = await import("../config/index.js");
+        const configDir = resolveConfigDir();
+        const loginResult = await handleTuiLogin(configDir, msg.provider, msg.apiKey, msg.model, msg.baseUrl);
+        if (!loginResult.saved) {
+          throw new Error(loginResult.validationWarning ?? `Unable to log in to ${msg.provider}`);
+        }
+        const selection = resolveTuiAuthSelection(configDir, loginResult.provider);
+        if (selection.provider !== "none") {
+          this.runManager.setActiveProvider({
+            providerType: selection.provider,
+            ...(selection.apiKey ? { apiKey: selection.apiKey } : {}),
+            ...(selection.model ? { model: selection.model } : {}),
+            ...(selection.baseUrl ? { baseUrl: selection.baseUrl } : {}),
+          });
+        }
+        const status = handleTuiWhoami(configDir, loginResult.provider);
+        this.send(ws, {
+          type: "auth_status",
+          provider: status.provider,
+          authenticated: status.authenticated,
+          ...(status.model ? { model: status.model } : {}),
+          ...(status.configuredProviders ? { configuredProviders: status.configuredProviders } : {}),
+        });
+        return;
+      }
+      case "logout": {
+        const { handleTuiLogout, handleTuiWhoami, resolveTuiAuthSelection } = await import("./tui-auth.js");
+        const { resolveConfigDir } = await import("../config/index.js");
+        const configDir = resolveConfigDir();
+        const currentProvider = this.runManager.getActiveProviderType() ?? undefined;
+        const removedProvider = msg.provider?.trim().toLowerCase();
+        handleTuiLogout(configDir, msg.provider);
+        if (!msg.provider) {
+          this.runManager.clearActiveProvider();
+        } else {
+          const preferredProvider =
+            currentProvider === removedProvider ? removedProvider : currentProvider;
+          const selection = resolveTuiAuthSelection(configDir, preferredProvider);
+          if (selection.provider === "none") {
+            this.runManager.clearActiveProvider();
+          } else {
+            this.runManager.setActiveProvider({
+              providerType: selection.provider,
+              ...(selection.apiKey ? { apiKey: selection.apiKey } : {}),
+              ...(selection.model ? { model: selection.model } : {}),
+              ...(selection.baseUrl ? { baseUrl: selection.baseUrl } : {}),
+            });
+          }
+        }
+        const status = handleTuiWhoami(
+          configDir,
+          msg.provider ? (currentProvider === removedProvider ? removedProvider : currentProvider) : undefined,
+        );
+        this.send(ws, {
+          type: "auth_status",
+          provider: status.provider,
+          authenticated: status.authenticated,
+          ...(status.model ? { model: status.model } : {}),
+          ...(status.configuredProviders ? { configuredProviders: status.configuredProviders } : {}),
+        });
+        return;
+      }
+      case "switch_provider": {
+        const { handleTuiSwitchProvider, resolveTuiAuthSelection } = await import("./tui-auth.js");
+        const { resolveConfigDir } = await import("../config/index.js");
+        const configDir = resolveConfigDir();
+        const status = handleTuiSwitchProvider(configDir, msg.provider);
+        const selection = resolveTuiAuthSelection(configDir, msg.provider);
+        if (selection.provider === "none") {
+          this.runManager.clearActiveProvider();
+        } else {
+          this.runManager.setActiveProvider({
+            providerType: selection.provider,
+            ...(selection.apiKey ? { apiKey: selection.apiKey } : {}),
+            ...(selection.model ? { model: selection.model } : {}),
+            ...(selection.baseUrl ? { baseUrl: selection.baseUrl } : {}),
+          });
+        }
+        this.send(ws, {
+          type: "auth_status",
+          provider: status.provider,
+          authenticated: status.authenticated,
+          ...(status.model ? { model: status.model } : {}),
+          ...(status.configuredProviders ? { configuredProviders: status.configuredProviders } : {}),
+        });
+        return;
+      }
+      case "whoami": {
+        const { handleTuiWhoami } = await import("./tui-auth.js");
+        const { resolveConfigDir } = await import("../config/index.js");
+        const configDir = resolveConfigDir();
+        const status = handleTuiWhoami(configDir, this.runManager.getActiveProviderType() ?? undefined);
+        this.send(ws, {
+          type: "auth_status",
+          provider: status.provider,
+          authenticated: status.authenticated,
+          ...(status.model ? { model: status.model } : {}),
+          ...(status.configuredProviders ? { configuredProviders: status.configuredProviders } : {}),
+        });
+        return;
+      }
     }
   }
 

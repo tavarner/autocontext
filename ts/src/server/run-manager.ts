@@ -79,6 +79,10 @@ interface PendingScenarioDraft {
 
 export class RunManager {
   private readonly opts: RunManagerOpts;
+  private providerOverride:
+    | { providerType: string; apiKey?: string; baseUrl?: string; model?: string }
+    | null
+    | undefined;
   private _active = false;
   private _runPromise: Promise<void> | null = null;
   private readonly controller = new LoopController();
@@ -133,8 +137,33 @@ export class RunManager {
         { mode: "local", available: true, description: "Local subprocess execution" },
       ],
       currentExecutor: "local",
-      agentProvider: this.opts.providerType ?? loadSettings().agentProvider,
+      agentProvider: this.getActiveProviderType() ?? "none",
     };
+  }
+
+  getActiveProviderType(): string | null {
+    if (this.providerOverride === null) {
+      return null;
+    }
+    return this.providerOverride?.providerType ?? this.opts.providerType ?? loadSettings().agentProvider;
+  }
+
+  setActiveProvider(config: {
+    providerType: string;
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+  }): void {
+    this.providerOverride = {
+      providerType: config.providerType.trim().toLowerCase(),
+      ...(config.apiKey ? { apiKey: config.apiKey } : {}),
+      ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+      ...(config.model ? { model: config.model } : {}),
+    };
+  }
+
+  clearActiveProvider(): void {
+    this.providerOverride = null;
   }
 
   getState(): RunManagerState {
@@ -341,11 +370,22 @@ export class RunManager {
   }
 
   private resolveProviderBundle(settings = loadSettings()) {
-    return buildRoleProviderBundle(settings, {
+    if (this.providerOverride === null) {
+      throw new Error("No active provider configured for this session. Use /login or /provider.");
+    }
+
+    const overrides = this.providerOverride ?? {
       providerType: this.opts.providerType,
       apiKey: this.opts.apiKey,
       baseUrl: this.opts.baseUrl,
       model: this.opts.model,
+    };
+
+    return buildRoleProviderBundle(settings, {
+      providerType: overrides.providerType,
+      apiKey: overrides.apiKey,
+      baseUrl: overrides.baseUrl,
+      model: overrides.model,
     });
   }
 
