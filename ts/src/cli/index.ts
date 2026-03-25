@@ -25,7 +25,7 @@ const HELP = `
 autoctx — always-on agent evaluation harness
 
 Commands:
-  init             Scaffold project config (.autoctx.json)
+  init             Scaffold project config and AGENTS guidance
   run              Run generation loop for a scenario
   list             List recent runs
   replay           Print replay JSON for a generation
@@ -162,6 +162,14 @@ function formatFatalCliError(err: unknown): string {
   return String(err);
 }
 
+function parsePositiveInteger(raw: string | undefined, label: string): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
 async function getDbPath(): Promise<string> {
   const { loadSettings } = await import("../config/index.js");
   const { mkdirSync } = await import("node:fs");
@@ -265,15 +273,25 @@ async function writeAgentsGuide(targetDir: string): Promise<boolean> {
   const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
   const agentsPath = join(targetDir, "AGENTS.md");
   const block = [
+    "<!-- AUTOCTX_GUIDE_START -->",
     "## AutoContext",
     "",
     "- Use `autoctx capabilities` to inspect supported commands and project state.",
     "- Use `autoctx whoami` to confirm provider credentials before running evaluations.",
     "- Run `autoctx run` from this directory to use the defaults stored in `.autoctx.json`.",
+    "<!-- AUTOCTX_GUIDE_END -->",
   ].join("\n");
 
   if (existsSync(agentsPath)) {
     const existing = readFileSync(agentsPath, "utf-8");
+    const start = existing.indexOf("<!-- AUTOCTX_GUIDE_START -->");
+    const end = existing.indexOf("<!-- AUTOCTX_GUIDE_END -->");
+    if (start !== -1 && end !== -1 && end > start) {
+      const replacementEnd = end + "<!-- AUTOCTX_GUIDE_END -->".length;
+      const updated = `${existing.slice(0, start)}${block}${existing.slice(replacementEnd)}`;
+      writeFileSync(agentsPath, updated.endsWith("\n") ? updated : updated + "\n", "utf-8");
+      return true;
+    }
     if (existing.includes("## AutoContext")) {
       return false;
     }
@@ -325,7 +343,7 @@ async function cmdRun(dbPath: string): Promise<void> {
     args: process.argv.slice(3),
     options: {
       scenario: { type: "string", short: "s" },
-      gens: { type: "string", short: "g", default: "1" },
+      gens: { type: "string", short: "g" },
       "run-id": { type: "string" },
       provider: { type: "string" },
       matches: { type: "string", default: "3" },
@@ -335,9 +353,14 @@ async function cmdRun(dbPath: string): Promise<void> {
   });
 
   const scenarioName = await resolveScenarioOption(values.scenario);
-  if (values.help || !scenarioName) {
-    console.log("autoctx run --scenario <name> [--gens N] [--run-id ID] [--provider deterministic] [--matches N] [--json]");
-    process.exit(values.help ? 0 : 1);
+  if (values.help) {
+    console.log("autoctx run [--scenario <name>] [--gens N] [--run-id ID] [--provider deterministic] [--matches N] [--json]");
+    console.log("If project config exists, --scenario and --gens default from that config.");
+    process.exit(0);
+  }
+  if (!scenarioName) {
+    console.error("Error: no scenario configured. Run `autoctx init` or pass --scenario <name>.");
+    process.exit(1);
   }
 
   const { SQLiteStore } = await import("../storage/index.js");
@@ -365,8 +388,10 @@ async function cmdRun(dbPath: string): Promise<void> {
   store.migrate(getMigrationsDir());
 
   const runId = values["run-id"] ?? `run-${Date.now()}`;
-  const gens = parseInt(values.gens ?? "1", 10);
-  const matches = parseInt(values.matches ?? String(settings.matchesPerGeneration), 10);
+  const gens = values.gens
+    ? parsePositiveInteger(values.gens, "--gens")
+    : settings.defaultGenerations;
+  const matches = parsePositiveInteger(values.matches ?? String(settings.matchesPerGeneration), "--matches");
 
   const runner = new GenerationRunner({
     provider: providerBundle.defaultProvider,
@@ -1361,7 +1386,7 @@ async function cmdInit(): Promise<void> {
 
   if (values.help) {
     console.log("autoctx init [--dir <path>] [--scenario <name>] [--provider <type>] [--model <name>] [--gens N] [--agents-md]");
-    console.log("Scaffolds a .autoctx.json project config file, auto-detecting provider/model defaults when available.");
+    console.log("Scaffolds a .autoctx.json project config file and writes AGENTS.md guidance, auto-detecting provider/model defaults when available.");
     process.exit(0);
   }
 
@@ -1402,24 +1427,21 @@ async function cmdInit(): Promise<void> {
   const config: Record<string, unknown> = {
     default_scenario: values.scenario ?? projectDefaults?.defaultScenario ?? "grid_ctf",
     provider: detectedProvider ?? "deterministic",
-    gens: parseInt(values.gens ?? "3", 10) || 3,
-    knowledge_dir: projectDefaults?.knowledgeDir ?? "./knowledge",
-    runs_dir: projectDefaults?.runsDir ?? "./runs",
+    gens: parsePositiveInteger(values.gens ?? "3", "--gens"),
+    knowledge_dir: "./knowledge",
+    runs_dir: "./runs",
   };
   if (detectedModel) {
     config.model = detectedModel;
   }
+  mkdirSync(join(targetDir, "runs"), { recursive: true });
+  mkdirSync(join(targetDir, "knowledge"), { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
 
-  let agentsMdUpdated = false;
-  if (values["agents-md"]) {
-    agentsMdUpdated = await writeAgentsGuide(targetDir);
-  }
+  const agentsMdUpdated = await writeAgentsGuide(targetDir);
 
   console.log(`Created ${configPath}`);
-  if (values["agents-md"]) {
-    console.log(agentsMdUpdated ? `Updated ${join(targetDir, "AGENTS.md")}` : `AGENTS.md already contained AutoContext guidance`);
-  }
+  console.log(agentsMdUpdated ? `Updated ${join(targetDir, "AGENTS.md")}` : `AGENTS.md already contained AutoContext guidance`);
 }
 
 async function cmdCapabilities(): Promise<void> {
