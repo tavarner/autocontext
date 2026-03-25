@@ -8,12 +8,36 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+import type { LLMProvider } from "../src/types/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "ac-discover-"));
+}
+
+function makeMockProvider(response = "mock draft"): LLMProvider {
+  return {
+    name: "mock",
+    defaultModel: () => "mock-model",
+    complete: async (opts) => {
+      if (opts.systemPrompt.includes("expert judge")) {
+        return {
+          text:
+            "<!-- JUDGE_RESULT_START -->\n" +
+            JSON.stringify({
+              score: 0.9,
+              reasoning: "Loaded saved spec and completed successfully.",
+              dimensions: { quality: 0.9 },
+            }) +
+            "\n<!-- JUDGE_RESULT_END -->",
+          usage: {},
+        };
+      }
+      return { text: response, usage: {} };
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -85,9 +109,9 @@ describe("Custom scenario auto-discovery", () => {
     expect(count).toBe(0);
   });
 
-  it("RunManager.getEnvironmentInfo includes custom scenarios", async () => {
-    const { RunManager } = await import("../src/server/run-manager.js");
+  it("queued saved custom scenarios run end-to-end through TaskRunner", async () => {
     const { SQLiteStore } = await import("../src/storage/index.js");
+    const { TaskRunner, enqueueTask } = await import("../src/execution/task-runner.js");
 
     // Create custom scenario in the knowledge dir
     const customDir = join(dir, "knowledge", "_custom_scenarios", "my_task");
@@ -102,17 +126,18 @@ describe("Custom scenario auto-discovery", () => {
     const dbPath = join(dir, "test.db");
     const store = new SQLiteStore(dbPath);
     store.migrate(join(__dirname, "..", "migrations"));
-    store.close();
+    enqueueTask(store, "my_task", { initialOutput: "Initial draft" });
 
-    const mgr = new RunManager({
-      dbPath,
-      migrationsDir: join(__dirname, "..", "migrations"),
-      runsRoot: join(dir, "runs"),
+    const runner = new TaskRunner({
+      store,
+      provider: makeMockProvider(),
       knowledgeRoot: join(dir, "knowledge"),
-      providerType: "deterministic",
     });
 
-    const info = mgr.getEnvironmentInfo();
-    expect(info.scenarios.some((s) => s.name === "my_task")).toBe(true);
+    const result = await runner.runOnce();
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe("completed");
+    expect(result!.best_score).toBe(0.9);
+    store.close();
   });
 });

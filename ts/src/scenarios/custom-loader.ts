@@ -16,6 +16,12 @@ export interface CustomScenarioEntry {
   path: string;
 }
 
+export interface ResolvedCustomAgentTask {
+  name: string;
+  path: string;
+  spec: AgentTaskSpec;
+}
+
 export const CUSTOM_SCENARIO_REGISTRY = new Map<string, CustomScenarioEntry>();
 export const CUSTOM_AGENT_TASK_REGISTRY: Record<string, () => AgentTaskInterface> = {};
 
@@ -50,6 +56,14 @@ function normalizeAgentTaskSpec(spec: Record<string, unknown>): AgentTaskSpec {
     };
   }
   return parseRawSpec(spec);
+}
+
+export function renderAgentTaskPrompt(spec: AgentTaskSpec): string {
+  let prompt = spec.taskPrompt;
+  if (spec.sampleInput) {
+    prompt += `\n\n## Input Data\n${spec.sampleInput}`;
+  }
+  return prompt;
 }
 
 /**
@@ -138,6 +152,22 @@ export function discoverAndRegisterCustomScenarios(
   const loaded = loadCustomScenarios(customDir);
   registerCustomScenarios(loaded, provider);
   return loaded.size;
+}
+
+export function resolveCustomAgentTask(
+  knowledgeRoot: string,
+  name: string,
+): ResolvedCustomAgentTask | null {
+  const customDir = join(knowledgeRoot, "_custom_scenarios");
+  const entry = loadCustomScenarios(customDir).get(name);
+  if (!entry || entry.type !== "agent_task") {
+    return null;
+  }
+  return {
+    name,
+    path: entry.path,
+    spec: normalizeAgentTaskSpec(entry.spec),
+  };
 }
 
 export function registerCustomScenarios(
