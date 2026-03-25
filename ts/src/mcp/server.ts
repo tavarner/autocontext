@@ -18,6 +18,7 @@ import { SimpleAgentTask } from "../execution/task-runner.js";
 import { loadSettings } from "../config/index.js";
 import { SolveManager } from "../knowledge/solver.js";
 import { runAgentTaskRlmSession } from "../rlm/index.js";
+import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 
 export interface MtsServerOpts {
   store: SQLiteStore;
@@ -406,6 +407,7 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
         };
       }
       const instance = new ScenarioClass();
+      assertFamilyContract(instance, "game", `scenario '${args.name}'`);
       return {
         content: [{
           type: "text" as const,
@@ -503,9 +505,11 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
       }
 
       const runId = args.runId ?? `mcp-${Date.now()}`;
+      const scenario = new ScenarioClass();
+      assertFamilyContract(scenario, "game", `scenario '${args.scenario}'`);
       const runner = new GenerationRunner({
         provider,
-        scenario: new ScenarioClass(),
+        scenario,
         store,
         runsRoot,
         knowledgeRoot,

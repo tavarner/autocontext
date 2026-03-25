@@ -102,6 +102,7 @@ export {
   isOperatorLoop,
   isCoordination,
   isArtifactEditing,
+  assertFamilyContract,
   detectFamily,
 } from "./family-interfaces.js";
 export type {

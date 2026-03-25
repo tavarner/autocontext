@@ -14,6 +14,7 @@ import type {
 import { ImprovementLoop } from "./improvement-loop.js";
 import { LLMJudge } from "../judge/index.js";
 import type { SQLiteStore, TaskQueueRow } from "../storage/index.js";
+import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 import { renderAgentTaskPrompt, resolveCustomAgentTask } from "../scenarios/custom-loader.js";
 import {
   RlmTaskConfigSchema,
@@ -140,6 +141,7 @@ export class SimpleAgentTask implements AgentTaskInterface {
     this.model = model || provider.defaultModel();
     this.revisionPrompt = revisionPrompt;
     this.rlmConfig = resolveRlmConfig(rlmConfig);
+    assertFamilyContract(this, "agent_task", "SimpleAgentTask");
   }
 
   getTaskPrompt(): string {

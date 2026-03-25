@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SQLiteStore } from "../storage/index.js";
+import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
 import { ArtifactStore, EMPTY_PLAYBOOK_SENTINEL } from "./artifact-store.js";
 import { HarnessStore } from "./harness-store.js";
@@ -43,6 +44,7 @@ function descriptionForScenario(scenarioName: string): string {
     return `Exported knowledge for ${scenarioName}`;
   }
   const scenario = new ScenarioClass();
+  assertFamilyContract(scenario, "game", `scenario '${scenarioName}'`);
   return scenario.describeRules();
 }
 

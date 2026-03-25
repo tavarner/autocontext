@@ -4,6 +4,7 @@
  */
 
 import { ArtifactStore } from "../knowledge/artifact-store.js";
+import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
 import type { LLMProvider } from "../types/index.js";
 import type { SQLiteStore } from "../storage/index.js";
@@ -82,10 +83,12 @@ export class SandboxManager {
       const { GenerationRunner } = await import("../loop/generation-runner.js");
       const ScenarioClass = SCENARIO_REGISTRY[sandbox.scenarioName];
       if (!ScenarioClass) throw new Error(`Unknown scenario: ${sandbox.scenarioName}`);
+      const scenario = new ScenarioClass();
+      assertFamilyContract(scenario, "game", `scenario '${sandbox.scenarioName}'`);
 
       const runner = new GenerationRunner({
         provider: this.provider,
-        scenario: new ScenarioClass(),
+        scenario,
         store: this.store,
         runsRoot: this.runsRoot,
         knowledgeRoot: this.knowledgeRoot,

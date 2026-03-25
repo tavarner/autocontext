@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LLMProvider } from "../types/index.js";
 import type { SQLiteStore } from "../storage/index.js";
+import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 import { getScenarioTypeMarker, type ScenarioFamilyName } from "../scenarios/families.js";
 import { ArtifactStore } from "./artifact-store.js";
 import { exportStrategyPackage } from "./package.js";
@@ -104,9 +105,11 @@ export class SolveManager {
       }
 
       job.status = "running";
+      const scenario = new ScenarioClass();
+      assertFamilyContract(scenario, "game", `scenario '${created.name}'`);
       const runner = new GenerationRunner({
         provider: this.provider,
-        scenario: new ScenarioClass(),
+        scenario,
         store: this.store,
         runsRoot: this.runsRoot,
         knowledgeRoot: this.knowledgeRoot,

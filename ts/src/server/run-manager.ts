@@ -14,6 +14,7 @@ import {
   type GenerationRole,
 } from "../providers/index.js";
 import {
+  assertFamilyContract,
   type CreatedScenarioResult,
   type CustomScenarioEntry,
   type IntentValidationResult,
@@ -115,6 +116,7 @@ export class RunManager {
     const builtinScenarios = this.listScenarios().map((name) => {
       const ScenarioClass = SCENARIO_REGISTRY[name];
       const instance = new ScenarioClass();
+      assertFamilyContract(instance, "game", `scenario '${name}'`);
       return { name, description: instance.describeRules() };
     });
     const customScenarios = [...this.customScenarios.values()]
@@ -217,6 +219,8 @@ export class RunManager {
     const id = runId ?? `tui_${Date.now().toString(16).slice(-8)}`;
     const settings = loadSettings();
     const providerBundle = this.resolveProviderBundle(settings);
+    const scenarioInstance = new ScenarioClass();
+    assertFamilyContract(scenarioInstance, "game", `scenario '${scenario}'`);
 
     const store = new SQLiteStore(this.opts.dbPath);
     store.migrate(this.opts.migrationsDir);
@@ -225,7 +229,7 @@ export class RunManager {
       provider: providerBundle.defaultProvider,
       roleProviders: providerBundle.roleProviders,
       roleModels: providerBundle.roleModels,
-      scenario: new ScenarioClass(),
+      scenario: scenarioInstance,
       store,
       runsRoot: this.opts.runsRoot,
       knowledgeRoot: this.opts.knowledgeRoot,
