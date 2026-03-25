@@ -125,6 +125,21 @@ export function loadCustomScenarios(customDir: string): Map<string, CustomScenar
  * Agent-task scenarios are tracked separately from the game-scenario registry because
  * they do not satisfy the ScenarioInterface contract used by the generation loop.
  */
+/**
+ * Convenience: scan knowledge/_custom_scenarios/ and register everything.
+ * Returns the number of custom scenarios discovered.
+ * This mirrors Python's _load_persisted_custom_scenarios() at import time.
+ */
+export function discoverAndRegisterCustomScenarios(
+  knowledgeRoot: string,
+  provider?: LLMProvider,
+): number {
+  const customDir = join(knowledgeRoot, "_custom_scenarios");
+  const loaded = loadCustomScenarios(customDir);
+  registerCustomScenarios(loaded, provider);
+  return loaded.size;
+}
+
 export function registerCustomScenarios(
   loaded: Map<string, CustomScenarioEntry>,
   provider?: LLMProvider,
