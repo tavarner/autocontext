@@ -73,7 +73,11 @@ export {
   ExecutionLimitsSchema,
 } from "./game-interface.js";
 export { GridCtfScenario } from "./grid-ctf.js";
-export { SCENARIO_REGISTRY, isGameScenario, isAgentTask } from "./registry.js";
+export { OthelloScenario } from "./othello.js";
+export { ResourceTrader } from "./resource-trader.js";
+export { WordCountTask } from "./word-count.js";
+export { SCENARIO_REGISTRY, AGENT_TASK_REGISTRY, isGameScenario, isAgentTask } from "./registry.js";
+export type { BuiltinAgentTask } from "./registry.js";
 
 // Custom scenario pipeline (AC-348)
 export {
