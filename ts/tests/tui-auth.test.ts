@@ -1,13 +1,15 @@
 /**
  * Tests for AC-408: TUI /login, /logout, /provider, /whoami commands.
  *
- * Tests the protocol schemas and message handling, not the actual TUI rendering.
+ * Covers protocol schemas, shared auth helpers, and the slash-command handler
+ * used by the interactive TUI submit path.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { RunManager } from "../src/server/run-manager.js";
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "ac-tui-auth-"));
@@ -136,7 +138,7 @@ describe("TUI auth credential operations", () => {
     await handleTuiLogin(dir, "anthropic", "sk-ant-test");
     await handleTuiLogin(dir, "openai", "sk-openai-test");
     handleTuiSwitchProvider(dir, "openai");
-    const status = handleTuiWhoami(dir);
+    const status = handleTuiWhoami(dir, "openai");
     expect(status.provider).toBe("openai");
     expect(status.authenticated).toBe(true);
   });
@@ -146,5 +148,82 @@ describe("TUI auth credential operations", () => {
     const result = await handleTuiLogin(dir, "anthropic", "bad-key");
     expect(result.saved).toBe(true);
     expect(result.validationWarning).toBeDefined();
+  });
+});
+
+function makeMockManager() {
+  let activeProvider: string | null = null;
+  return {
+    pause() {},
+    resume() {},
+    listScenarios() {
+      return ["grid_ctf"];
+    },
+    async startRun() {
+      return "run_123";
+    },
+    injectHint() {},
+    overrideGate() {},
+    async chatAgent() {
+      return "## Findings\nMock response";
+    },
+    setActiveProvider(config: { providerType: string }) {
+      activeProvider = config.providerType;
+    },
+    clearActiveProvider() {
+      activeProvider = null;
+    },
+    getActiveProviderType() {
+      return activeProvider;
+    },
+  } satisfies Partial<RunManager>;
+}
+
+describe("Interactive TUI command handler", () => {
+  let dir: string;
+
+  beforeEach(() => { dir = makeTempDir(); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it("routes /login and /provider through the live slash-command handler", async () => {
+    const { handleInteractiveTuiCommand } = await import("../src/tui/commands.js");
+    const manager = makeMockManager() as RunManager;
+
+    let result = await handleInteractiveTuiCommand({
+      manager,
+      configDir: dir,
+      raw: "/login anthropic",
+      pendingLogin: null,
+    });
+    expect(result.logLines[0]).toContain("enter API key for anthropic");
+    expect(result.pendingLogin?.provider).toBe("anthropic");
+
+    result = await handleInteractiveTuiCommand({
+      manager,
+      configDir: dir,
+      raw: "sk-ant-test-123",
+      pendingLogin: result.pendingLogin,
+    });
+    expect(result.logLines[0]).toBe("logged in to anthropic");
+    expect(manager.getActiveProviderType()).toBe("anthropic");
+    expect(result.pendingLogin).toBeNull();
+
+    result = await handleInteractiveTuiCommand({
+      manager,
+      configDir: dir,
+      raw: "/provider deterministic",
+      pendingLogin: null,
+    });
+    expect(result.logLines[0]).toBe("active provider: deterministic");
+    expect(manager.getActiveProviderType()).toBe("deterministic");
+
+    result = await handleInteractiveTuiCommand({
+      manager,
+      configDir: dir,
+      raw: "/whoami",
+      pendingLogin: null,
+    });
+    expect(result.logLines).toContain("provider: deterministic");
+    expect(result.logLines).toContain("authenticated: yes");
   });
 });

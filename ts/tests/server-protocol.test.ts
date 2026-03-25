@@ -436,6 +436,54 @@ describe("InteractiveServer", () => {
       await server.stop();
     }
   }, 15000);
+
+  it("applies provider switches to subsequent live chat requests", async () => {
+    const previousConfigDir = process.env.AUTOCONTEXT_CONFIG_DIR;
+    const configDir = join(dir, "config");
+    mkdirSync(configDir, { recursive: true });
+    process.env.AUTOCONTEXT_CONFIG_DIR = configDir;
+
+    const { RunManager, InteractiveServer } = await import("../src/server/index.js");
+    const mgr = new RunManager({
+      dbPath: join(dir, "test.db"),
+      migrationsDir: join(__dirname, "..", "migrations"),
+      runsRoot: join(dir, "runs"),
+      knowledgeRoot: join(dir, "knowledge"),
+      providerType: "anthropic",
+    });
+    const server = new InteractiveServer({ runManager: mgr, port: 0 });
+    await server.start();
+
+    const socket = await openSocket(server.url);
+
+    try {
+      await socket.waitFor((msg) => msg.type === "hello");
+      await socket.waitFor((msg) => msg.type === "environments");
+      await socket.waitFor((msg) => msg.type === "state");
+
+      socket.send({ type: "chat_agent", role: "analyst", message: "What changed?" });
+      const initialError = await socket.waitFor((msg) => msg.type === "error");
+      expect(String(initialError.message)).toContain("ANTHROPIC_API_KEY");
+
+      socket.send({ type: "switch_provider", provider: "deterministic" });
+      const authStatus = await socket.waitFor((msg) => msg.type === "auth_status");
+      expect(authStatus.provider).toBe("deterministic");
+      expect(authStatus.authenticated).toBe(true);
+      expect(mgr.getActiveProviderType()).toBe("deterministic");
+
+      socket.send({ type: "chat_agent", role: "analyst", message: "What changed?" });
+      const reply = await socket.waitFor((msg) => msg.type === "chat_response");
+      expect(String(reply.text)).toContain("## Findings");
+    } finally {
+      socket.close();
+      await server.stop();
+      if (previousConfigDir === undefined) {
+        delete process.env.AUTOCONTEXT_CONFIG_DIR;
+      } else {
+        process.env.AUTOCONTEXT_CONFIG_DIR = previousConfigDir;
+      }
+    }
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------

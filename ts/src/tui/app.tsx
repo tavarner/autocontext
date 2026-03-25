@@ -3,6 +3,12 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { RunManager, RunManagerState } from "../server/run-manager.js";
 import type { EventCallback } from "../loop/events.js";
+import {
+  formatCommandHelp,
+  handleInteractiveTuiCommand,
+  type PendingLoginState,
+} from "./commands.js";
+import { resolveConfigDir } from "../config/index.js";
 
 interface InteractiveTuiProps {
   manager: RunManager;
@@ -34,22 +40,11 @@ function summarizeEvent(event: string, payload: Record<string, unknown>): string
   }
 }
 
-function formatCommandHelp(): string[] {
-  return [
-    "/run <scenario> [gens]",
-    "/pause or /resume",
-    "/hint <text>",
-    "/gate <advance|retry|rollback>",
-    "/chat <role> <message>",
-    "/scenarios",
-    "/quit",
-  ];
-}
-
 export function InteractiveTui({ manager, serverUrl }: InteractiveTuiProps) {
   const { exit } = useApp();
   const [state, setState] = useState<RunManagerState>(manager.getState());
   const [input, setInput] = useState("");
+  const [pendingLogin, setPendingLogin] = useState<PendingLoginState | null>(null);
   const [logs, setLogs] = useState<string[]>([
     `interactive server: ${serverUrl}`,
     `available scenarios: ${manager.listScenarios().join(", ")}`,
@@ -91,89 +86,20 @@ export function InteractiveTui({ manager, serverUrl }: InteractiveTuiProps) {
   }, [state]);
 
   const submit = async (raw: string) => {
-    const value = raw.trim();
     setInput("");
-    if (!value) {
-      return;
+    const result = await handleInteractiveTuiCommand({
+      manager,
+      configDir: resolveConfigDir(),
+      raw,
+      pendingLogin,
+    });
+    setPendingLogin(result.pendingLogin);
+    if (result.logLines.length > 0) {
+      setLogs((prev) => [...prev, ...result.logLines].slice(-MAX_LOG_LINES));
     }
-
-    if (value === "/quit" || value === "/exit") {
+    if (result.shouldExit) {
       exit();
-      return;
     }
-
-    if (value === "/help") {
-      setLogs((prev) => [...prev, ...formatCommandHelp()].slice(-MAX_LOG_LINES));
-      return;
-    }
-
-    if (value === "/pause") {
-      manager.pause();
-      setLogs((prev) => [...prev, "paused active loop"].slice(-MAX_LOG_LINES));
-      return;
-    }
-
-    if (value === "/resume") {
-      manager.resume();
-      setLogs((prev) => [...prev, "resumed active loop"].slice(-MAX_LOG_LINES));
-      return;
-    }
-
-    if (value === "/scenarios") {
-      setLogs((prev) => [
-        ...prev,
-        `scenarios: ${manager.listScenarios().join(", ")}`,
-      ].slice(-MAX_LOG_LINES));
-      return;
-    }
-
-    if (value.startsWith("/run ")) {
-      const [, scenario = "grid_ctf", gensText = "5"] = value.split(/\s+/, 3);
-      const generations = Number.parseInt(gensText, 10);
-      try {
-        const runId = await manager.startRun(scenario, Number.isFinite(generations) ? generations : 5);
-        setLogs((prev) => [...prev, `accepted run ${runId}`].slice(-MAX_LOG_LINES));
-      } catch (err) {
-        setLogs((prev) => [...prev, err instanceof Error ? err.message : String(err)].slice(-MAX_LOG_LINES));
-      }
-      return;
-    }
-
-    if (value.startsWith("/hint ")) {
-      manager.injectHint(value.slice("/hint ".length).trim());
-      setLogs((prev) => [...prev, "operator hint queued"].slice(-MAX_LOG_LINES));
-      return;
-    }
-
-    if (value.startsWith("/gate ")) {
-      const decision = value.slice("/gate ".length).trim();
-      if (decision === "advance" || decision === "retry" || decision === "rollback") {
-        manager.overrideGate(decision);
-        setLogs((prev) => [...prev, `gate override queued: ${decision}`].slice(-MAX_LOG_LINES));
-      } else {
-        setLogs((prev) => [...prev, "gate override must be advance|retry|rollback"].slice(-MAX_LOG_LINES));
-      }
-      return;
-    }
-
-    if (value.startsWith("/chat ")) {
-      const [, role = "analyst", ...rest] = value.split(/\s+/);
-      const message = rest.join(" ").trim();
-      if (!message) {
-        setLogs((prev) => [...prev, "chat command requires a role and message"].slice(-MAX_LOG_LINES));
-        return;
-      }
-      try {
-        const response = await manager.chatAgent(role, message);
-        const firstLine = response.split("\n")[0] ?? response;
-        setLogs((prev) => [...prev, `[${role}] ${firstLine}`].slice(-MAX_LOG_LINES));
-      } catch (err) {
-        setLogs((prev) => [...prev, err instanceof Error ? err.message : String(err)].slice(-MAX_LOG_LINES));
-      }
-      return;
-    }
-
-    setLogs((prev) => [...prev, "unknown command; use /help"].slice(-MAX_LOG_LINES));
   };
 
   return (
