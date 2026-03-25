@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -64,14 +64,15 @@ describe("AC-394: smart no-args", () => {
       runs_dir: "./runs",
       knowledge_dir: "./knowledge",
     }, null, 2), "utf-8");
-    // Create the runs dir so list doesn't fail
-    mkdirSync(join(dir, "runs"), { recursive: true });
 
     const { stdout, exitCode } = runCli([], { cwd: dir });
     expect(exitCode).toBe(0);
-    // Should show project-specific info, not generic help
-    expect(stdout).toContain("grid_ctf");
-    expect(stdout).toContain("deterministic");
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.default_scenario).toBe("grid_ctf");
+    expect(parsed.provider).toBe("deterministic");
+    expect(parsed.config_source).toBe("autoctx_json");
+    expect(parsed).toHaveProperty("active_runs");
+    expect(parsed).toHaveProperty("total_runs");
   });
 });
 
@@ -88,8 +89,9 @@ describe("AC-397: package.json autoctx key", () => {
     writeFileSync(join(dir, "package.json"), JSON.stringify({
       name: "test-project",
       autoctx: {
-        default_scenario: "othello",
+        defaultScenario: "othello",
         provider: "ollama",
+        runsDir: "./custom-runs",
       },
     }, null, 2), "utf-8");
 
@@ -98,6 +100,7 @@ describe("AC-397: package.json autoctx key", () => {
     expect(config).not.toBeNull();
     expect(config!.defaultScenario).toBe("othello");
     expect(config!.provider).toBe("ollama");
+    expect(config!.runsDir).toBe("./custom-runs");
   });
 
   it(".autoctx.json takes precedence over package.json", async () => {
@@ -143,5 +146,45 @@ describe("AC-397: package.json autoctx key", () => {
     expect(exitCode).toBe(1);
     // Should attempt to use the scenario from package.json
     expect(stderr).toContain("nonexistent_scenario_xyz");
+  });
+
+  it("loadProjectConfig finds package.json autoctx key from nested directories", async () => {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({
+      name: "test-project",
+      autoctx: {
+        defaultScenario: "grid_ctf",
+        provider: "deterministic",
+      },
+    }, null, 2), "utf-8");
+
+    const nested = join(dir, "packages", "demo", "src");
+    mkdirSync(nested, { recursive: true });
+
+    const { loadProjectConfig } = await import("../src/config/index.js");
+    const config = loadProjectConfig(nested);
+    expect(config).not.toBeNull();
+    expect(config!.defaultScenario).toBe("grid_ctf");
+    expect(config!.provider).toBe("deterministic");
+  });
+
+  it("no-args status detects package.json autoctx key from nested directories", () => {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({
+      name: "test-project",
+      autoctx: {
+        defaultScenario: "grid_ctf",
+        provider: "deterministic",
+      },
+    }, null, 2), "utf-8");
+
+    const nested = join(dir, "packages", "demo", "src");
+    mkdirSync(nested, { recursive: true });
+
+    const { stdout, exitCode } = runCli([], { cwd: nested });
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.default_scenario).toBe("grid_ctf");
+    expect(parsed.provider).toBe("deterministic");
+    expect(parsed.config_source).toBe("package_json");
+    expect(String(parsed.path)).toContain("package.json");
   });
 });
