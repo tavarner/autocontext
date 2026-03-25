@@ -88,3 +88,34 @@ export { IntentValidator } from "./intent-validator.js";
 export type { IntentValidationResult } from "./intent-validator.js";
 export { createScenarioFromDescription } from "./scenario-creator.js";
 export type { CreatedScenarioResult } from "./scenario-creator.js";
+
+// Family interface contracts (AC-380)
+export {
+  isGameScenario as isGameFamily,
+  isAgentTask as isAgentTaskFamily,
+  isSimulation,
+  isNegotiation,
+  isInvestigation,
+  isWorkflow,
+  isSchemaEvolution,
+  isToolFragility,
+  isOperatorLoop,
+  isCoordination,
+  isArtifactEditing,
+  assertFamilyContract,
+  detectFamily,
+} from "./family-interfaces.js";
+export type {
+  GameScenarioInterface,
+  AgentTaskInterface as AgentTaskFamilyInterface,
+  SimulationInterface,
+  NegotiationInterface,
+  InvestigationInterface,
+  WorkflowInterface,
+  SchemaEvolutionInterface,
+  ToolFragilityInterface,
+  OperatorLoopInterface,
+  CoordinationInterface,
+  ArtifactEditingInterface,
+  ScenarioFamilyName as FamilyName,
+} from "./family-interfaces.js";

@@ -411,6 +411,7 @@ async function cmdRun(dbPath: string): Promise<void> {
   const { SQLiteStore } = await import("../storage/index.js");
   const { GenerationRunner } = await import("../loop/generation-runner.js");
   const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
+  const { assertFamilyContract } = await import("../scenarios/family-interfaces.js");
   const { loadSettings } = await import("../config/index.js");
   const { buildRoleProviderBundle } = await import("../providers/index.js");
 
@@ -427,6 +428,7 @@ async function cmdRun(dbPath: string): Promise<void> {
     process.exit(1);
   }
   const scenario = new ScenarioClass();
+  assertFamilyContract(scenario, "game", `scenario '${scenarioName}'`);
 
   // Setup storage
   const store = new SQLiteStore(dbPath);
@@ -1096,6 +1098,7 @@ async function cmdBenchmark(dbPath: string): Promise<void> {
   const { SQLiteStore } = await import("../storage/index.js");
   const { GenerationRunner } = await import("../loop/generation-runner.js");
   const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
+  const { assertFamilyContract } = await import("../scenarios/family-interfaces.js");
   const { loadSettings } = await import("../config/index.js");
   const { buildRoleProviderBundle } = await import("../providers/index.js");
 
@@ -1119,11 +1122,13 @@ async function cmdBenchmark(dbPath: string): Promise<void> {
     const store = new SQLiteStore(dbPath);
     store.migrate(getMigrationsDir());
     const runId = `bench_${Date.now()}_${i}`;
+    const scenario = new ScenarioClass();
+    assertFamilyContract(scenario, "game", `scenario '${scenarioName}'`);
     const runner = new GenerationRunner({
       provider: providerBundle.defaultProvider,
       roleProviders: providerBundle.roleProviders,
       roleModels: providerBundle.roleModels,
-      scenario: new ScenarioClass(),
+      scenario,
       store,
       runsRoot: resolve(settings.runsRoot),
       knowledgeRoot: resolve(settings.knowledgeRoot),

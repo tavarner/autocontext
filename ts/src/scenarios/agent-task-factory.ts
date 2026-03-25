@@ -6,6 +6,7 @@ import type { AgentTaskInterface, AgentTaskResult } from "../types/index.js";
 import { LLMJudge } from "../judge/index.js";
 import type { LLMProvider } from "../types/index.js";
 import type { AgentTaskSpec } from "./agent-task-spec.js";
+import { assertFamilyContract } from "./family-interfaces.js";
 
 export interface AgentTaskFactoryOpts {
   spec: AgentTaskSpec;
@@ -22,7 +23,7 @@ export function createAgentTask(opts: AgentTaskFactoryOpts): AgentTaskInterface 
 } {
   const { spec, name, provider } = opts;
 
-  return {
+  const task = {
     name,
     spec,
 
@@ -126,4 +127,7 @@ export function createAgentTask(opts: AgentTaskFactoryOpts): AgentTaskInterface 
       return result.text;
     },
   };
+
+  assertFamilyContract(task, "agent_task", `custom agent task '${name}'`);
+  return task;
 }

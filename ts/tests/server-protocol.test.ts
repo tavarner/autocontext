@@ -249,6 +249,36 @@ describe("RunManager", () => {
     await new Promise(r => setTimeout(r, 500));
   });
 
+  it("startRun rejects registry entries that fail the game-family contract", async () => {
+    const { RunManager } = await import("../src/server/run-manager.js");
+    const { SCENARIO_REGISTRY } = await import("../src/scenarios/registry.js");
+
+    const scenarioName = "broken_contract";
+    const original = SCENARIO_REGISTRY[scenarioName];
+    class BrokenScenario {
+      readonly name = scenarioName;
+    }
+    SCENARIO_REGISTRY[scenarioName] = BrokenScenario as never;
+
+    try {
+      const mgr = new RunManager({
+        dbPath: join(dir, "test.db"),
+        migrationsDir: join(__dirname, "..", "migrations"),
+        runsRoot: join(dir, "runs"),
+        knowledgeRoot: join(dir, "knowledge"),
+        providerType: "deterministic",
+      });
+
+      await expect(mgr.startRun(scenarioName, 1)).rejects.toThrow(/does not satisfy 'game' contract/i);
+    } finally {
+      if (original) {
+        SCENARIO_REGISTRY[scenarioName] = original;
+      } else {
+        delete SCENARIO_REGISTRY[scenarioName];
+      }
+    }
+  });
+
   it("startRun throws for unknown scenario", async () => {
     const { RunManager } = await import("../src/server/run-manager.js");
     const mgr = new RunManager({
