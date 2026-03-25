@@ -1646,22 +1646,27 @@ async function cmdLogin(): Promise<void> {
     }
   }
 
-  const configDir = resolveConfigDir(values["config-dir"]);
-  mkdirSync(configDir, { recursive: true });
-  const creds: Record<string, unknown> = {
-    provider,
-    savedAt: new Date().toISOString(),
-  };
+  // Validate API key format before saving (AC-430)
   if (apiKey) {
-    creds.apiKey = apiKey;
+    const { validateApiKey, resolveApiKeyValue } = await import("../config/credentials.js");
+    // Resolve shell-command escape hatch (e.g. "!security find-generic-password -ws 'anthropic'")
+    const resolvedKey = resolveApiKeyValue(apiKey);
+    const validation = await validateApiKey(provider, resolvedKey);
+    if (!validation.valid) {
+      console.error(`Warning: ${validation.error}`);
+    }
+    apiKey = resolvedKey;
   }
-  if (model) {
-    creds.model = model;
-  }
-  if (baseUrl) {
-    creds.baseUrl = baseUrl;
-  }
-  writeFileSync(join(configDir, "credentials.json"), JSON.stringify(creds, null, 2), "utf-8");
+
+  // Save to multi-provider credential store with 0600 permissions (AC-430)
+  const { saveProviderCredentials } = await import("../config/credentials.js");
+  const configDir = resolveConfigDir(values["config-dir"]);
+  const creds: Record<string, string | undefined> = {};
+  if (apiKey) creds.apiKey = apiKey;
+  if (model) creds.model = model;
+  if (baseUrl) creds.baseUrl = baseUrl;
+  saveProviderCredentials(configDir, provider, creds);
+
   if (provider === "ollama") {
     console.log(`Connected to Ollama at ${baseUrl}`);
   } else {
@@ -1707,11 +1712,17 @@ async function cmdWhoami(): Promise<void> {
     persistedCredentials?.apiKey,
   );
 
+  // Also list all configured providers (AC-430)
+  const { listConfiguredProviders } = await import("../config/credentials.js");
+  const configDir = (await import("../config/index.js")).resolveConfigDir();
+  const configuredProviders = listConfiguredProviders(configDir);
+
   console.log(JSON.stringify({
     provider,
     model,
     authenticated,
     ...(baseUrl ? { baseUrl } : {}),
+    ...(configuredProviders.length > 0 ? { configuredProviders } : {}),
   }, null, 2));
 }
 

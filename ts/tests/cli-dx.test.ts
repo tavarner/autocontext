@@ -403,8 +403,8 @@ describe("AC-407: credential management", () => {
       { env },
     );
     expect(exitCode).toBe(0);
-    const creds = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
-    expect(creds.provider).toBe("anthropic");
+    const store = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
+    expect(store.providers.anthropic).toBeDefined();
 
     const whoami = JSON.parse(runCli(["whoami"], { env }).stdout);
     expect(whoami.provider).toBe("anthropic");
@@ -428,9 +428,9 @@ describe("AC-407: credential management", () => {
     expect(stderr).toContain("Provider:");
     expect(stderr).toContain("API key:");
 
-    const creds = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
-    expect(creds.provider).toBe("anthropic");
-    expect(creds.apiKey).toBe("sk-test-interactive");
+    const store = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
+    expect(store.providers.anthropic).toBeDefined();
+    expect(store.providers.anthropic.apiKey).toBe("sk-test-interactive");
   });
 
   it("validates Ollama connectivity and stores the normalized base URL", async () => {
@@ -472,9 +472,9 @@ describe("AC-407: credential management", () => {
       expect(exitCode).toBe(0);
       expect(stdout).toContain(`Connected to Ollama at http://127.0.0.1:${address.port}`);
 
-      const creds = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
-      expect(creds.provider).toBe("ollama");
-      expect(creds.baseUrl).toBe(`http://127.0.0.1:${address.port}`);
+      const store = JSON.parse(readFileSync(join(configDir, "credentials.json"), "utf-8"));
+      expect(store.providers.ollama).toBeDefined();
+      expect(store.providers.ollama.baseUrl).toBe(`http://127.0.0.1:${address.port}`);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((err) => {

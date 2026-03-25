@@ -512,8 +512,25 @@ export function loadPersistedCredentials(configDir = resolveConfigDir()): Stored
   }
 
   const raw = readJsonObject(credentialsPath, CREDENTIALS_FILE);
-  const credentials: StoredCredentials = {};
 
+  // New multi-provider format (AC-430): { providers: { anthropic: { apiKey, ... } } }
+  if (isRecord(raw.providers)) {
+    const providers = raw.providers as Record<string, Record<string, unknown>>;
+    const names = Object.keys(providers);
+    if (names.length === 0) return null;
+    // Return the first provider as the "active" one for backward compat
+    const firstName = names[0];
+    const entry = providers[firstName];
+    const credentials: StoredCredentials = { provider: firstName };
+    if (typeof entry.apiKey === "string" && entry.apiKey.trim()) credentials.apiKey = entry.apiKey.trim();
+    if (typeof entry.model === "string" && entry.model.trim()) credentials.model = entry.model.trim();
+    if (typeof entry.baseUrl === "string" && entry.baseUrl.trim()) credentials.baseUrl = entry.baseUrl.trim();
+    if (typeof entry.savedAt === "string" && entry.savedAt.trim()) credentials.savedAt = entry.savedAt.trim();
+    return credentials;
+  }
+
+  // Legacy single-provider format
+  const credentials: StoredCredentials = {};
   if (typeof raw.provider === "string" && raw.provider.trim()) {
     credentials.provider = raw.provider.trim();
   }
@@ -536,6 +553,21 @@ export function loadPersistedCredentials(configDir = resolveConfigDir()): Stored
 // ---------------------------------------------------------------------------
 // loadSettings — read from AUTOCONTEXT_* env vars + optional preset
 // ---------------------------------------------------------------------------
+
+// Re-export credential hardening module (AC-430)
+export {
+  resolveApiKeyValue,
+  saveProviderCredentials,
+  loadProviderCredentials,
+  listConfiguredProviders,
+  validateApiKey,
+  CREDENTIALS_FILE as CREDENTIALS_STORE_FILE,
+} from "./credentials.js";
+export type {
+  ProviderCredentials,
+  ProviderAuthStatus,
+  ValidationResult as ApiKeyValidationResult,
+} from "./credentials.js";
 
 export function loadSettings(): AppSettings {
   const presetName = process.env.AUTOCONTEXT_PRESET ?? "";
