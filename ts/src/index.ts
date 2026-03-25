@@ -167,9 +167,13 @@ export { AppSettingsSchema, loadSettings, applyPreset, PRESETS } from "./config/
 export type { AppSettings } from "./config/index.js";
 export {
   resolveApiKeyValue, saveProviderCredentials, loadProviderCredentials,
-  listConfiguredProviders, validateApiKey,
+  removeProviderCredentials, listConfiguredProviders, discoverAllProviders,
+  validateApiKey, getKnownProvider, KNOWN_PROVIDERS,
 } from "./config/credentials.js";
-export type { ProviderCredentials, ProviderAuthStatus, ValidationResult as ApiKeyValidationResult } from "./config/credentials.js";
+export type {
+  ProviderCredentials, ProviderAuthStatus, DiscoveredProvider,
+  KnownProvider, ValidationResult as ApiKeyValidationResult,
+} from "./config/credentials.js";
 
 // Loop (generation loop components)
 export {

@@ -1,12 +1,8 @@
 /**
- * Credential storage with hardened security (AC-430 Phase 1).
+ * Credential storage with hardened security (AC-430).
  *
- * Features:
- * - Multi-provider credential store (provider-keyed entries)
- * - 0600 file permissions on credential files
- * - Shell-command escape hatch for API key values (! prefix)
- * - API key format validation per provider
- * - Backward compatibility with legacy single-provider format
+ * Phase 1: Multi-provider store, 0600 perms, shell escape hatch, key validation
+ * Phase 2: Known providers registry, expanded validation, selective removal, discovery
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -157,12 +153,111 @@ export function listConfiguredProviders(configDir: string): ProviderAuthStatus[]
 // API key format validation
 // ---------------------------------------------------------------------------
 
-const KEY_FORMAT_RULES: Record<string, { prefix?: string; label: string }> = {
-  anthropic: { prefix: "sk-ant-", label: "Anthropic" },
-  openai: { prefix: "sk-", label: "OpenAI" },
-};
+// ---------------------------------------------------------------------------
+// Known providers registry (AC-430 Phase 2)
+// ---------------------------------------------------------------------------
 
-const NO_KEY_PROVIDERS = new Set(["ollama", "deterministic"]);
+export interface KnownProvider {
+  id: string;
+  displayName: string;
+  keyPrefix?: string;
+  defaultBaseUrl?: string;
+  envVar?: string;
+  requiresKey: boolean;
+}
+
+export const KNOWN_PROVIDERS: KnownProvider[] = [
+  { id: "anthropic", displayName: "Anthropic", keyPrefix: "sk-ant-", envVar: "ANTHROPIC_API_KEY", requiresKey: true },
+  { id: "openai", displayName: "OpenAI", keyPrefix: "sk-", envVar: "OPENAI_API_KEY", requiresKey: true },
+  { id: "gemini", displayName: "Google Gemini", keyPrefix: "AIza", envVar: "GEMINI_API_KEY", requiresKey: true },
+  { id: "mistral", displayName: "Mistral", envVar: "MISTRAL_API_KEY", requiresKey: true },
+  { id: "groq", displayName: "Groq", keyPrefix: "gsk_", envVar: "GROQ_API_KEY", requiresKey: true },
+  { id: "openrouter", displayName: "OpenRouter", keyPrefix: "sk-or-", envVar: "OPENROUTER_API_KEY", requiresKey: true },
+  { id: "azure-openai", displayName: "Azure OpenAI", envVar: "AZURE_OPENAI_API_KEY", requiresKey: true },
+  { id: "ollama", displayName: "Ollama", defaultBaseUrl: "http://localhost:11434", requiresKey: false },
+  { id: "vllm", displayName: "vLLM", defaultBaseUrl: "http://localhost:8000", requiresKey: false },
+  { id: "deterministic", displayName: "Deterministic (testing)", requiresKey: false },
+];
+
+const KNOWN_PROVIDER_MAP = new Map(KNOWN_PROVIDERS.map((p) => [p.id, p]));
+
+export function getKnownProvider(id: string): KnownProvider | null {
+  return KNOWN_PROVIDER_MAP.get(id.toLowerCase()) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Selective provider removal
+// ---------------------------------------------------------------------------
+
+export function removeProviderCredentials(configDir: string, provider: string): boolean {
+  const store = readStore(configDir);
+  if (!(provider in store.providers)) {
+    return false;
+  }
+  delete store.providers[provider];
+  writeStore(configDir, store);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Provider discovery — merge stored + env var credentials
+// ---------------------------------------------------------------------------
+
+export interface DiscoveredProvider extends ProviderAuthStatus {
+  source: "stored" | "env";
+}
+
+export function discoverAllProviders(configDir: string): DiscoveredProvider[] {
+  const result: DiscoveredProvider[] = [];
+  const seen = new Set<string>();
+
+  // Stored credentials first (higher precedence)
+  const store = readStore(configDir);
+  for (const [name, creds] of Object.entries(store.providers)) {
+    seen.add(name);
+    result.push({
+      provider: name,
+      hasApiKey: Boolean(creds.apiKey),
+      source: "stored",
+      ...(creds.model ? { model: creds.model } : {}),
+      ...(creds.baseUrl ? { baseUrl: creds.baseUrl } : {}),
+      ...(creds.savedAt ? { savedAt: creds.savedAt } : {}),
+    });
+  }
+
+  // Then check env vars for known providers not already stored
+  for (const known of KNOWN_PROVIDERS) {
+    if (seen.has(known.id)) continue;
+    if (!known.envVar) continue;
+    const envValue = process.env[known.envVar];
+    if (envValue) {
+      result.push({
+        provider: known.id,
+        hasApiKey: true,
+        source: "env",
+      });
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// API key format validation
+// ---------------------------------------------------------------------------
+
+const KEY_FORMAT_RULES: Record<string, { prefix?: string; label: string }> = {};
+
+// Build rules from the known providers registry
+for (const p of KNOWN_PROVIDERS) {
+  if (p.keyPrefix) {
+    KEY_FORMAT_RULES[p.id] = { prefix: p.keyPrefix, label: p.displayName };
+  }
+}
+
+const NO_KEY_PROVIDERS = new Set(
+  KNOWN_PROVIDERS.filter((p) => !p.requiresKey).map((p) => p.id),
+);
 
 export async function validateApiKey(
   provider: string,

@@ -559,13 +559,19 @@ export {
   resolveApiKeyValue,
   saveProviderCredentials,
   loadProviderCredentials,
+  removeProviderCredentials,
   listConfiguredProviders,
+  discoverAllProviders,
   validateApiKey,
+  getKnownProvider,
+  KNOWN_PROVIDERS,
   CREDENTIALS_FILE as CREDENTIALS_STORE_FILE,
 } from "./credentials.js";
 export type {
   ProviderCredentials,
   ProviderAuthStatus,
+  DiscoveredProvider,
+  KnownProvider,
   ValidationResult as ApiKeyValidationResult,
 } from "./credentials.js";
 
