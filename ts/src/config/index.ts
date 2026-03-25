@@ -582,6 +582,19 @@ export type {
   ValidationResult as ApiKeyValidationResult,
 } from "./credentials.js";
 
+// OAuth (AC-430 Phase 4)
+export {
+  generatePKCE, generateState, buildAuthorizationUrl,
+  waitForCallback, isOAuthProvider,
+  saveOAuthTokens, loadOAuthTokens, isTokenExpired,
+  OAUTH_PROVIDERS,
+} from "./oauth.js";
+export type {
+  PKCEPair, OAuthFlow, OAuthProviderConfig,
+  CallbackResult, WaitForCallbackOpts,
+  OAuthTokens,
+} from "./oauth.js";
+
 export function loadSettings(): AppSettings {
   const presetName = process.env.AUTOCONTEXT_PRESET ?? "";
   const presetOverrides = applyPreset(presetName);
