@@ -436,28 +436,10 @@ See also: list, replay, export, benchmark`);
 
   const { SQLiteStore } = await import("../storage/index.js");
   const { GenerationRunner } = await import("../loop/generation-runner.js");
-  const { SCENARIO_REGISTRY, AGENT_TASK_REGISTRY } = await import("../scenarios/registry.js");
+  const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
   const { assertFamilyContract } = await import("../scenarios/family-interfaces.js");
   const { loadSettings } = await import("../config/index.js");
   const { buildRoleProviderBundle } = await import("../providers/index.js");
-
-  // Check if it's a built-in agent task with deterministic evaluation (AC-402)
-  const AgentTaskClass = AGENT_TASK_REGISTRY[scenarioName];
-  if (AgentTaskClass) {
-    const task = new AgentTaskClass();
-    console.log(`Running built-in agent task: ${scenarioName}`);
-    console.log(`Task: ${task.describeTask()}`);
-    console.log(`Prompt: ${task.getTaskPrompt()}`);
-
-    // Demo evaluation with a sample output
-    const sampleOutput = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
-    const result = await task.evaluateOutput(sampleOutput);
-    console.log(`\nSample evaluation — score: ${result.score.toFixed(4)}`);
-    console.log(`Reasoning: ${result.reasoning}`);
-    console.log(`Dimensions: ${JSON.stringify(result.dimensionScores)}`);
-    console.log(`\nUse \`autoctx judge\` or \`autoctx improve\` to evaluate your own outputs against this task.`);
-    process.exit(0);
-  }
 
   const settings = loadSettings();
   const providerBundle = buildRoleProviderBundle(
@@ -468,7 +450,7 @@ See also: list, replay, export, benchmark`);
   // Resolve game scenario
   const ScenarioClass = SCENARIO_REGISTRY[scenarioName];
   if (!ScenarioClass) {
-    const allScenarios = [...Object.keys(SCENARIO_REGISTRY), ...Object.keys(AGENT_TASK_REGISTRY)].sort();
+    const allScenarios = Object.keys(SCENARIO_REGISTRY).sort();
     console.error(`Unknown scenario: ${scenarioName}. Available: ${allScenarios.join(", ")}`);
     process.exit(1);
   }
@@ -1745,7 +1727,7 @@ See also: run, login, capabilities`);
 
 async function cmdCapabilities(): Promise<void> {
   const pkg = await import("../../package.json", { with: { type: "json" } });
-  const { SCENARIO_REGISTRY, AGENT_TASK_REGISTRY } = await import("../scenarios/registry.js");
+  const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
   const projectConfig = await buildProjectConfigSummary();
 
   const capabilities = {
@@ -1757,7 +1739,7 @@ async function cmdCapabilities(): Promise<void> {
       "tui", "judge", "improve",
       "repl", "queue", "status", "serve", "mcp-serve", "version",
     ],
-    scenarios: [...Object.keys(SCENARIO_REGISTRY), ...Object.keys(AGENT_TASK_REGISTRY)].sort(),
+    scenarios: Object.keys(SCENARIO_REGISTRY).sort(),
     providers: [
       "anthropic", "openai", "openai-compatible", "ollama", "vllm",
       "hermes", "pi", "pi-rpc", "deterministic",

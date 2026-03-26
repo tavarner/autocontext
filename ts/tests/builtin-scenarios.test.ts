@@ -2,12 +2,62 @@
  * Tests for AC-402: Built-in deterministic scenarios beyond grid_ctf.
  *
  * - OthelloScenario (game scenario, port from Python)
- * - WordCountTask (deterministic agent_task, no API key)
  * - ResourceTrader (deterministic simulation with fixed rules)
- * - All registered in SCENARIO_REGISTRY
+ * - Both work through the real no-key CLI loop
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+const CLI = join(import.meta.dirname, "..", "src", "cli", "index.ts");
+
+function runCli(
+  args: string[],
+  opts: { cwd?: string } = {},
+): { stdout: string; stderr: string; exitCode: number } {
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_NO_WARNINGS: "1" };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.OPENAI_API_KEY;
+  delete env.AUTOCONTEXT_API_KEY;
+  delete env.AUTOCONTEXT_AGENT_API_KEY;
+  delete env.AUTOCONTEXT_PROVIDER;
+  delete env.AUTOCONTEXT_AGENT_PROVIDER;
+  delete env.AUTOCONTEXT_MODEL;
+  delete env.AUTOCONTEXT_AGENT_DEFAULT_MODEL;
+  delete env.AUTOCONTEXT_DB_PATH;
+  delete env.AUTOCONTEXT_RUNS_ROOT;
+  delete env.AUTOCONTEXT_KNOWLEDGE_ROOT;
+  delete env.AUTOCONTEXT_CONFIG_DIR;
+
+  const result = spawnSync("npx", ["tsx", CLI, ...args], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+    timeout: 15000,
+    env,
+  });
+  return {
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    exitCode: result.status ?? 1,
+  };
+}
+
+function writeProjectConfig(dir: string): void {
+  writeFileSync(
+    join(dir, ".autoctx.json"),
+    JSON.stringify({
+      default_scenario: "grid_ctf",
+      provider: "deterministic",
+      gens: 1,
+      knowledge_dir: "./knowledge",
+      runs_dir: "./runs",
+    }, null, 2) + "\n",
+    "utf-8",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // SCENARIO_REGISTRY
@@ -19,11 +69,6 @@ describe("Registries", () => {
     expect(SCENARIO_REGISTRY.grid_ctf).toBeDefined();
     expect(SCENARIO_REGISTRY.othello).toBeDefined();
     expect(SCENARIO_REGISTRY.resource_trader).toBeDefined();
-  });
-
-  it("AGENT_TASK_REGISTRY contains word_count", async () => {
-    const { AGENT_TASK_REGISTRY } = await import("../src/scenarios/registry.js");
-    expect(AGENT_TASK_REGISTRY.word_count).toBeDefined();
   });
 });
 
@@ -115,61 +160,6 @@ describe("OthelloScenario", () => {
 });
 
 // ---------------------------------------------------------------------------
-// WordCountTask (deterministic agent_task)
-// ---------------------------------------------------------------------------
-
-describe("WordCountTask", () => {
-  it("exports WordCountTask class", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    expect(WordCountTask).toBeDefined();
-  });
-
-  it("getTaskPrompt returns non-empty string", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    const task = new WordCountTask();
-    expect(task.getTaskPrompt().length).toBeGreaterThan(0);
-  });
-
-  it("getRubric returns non-empty string", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    const task = new WordCountTask();
-    expect(task.getRubric().length).toBeGreaterThan(0);
-  });
-
-  it("evaluateOutput scores based on word count accuracy", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    const task = new WordCountTask();
-    // The task prompt asks to produce exactly N words
-    const prompt = task.getTaskPrompt();
-    const targetMatch = prompt.match(/(\d+)\s*words/i);
-    expect(targetMatch).not.toBeNull();
-    const target = parseInt(targetMatch![1], 10);
-
-    // Perfect output
-    const perfectOutput = Array.from({ length: target }, (_, i) => `word${i}`).join(" ");
-    const perfectResult = await task.evaluateOutput(perfectOutput);
-    expect(perfectResult.score).toBeGreaterThanOrEqual(0.8);
-
-    // Way off output
-    const badOutput = "just three words";
-    const badResult = await task.evaluateOutput(badOutput);
-    expect(badResult.score).toBeLessThan(perfectResult.score);
-  });
-
-  it("initialState returns empty object", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    const task = new WordCountTask();
-    expect(task.initialState()).toEqual({});
-  });
-
-  it("describeTask returns non-empty string", async () => {
-    const { WordCountTask } = await import("../src/scenarios/word-count.js");
-    const task = new WordCountTask();
-    expect(task.describeTask().length).toBeGreaterThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // ResourceTrader (deterministic simulation)
 // ---------------------------------------------------------------------------
 
@@ -247,5 +237,76 @@ describe("ResourceTrader", () => {
       state = scenario.step(state, strategy);
     }
     expect(scenario.isTerminal(state)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real consumer paths
+// ---------------------------------------------------------------------------
+
+describe("AC-402 consumer paths", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ac-builtin-scenarios-"));
+    writeProjectConfig(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("capabilities and run manager agree on the built-in scenario inventory", async () => {
+    const { stdout, exitCode } = runCli(["capabilities"], { cwd: dir });
+    expect(exitCode).toBe(0);
+    const capabilities = JSON.parse(stdout) as { scenarios: string[] };
+
+    const { RunManager } = await import("../src/server/run-manager.js");
+    const mgr = new RunManager({
+      dbPath: join(dir, "runs", "autocontext.sqlite3"),
+      migrationsDir: join(import.meta.dirname, "..", "migrations"),
+      runsRoot: join(dir, "runs"),
+      knowledgeRoot: join(dir, "knowledge"),
+      providerType: "deterministic",
+    });
+
+    expect(capabilities.scenarios).toEqual(
+      mgr.getEnvironmentInfo().scenarios.map((scenario) => scenario.name).sort(),
+    );
+    expect(capabilities.scenarios).toEqual(["grid_ctf", "othello", "resource_trader"]);
+  });
+
+  it("othello works through run, list, replay, and export with deterministic provider", { timeout: 60000 }, () => {
+    const runId = "othello_e2e";
+
+    const runResult = runCli([
+      "run",
+      "--scenario", "othello",
+      "--provider", "deterministic",
+      "--gens", "1",
+      "--matches", "1",
+      "--run-id", runId,
+      "--json",
+    ], { cwd: dir });
+    expect(runResult.exitCode).toBe(0);
+    const runPayload = JSON.parse(runResult.stdout) as { runId: string; generationsCompleted: number };
+    expect(runPayload.runId).toBe(runId);
+    expect(runPayload.generationsCompleted).toBe(1);
+
+    const listResult = runCli(["list", "--json", "--scenario", "othello"], { cwd: dir });
+    expect(listResult.exitCode).toBe(0);
+    const runs = JSON.parse(listResult.stdout) as Array<{ run_id: string; scenario: string; status: string }>;
+    expect(runs.some((row) => row.run_id === runId && row.scenario === "othello" && row.status === "completed")).toBe(true);
+
+    const replayResult = runCli(["replay", "--run-id", runId, "--generation", "1"], { cwd: dir });
+    expect(replayResult.exitCode).toBe(0);
+    const replay = JSON.parse(replayResult.stdout) as { scenario: string; generation: number };
+    expect(replay.scenario).toBe("othello");
+    expect(replay.generation).toBe(1);
+
+    const exportResult = runCli(["export", "--scenario", "othello"], { cwd: dir });
+    expect(exportResult.exitCode).toBe(0);
+    const exported = JSON.parse(exportResult.stdout) as { scenario_name?: string; scenarioName?: string };
+    expect(exported.scenario_name ?? exported.scenarioName).toBe("othello");
   });
 });
