@@ -56,6 +56,7 @@ autoctx tui [--port 8000]
 autoctx serve [--port 8000] [--json] # HTTP dashboard + API
 autoctx mcp-serve                     # MCP server on stdio
 autoctx mission create --name "Ship login" --goal "Implement OAuth"
+autoctx mission create --type code --name "Fix login" --goal "Tests pass" --repo-path . --test-command "npm test"
 autoctx mission run --id <mission-id> --max-iterations 3
 autoctx mission status --id <mission-id>
 autoctx mission artifacts --id <mission-id>
@@ -165,6 +166,8 @@ Saved custom agent-task scenarios under `knowledge/_custom_scenarios/` can be re
 | Agent tasks | create_agent_task, list_agent_tasks, get_agent_task |
 | Missions | create_mission, mission_status, mission_result, mission_artifacts, pause_mission, resume_mission, cancel_mission |
 | Discovery | capabilities |
+
+`create_mission` and `autoctx mission create` both support a code-mission variant with `type=code` plus `repo_path` / `test_command` (and optional `lint_command` / `build_command`) so mission success is tied to external checks instead of model self-report.
 
 ### Claude Code integration
 

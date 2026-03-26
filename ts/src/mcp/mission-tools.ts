@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MissionManager } from "../mission/manager.js";
+import { createCodeMission } from "../mission/verifiers.js";
 import {
   buildMissionArtifactsPayload,
   buildMissionResultPayload,
@@ -25,9 +26,14 @@ export const MISSION_TOOLS: MissionToolDef[] = [
     schema: {
       type: "object",
       properties: {
+        type: { type: "string", description: "Mission type: generic or code" },
         name: { type: "string", description: "Mission name" },
         goal: { type: "string", description: "Mission goal / objective" },
         max_steps: { type: "number", description: "Maximum steps budget (optional)" },
+        repo_path: { type: "string", description: "Repo path for code missions" },
+        test_command: { type: "string", description: "Test command for code missions" },
+        lint_command: { type: "string", description: "Optional lint command for code missions" },
+        build_command: { type: "string", description: "Optional build command for code missions" },
       },
       required: ["name", "goal"],
     },
@@ -128,16 +134,39 @@ export function registerMissionTools(
     "create_mission",
     "Create a new verifier-driven mission",
     {
+      type: z.enum(["generic", "code"]).default("generic"),
       name: z.string(),
       goal: z.string(),
       max_steps: z.number().int().positive().optional(),
+      repo_path: z.string().optional(),
+      test_command: z.string().optional(),
+      lint_command: z.string().optional(),
+      build_command: z.string().optional(),
     },
     async (args) => withManager((manager) => {
-      const missionId = manager.create({
-        name: args.name,
-        goal: args.goal,
-        budget: args.max_steps ? { maxSteps: args.max_steps } : undefined,
-      });
+      const budget = args.max_steps ? { maxSteps: args.max_steps } : undefined;
+      let missionId: string;
+      if (args.type === "code" || args.repo_path || args.test_command || args.lint_command || args.build_command) {
+        if (!args.repo_path || !args.test_command) {
+          return jsonContent({ error: "Code missions require repo_path and test_command" });
+        }
+        missionId = createCodeMission(manager, {
+          name: args.name,
+          goal: args.goal,
+          repoPath: args.repo_path,
+          testCommand: args.test_command,
+          lintCommand: args.lint_command,
+          buildCommand: args.build_command,
+          budget,
+          metadata: {},
+        });
+      } else {
+        missionId = manager.create({
+          name: args.name,
+          goal: args.goal,
+          budget,
+        });
+      }
       const checkpointPath = writeMissionCheckpoint(manager, missionId, opts.runsRoot);
       return jsonContent({
         ...buildMissionStatusPayload(manager, missionId),

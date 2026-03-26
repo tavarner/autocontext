@@ -1995,6 +1995,7 @@ async function cmdModels(): Promise<void> {
 async function cmdMission(dbPath: string): Promise<void> {
   const subcommand = process.argv[3];
   const { MissionManager } = await import("../mission/manager.js");
+  const { createCodeMission } = await import("../mission/verifiers.js");
   const {
     buildMissionArtifactsPayload,
     buildMissionStatusPayload,
@@ -2021,6 +2022,7 @@ Subcommands:
 
 Examples:
   autoctx mission create --name "Ship login" --goal "Implement OAuth"
+  autoctx mission create --type code --name "Fix login" --goal "Tests pass" --repo-path . --test-command "npm test"
   autoctx mission run --id mission-abc123 --max-iterations 3
   autoctx mission list --status active
   autoctx mission status --id mission-abc123
@@ -2037,19 +2039,50 @@ See also: run, improve, judge`);
         const { values } = parseArgs({
           args: process.argv.slice(4),
           options: {
+            type: { type: "string" },
             name: { type: "string" },
             goal: { type: "string" },
             "max-steps": { type: "string" },
+            "repo-path": { type: "string" },
+            "test-command": { type: "string" },
+            "lint-command": { type: "string" },
+            "build-command": { type: "string" },
           },
         });
         if (!values.name || !values.goal) {
-          console.error("Usage: autoctx mission create --name <name> --goal <goal> [--max-steps N]");
+          console.error("Usage: autoctx mission create --name <name> --goal <goal> [--type code --repo-path <path> --test-command <cmd> [--lint-command <cmd>] [--build-command <cmd>]] [--max-steps N]");
           process.exit(1);
         }
         const budget = values["max-steps"]
           ? { maxSteps: parseInt(values["max-steps"], 10) }
           : undefined;
-        const id = manager.create({ name: values.name, goal: values.goal, budget });
+        const missionType = values.type === "code"
+          || values["repo-path"]
+          || values["test-command"]
+          || values["lint-command"]
+          || values["build-command"]
+          ? "code"
+          : "generic";
+
+        let id: string;
+        if (missionType === "code") {
+          if (!values["repo-path"] || !values["test-command"]) {
+            console.error("Code missions require --repo-path and --test-command.");
+            process.exit(1);
+          }
+          id = createCodeMission(manager, {
+            name: values.name,
+            goal: values.goal,
+            repoPath: resolve(values["repo-path"]),
+            testCommand: values["test-command"],
+            lintCommand: values["lint-command"],
+            buildCommand: values["build-command"],
+            budget,
+            metadata: {},
+          });
+        } else {
+          id = manager.create({ name: values.name, goal: values.goal, budget });
+        }
         const checkpointPath = writeMissionCheckpoint(manager, id, runsRoot);
         console.log(JSON.stringify({
           ...buildMissionStatusPayload(manager, id),

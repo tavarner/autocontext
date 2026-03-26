@@ -8,7 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import type { MissionManager } from "./manager.js";
-import type { VerifierResult } from "./types.js";
+import type { Mission, VerifierResult } from "./types.js";
 import { MissionBudgetSchema } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +119,49 @@ export const CodeMissionSpecSchema = z.object({
 
 export type CodeMissionSpec = z.infer<typeof CodeMissionSpecSchema>;
 
+function buildCodeMissionVerifier(spec: Pick<CodeMissionSpec, "repoPath" | "testCommand" | "lintCommand" | "buildCommand">): Verifier {
+  const verifiers: Verifier[] = [
+    new CommandVerifier(spec.testCommand, spec.repoPath),
+  ];
+  if (spec.lintCommand) {
+    verifiers.push(new CommandVerifier(spec.lintCommand, spec.repoPath));
+  }
+  if (spec.buildCommand) {
+    verifiers.push(new CommandVerifier(spec.buildCommand, spec.repoPath));
+  }
+  return verifiers.length === 1 ? verifiers[0] : new CompositeVerifier(verifiers);
+}
+
+export function attachCodeMissionVerifier(
+  manager: MissionManager,
+  missionId: string,
+  spec: Pick<CodeMissionSpec, "repoPath" | "testCommand" | "lintCommand" | "buildCommand">,
+): void {
+  const verifier = buildCodeMissionVerifier(spec);
+  manager.setVerifier(missionId, async (resolvedMissionId) => verifier.verify(resolvedMissionId));
+}
+
+export function rehydrateMissionVerifier(manager: MissionManager, mission: Mission): boolean {
+  const metadata = mission.metadata as Record<string, unknown> | undefined;
+  if (!metadata || metadata.missionType !== "code") {
+    return false;
+  }
+
+  const repoPath = typeof metadata.repoPath === "string" ? metadata.repoPath : null;
+  const testCommand = typeof metadata.testCommand === "string" ? metadata.testCommand : null;
+  if (!repoPath || !testCommand) {
+    return false;
+  }
+
+  attachCodeMissionVerifier(manager, mission.id, {
+    repoPath,
+    testCommand,
+    lintCommand: typeof metadata.lintCommand === "string" ? metadata.lintCommand : undefined,
+    buildCommand: typeof metadata.buildCommand === "string" ? metadata.buildCommand : undefined,
+  });
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // createCodeMission — factory
 // ---------------------------------------------------------------------------
@@ -133,23 +176,21 @@ export function createCodeMission(
     name: parsed.name,
     goal: parsed.goal,
     budget: parsed.budget,
-    metadata: { ...parsed.metadata, missionType: "code", repoPath: parsed.repoPath },
+    metadata: {
+      ...parsed.metadata,
+      missionType: "code",
+      repoPath: parsed.repoPath,
+      testCommand: parsed.testCommand,
+      ...(parsed.lintCommand ? { lintCommand: parsed.lintCommand } : {}),
+      ...(parsed.buildCommand ? { buildCommand: parsed.buildCommand } : {}),
+    },
   });
-
-  // Build verifier chain
-  const verifiers: Verifier[] = [
-    new CommandVerifier(parsed.testCommand, parsed.repoPath),
-  ];
-  if (parsed.lintCommand) {
-    verifiers.push(new CommandVerifier(parsed.lintCommand, parsed.repoPath));
-  }
-  if (parsed.buildCommand) {
-    verifiers.push(new CommandVerifier(parsed.buildCommand, parsed.repoPath));
-  }
-
-  const verifier = verifiers.length === 1 ? verifiers[0] : new CompositeVerifier(verifiers);
-
-  manager.setVerifier(id, async (missionId) => verifier.verify(missionId));
+  attachCodeMissionVerifier(manager, id, {
+    repoPath: parsed.repoPath,
+    testCommand: parsed.testCommand,
+    lintCommand: parsed.lintCommand,
+    buildCommand: parsed.buildCommand,
+  });
 
   return id;
 }

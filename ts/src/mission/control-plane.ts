@@ -4,6 +4,7 @@ import { saveCheckpoint } from "./checkpoint.js";
 import { runUntilDone } from "./executor.js";
 import type { MissionManager } from "./manager.js";
 import type { Mission, VerifierResult } from "./types.js";
+import { rehydrateMissionVerifier } from "./verifiers.js";
 
 export function missionCheckpointDir(runsRoot: string, missionId: string): string {
   return join(runsRoot, "missions", missionId, "checkpoints");
@@ -132,6 +133,10 @@ export async function runMissionLoop(
   let iteration = 0;
 
   if (!manager.hasVerifier(missionId)) {
+    rehydrateMissionVerifier(manager, mission);
+  }
+
+  if (!manager.hasVerifier(missionId)) {
     manager.setVerifier(missionId, buildFallbackVerifier(manager, missionId));
   }
 
@@ -164,11 +169,25 @@ export async function runMissionLoop(
     { maxIterations },
   );
 
+  const latestVerification = manager.verifications(missionId).at(-1) ?? null;
+  let finalStatus = result.finalStatus;
+
+  if (
+    (mission.metadata as Record<string, unknown> | undefined)?.missionType === "code"
+    && latestVerification
+    && latestVerification.passed === false
+    && result.finalStatus === "active"
+  ) {
+    manager.setStatus(missionId, "failed");
+    finalStatus = "failed";
+  }
+
   const checkpointPath = writeMissionCheckpoint(manager, missionId, runsRoot);
   return {
     id: missionId,
     ...result,
-    latestVerification: manager.verifications(missionId).at(-1) ?? null,
+    finalStatus,
+    latestVerification,
     checkpointPath,
   };
 }
