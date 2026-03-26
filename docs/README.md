@@ -28,6 +28,10 @@ This directory is the maintainer-facing landing page for repository docs. Use it
 - [Support](../SUPPORT.md)
 - [Security policy](../SECURITY.md)
 
+## Architecture And Parity
+
+- [Scenario parity matrix — Python & TypeScript](scenario-parity-matrix.md)
+
 ## Maintainer Docs
 
 - [Analytics and adoption guide](analytics.md)
