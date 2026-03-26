@@ -5,7 +5,11 @@
  * Replaces the previous stub that threw OPERATOR_LOOP_SCAFFOLDING_UNSUPPORTED.
  */
 
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { LLMProvider } from "../types/index.js";
+import { validateForFamily } from "./family-pipeline.js";
+import { getScenarioTypeMarker } from "./families.js";
 import type { OperatorLoopSpec } from "./operator-loop-spec.js";
 import { designOperatorLoop } from "./operator-loop-designer.js";
 import { generateOperatorLoopSource } from "./codegen/operator-loop-codegen.js";
@@ -43,6 +47,10 @@ export class OperatorLoopCreator {
       return result.text;
     };
     const spec = await designOperatorLoop(description, llmFn);
+    const errors = validateForFamily("operator_loop", spec);
+    if (errors.length > 0) {
+      throw new Error(`operator_loop spec validation failed: ${errors.join("; ")}`);
+    }
 
     // Generate executable JS source
     const generatedSource = generateOperatorLoopSource(
@@ -57,6 +65,38 @@ export class OperatorLoopCreator {
         max_steps: spec.maxSteps,
       },
       name,
+    );
+
+    const customDir = join(this.knowledgeRoot, "_custom_scenarios");
+    const scenarioDir = join(customDir, name);
+    if (!existsSync(scenarioDir)) {
+      mkdirSync(scenarioDir, { recursive: true });
+    }
+
+    writeFileSync(join(scenarioDir, "scenario.js"), generatedSource, "utf-8");
+    writeFileSync(join(scenarioDir, "scenario_type.txt"), getScenarioTypeMarker("operator_loop"), "utf-8");
+    writeFileSync(
+      join(scenarioDir, "spec.json"),
+      JSON.stringify(
+        {
+          name,
+          scenario_type: getScenarioTypeMarker("operator_loop"),
+          description: spec.description,
+          environment_description: spec.environmentDescription,
+          initial_state_description: spec.initialStateDescription,
+          escalation_policy: {
+            escalation_threshold: spec.escalationPolicy.escalationThreshold,
+            max_escalations: spec.escalationPolicy.maxEscalations,
+          },
+          success_criteria: spec.successCriteria,
+          failure_modes: spec.failureModes,
+          max_steps: spec.maxSteps,
+          actions: spec.actions,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
     );
 
     return {

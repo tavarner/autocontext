@@ -5,12 +5,16 @@
  * with proper escalation judgment evaluation.
  */
 
-import { describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, it, expect } from "vitest";
 import { OperatorLoopCreator } from "../src/scenarios/operator-loop-creator.js";
 import { generateOperatorLoopSource } from "../src/scenarios/codegen/operator-loop-codegen.js";
 import { detectScenarioFamily } from "../src/scenarios/scenario-creator.js";
 import { hasPipeline } from "../src/scenarios/family-pipeline.js";
 import { isOperatorLoop } from "../src/scenarios/family-interfaces.js";
+import { OPERATOR_LOOP_SPEC_END, OPERATOR_LOOP_SPEC_START } from "../src/scenarios/operator-loop-designer.js";
 
 // ---------------------------------------------------------------------------
 // Family infrastructure
@@ -166,17 +170,67 @@ describe("operator_loop codegen", () => {
 // ---------------------------------------------------------------------------
 
 describe("operator_loop creator", () => {
-  it("OperatorLoopCreator is importable and constructable", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  it("persists a runnable operator_loop artifact", async () => {
+    const knowledgeRoot = mkdtempSync(join(tmpdir(), "operator-loop-creator-"));
+    tempDirs.push(knowledgeRoot);
     const mockProvider = {
-      complete: async () => ({ text: "" }),
+      complete: async () => ({
+        text: [
+          OPERATOR_LOOP_SPEC_START,
+          JSON.stringify({
+            description: "Support triage with escalation judgment",
+            environment_description: "Customer support queue",
+            initial_state_description: "Open tickets waiting",
+            escalation_policy: { escalation_threshold: "high", max_escalations: 3 },
+            success_criteria: ["Escalate risky tickets", "Handle safe tickets autonomously"],
+            failure_modes: ["missed escalation", "unnecessary escalation"],
+            max_steps: 8,
+            actions: [
+              {
+                name: "triage_ticket",
+                description: "Triage the next support ticket",
+                parameters: {},
+                preconditions: [],
+                effects: ["triaged"],
+              },
+              {
+                name: "reply_customer",
+                description: "Reply to the customer with the next action",
+                parameters: {},
+                preconditions: ["triage_ticket"],
+                effects: ["replied"],
+              },
+            ],
+          }),
+          OPERATOR_LOOP_SPEC_END,
+        ].join("\n"),
+      }),
       defaultModel: () => "test-model",
     } as never;
 
     const creator = new OperatorLoopCreator({
       provider: mockProvider,
-      knowledgeRoot: "/tmp/test",
+      knowledgeRoot,
     });
-    expect(creator).toBeDefined();
-    // Creator should NOT throw on construction (old behavior was to throw on create)
+    const scenario = await creator.create(
+      "Create an operator-in-the-loop scenario for support triage with escalation judgment",
+      "support_triage_operator_loop",
+    );
+
+    expect(scenario.family).toBe("operator_loop");
+    expect(typeof scenario.generatedSource).toBe("string");
+
+    const scenarioDir = join(knowledgeRoot, "_custom_scenarios", "support_triage_operator_loop");
+    expect(readFileSync(join(scenarioDir, "scenario_type.txt"), "utf-8")).toBe("operator_loop");
+    expect(JSON.parse(readFileSync(join(scenarioDir, "spec.json"), "utf-8")).escalation_policy.max_escalations).toBe(3);
+    expect(readFileSync(join(scenarioDir, "scenario.js"), "utf-8")).toContain("module.exports = { scenario }");
   });
 });
