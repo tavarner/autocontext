@@ -54,6 +54,9 @@ Python-only commands (not supported in npm package):
   train, ecosystem, ab-test, resume, wait, trigger-distillation
 
 Run \`autoctx <command> --help\` for command-specific options.
+
+Install: npm install -g autoctx
+Note: The npm package is \`autoctx\`, not \`autocontext\` (different package).
 `.trim();
 
 async function main(): Promise<void> {

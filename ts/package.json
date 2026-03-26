@@ -20,7 +20,8 @@
     "mcp"
   ],
   "bin": {
-    "autoctx": "dist/cli/index.js"
+    "autoctx": "dist/cli/index.js",
+    "autocontext": "dist/cli/autocontext-shim.js"
   },
   "exports": {
     ".": {
