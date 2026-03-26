@@ -53,6 +53,16 @@ export class MissionStore {
         metadata TEXT DEFAULT '{}',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+
+      CREATE TABLE IF NOT EXISTS mission_subgoals (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id),
+        description TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        completed_at TEXT
+      );
     `);
   }
 
@@ -176,6 +186,62 @@ export class MissionStore {
       suggestions: JSON.parse((row.suggestions as string) ?? "[]"),
       createdAt: row.created_at as string,
     }));
+  }
+
+  // -------------------------------------------------------------------------
+  // Subgoals (AC-411)
+  // -------------------------------------------------------------------------
+
+  addSubgoal(missionId: string, opts: { description: string; priority?: number }): string {
+    const id = `subgoal-${randomUUID().slice(0, 8)}`;
+    this.db.prepare(
+      "INSERT INTO mission_subgoals (id, mission_id, description, priority) VALUES (?, ?, ?, ?)",
+    ).run(id, missionId, opts.description, opts.priority ?? 1);
+    return id;
+  }
+
+  getSubgoals(missionId: string): Array<{ id: string; missionId: string; description: string; priority: number; status: string; createdAt: string; completedAt?: string }> {
+    const rows = this.db.prepare(
+      "SELECT * FROM mission_subgoals WHERE mission_id = ? ORDER BY priority ASC, created_at ASC",
+    ).all(missionId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: row.id as string,
+      missionId: row.mission_id as string,
+      description: row.description as string,
+      priority: row.priority as number,
+      status: (row.status as string) ?? "pending",
+      createdAt: row.created_at as string,
+      completedAt: (row.completed_at as string) ?? undefined,
+    }));
+  }
+
+  updateSubgoalStatus(id: string, status: string): void {
+    const completedAt = status === "completed" || status === "failed" ? new Date().toISOString() : null;
+    this.db.prepare(
+      "UPDATE mission_subgoals SET status = ?, completed_at = COALESCE(?, completed_at) WHERE id = ?",
+    ).run(status, completedAt, id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Budget usage (AC-411)
+  // -------------------------------------------------------------------------
+
+  getBudgetUsage(missionId: string): { stepsUsed: number; maxSteps?: number; maxCostUsd?: number; exhausted: boolean } {
+    const mission = this.getMission(missionId);
+    const stepsUsed = (this.db.prepare(
+      "SELECT COUNT(*) as count FROM mission_steps WHERE mission_id = ?",
+    ).get(missionId) as { count: number }).count;
+
+    const maxSteps = mission?.budget?.maxSteps;
+    const maxCostUsd = mission?.budget?.maxCostUsd;
+    const exhausted = maxSteps !== undefined ? stepsUsed >= maxSteps : false;
+
+    return {
+      stepsUsed,
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
+      ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+      exhausted,
+    };
   }
 
   close(): void {
