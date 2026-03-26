@@ -477,7 +477,9 @@ class TestRestEndpoints:
         data = resp.json()
         assert "version" in data
         assert "runtime_health" in data
+        assert "concept_model" in data
         assert "scenario_capabilities" in data
+        assert data["concept_model"]["source_doc"] == "docs/concept-model.md"
 
     def test_scenario_capabilities_endpoint(self, client: object) -> None:
         from fastapi.testclient import TestClient

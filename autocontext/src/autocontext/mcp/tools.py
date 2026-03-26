@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from autocontext.config import AppSettings
+from autocontext.concepts import get_concept_model
 from autocontext.execution.evaluator_guardrail import evaluate_evaluator_guardrail
 from autocontext.execution.harness_loader import HarnessLoader
 from autocontext.execution.objective_verification import run_objective_verification
@@ -1247,6 +1248,7 @@ def get_capabilities() -> dict[str, object]:
     """
     return {
         "version": _OPENCLAW_VERSION,
+        "concept_model": get_concept_model(),
         "operations": [
             {
                 "name": "evaluate_strategy",

@@ -5,6 +5,7 @@ This directory is the maintainer-facing landing page for repository docs. Use it
 ## Start Here
 
 - [Repository overview](../README.md)
+- [Canonical concept model](concept-model.md)
 - [Copy-paste examples](../examples/README.md)
 - [Change history](../CHANGELOG.md)
 

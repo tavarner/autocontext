@@ -149,6 +149,7 @@ MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenCl
 
 ## Where To Look Next
 
+- Canonical vocabulary and object model: [docs/concept-model.md](docs/concept-model.md)
 - Docs overview: [docs/README.md](docs/README.md)
 - Analytics and adoption: [docs/analytics.md](docs/analytics.md)
 - Python package guide: [autocontext/README.md](autocontext/README.md)

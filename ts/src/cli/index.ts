@@ -1733,23 +1733,18 @@ See also: run, login, capabilities`);
 }
 
 async function cmdCapabilities(): Promise<void> {
-  const pkg = await import("../../package.json", { with: { type: "json" } });
-  const { SCENARIO_REGISTRY } = await import("../scenarios/registry.js");
+  const { getCapabilities } = await import("../mcp/capabilities.js");
   const projectConfig = await buildProjectConfigSummary();
+  const baseCapabilities = getCapabilities();
 
   const capabilities = {
-    version: pkg.default.version,
+    ...baseCapabilities,
     commands: [
       "init", "run", "list", "replay", "benchmark", "export",
       "export-training-data", "import-package", "new-scenario",
       "capabilities", "login", "whoami", "logout", "providers", "models",
       "mission", "tui", "judge", "improve",
       "repl", "queue", "status", "serve", "mcp-serve", "version",
-    ],
-    scenarios: Object.keys(SCENARIO_REGISTRY).sort(),
-    providers: [
-      "anthropic", "openai", "openai-compatible", "ollama", "vllm",
-      "hermes", "pi", "pi-rpc", "deterministic",
     ],
     features: {
       mcp_server: true,
@@ -1758,9 +1753,6 @@ async function cmdCapabilities(): Promise<void> {
       interactive_server: true,
       playbook_versioning: true,
     },
-    pythonOnly: [
-      "train", "ecosystem", "ab-test", "resume", "wait", "trigger-distillation",
-    ],
     project_config: projectConfig,
   };
   console.log(JSON.stringify(capabilities, null, 2));

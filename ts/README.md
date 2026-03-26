@@ -2,6 +2,8 @@
 
 `autoctx` is the Node/TypeScript package for autocontext. It provides the same major operator workflows as the Python package:
 
+Need the canonical product/runtime vocabulary first? Start with [docs/concept-model.md](../docs/concept-model.md).
+
 - **Scenario execution**: run generation loops with tournament scoring and Elo progression
 - **Knowledge system**: versioned playbooks, score trajectories, session reports, dead-end tracking
 - **Interactive server**: HTTP dashboard + API, WebSocket control plane, TUI
@@ -140,7 +142,7 @@ Credential resolution order is:
 
 `autoctx init` also writes an `AGENTS.md` block with the recommended local AutoContext workflow.
 
-`autoctx capabilities` returns structured JSON describing commands, providers, scenarios, and project-specific state such as the current project config, active runs, and knowledge directory summary.
+`autoctx capabilities` returns structured JSON describing commands, providers, scenarios, the canonical concept model, and project-specific state such as the current project config, active runs, and knowledge directory summary.
 
 `autoctx login` can prompt interactively for provider credentials. `autoctx login --provider ollama` validates that a local Ollama server is reachable before persisting the connection details, and `autoctx logout` clears the stored credentials.
 

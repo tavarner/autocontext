@@ -2,6 +2,8 @@
 
 autocontext provides three integration surfaces for external agents: the `autoctx` CLI, an MCP server, and a Python SDK. This guide covers them in order of recommended usage.
 
+For the canonical user-facing and runtime vocabulary behind those surfaces, see [../../docs/concept-model.md](../../docs/concept-model.md).
+
 ## Why CLI-First
 
 The `autoctx` CLI is the default integration surface for external agents. Unix-style CLI interfaces are a natural fit for LLM agents:
