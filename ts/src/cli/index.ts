@@ -603,6 +603,33 @@ async function cmdJudge(_dbPath: string): Promise<void> {
     },
   });
 
+  if (
+    values.help ||
+    (!values["from-stdin"] && (!values.output || (!values.scenario && (!values.prompt || !values.rubric))))
+  ) {
+    console.log(`autoctx judge — One-shot evaluation of output against a rubric
+
+Usage: autoctx judge [options]
+
+Options:
+  -s, --scenario <name>  Use a saved custom scenario (provides prompt + rubric)
+  -p, --prompt <text>    Task prompt (what was asked of the agent)
+  -o, --output <text>    Agent output to evaluate (required)
+  -r, --rubric <text>    Evaluation rubric/criteria
+  --from-stdin           Read a pre-computed evaluation JSON from stdin
+
+Provide either --scenario or both --prompt and --rubric.
+Use --from-stdin to accept a pre-computed evaluation (agent-as-judge pattern).
+
+Examples:
+  autoctx judge -p "Summarize this doc" -o "The doc covers..." -r "Score clarity 0-1"
+  autoctx judge -s my_saved_task -o "Agent response here"
+  echo '{"score":0.85,"reasoning":"Good"}' | autoctx judge --from-stdin
+
+See also: improve, queue, run`);
+    process.exit(values.help ? 0 : 1);
+  }
+
   // AC-409: Agent-as-judge — accept pre-computed evaluation from stdin
   if (values["from-stdin"]) {
     const chunks: Buffer[] = [];
@@ -633,29 +660,6 @@ async function cmdJudge(_dbPath: string): Promise<void> {
     process.exit(0);
   }
 
-  if (values.help || !values.output || (!values.scenario && (!values.prompt || !values.rubric))) {
-    console.log(`autoctx judge — One-shot evaluation of output against a rubric
-
-Usage: autoctx judge [options]
-
-Options:
-  -s, --scenario <name>  Use a saved custom scenario (provides prompt + rubric)
-  -p, --prompt <text>    Task prompt (what was asked of the agent)
-  -o, --output <text>    Agent output to evaluate (required)
-  -r, --rubric <text>    Evaluation rubric/criteria
-
-Provide either --scenario or both --prompt and --rubric.
-Use --from-stdin to accept a pre-computed evaluation (agent-as-judge pattern).
-
-Examples:
-  autoctx judge -p "Summarize this doc" -o "The doc covers..." -r "Score clarity 0-1"
-  autoctx judge -s my_saved_task -o "Agent response here"
-  echo '{"score":0.85,"reasoning":"Good"}' | autoctx judge --from-stdin
-
-See also: improve, queue, run`);
-    process.exit(values.help ? 0 : 1);
-  }
-
   const { provider, model } = await getProvider();
   const { LLMJudge } = await import("../judge/index.js");
   const savedScenario = values.scenario ? await loadSavedAgentTaskScenario(values.scenario) : null;
@@ -665,7 +669,8 @@ See also: improve, queue, run`);
   }
   const taskPrompt = values.prompt ?? savedScenario?.taskPrompt;
   const rubric = values.rubric ?? savedScenario?.rubric;
-  if (!taskPrompt || !rubric) {
+  const agentOutput = values.output;
+  if (!taskPrompt || !rubric || !agentOutput) {
     console.error("Error: judge requires either --scenario <name> or both --prompt and --rubric.");
     process.exit(1);
   }
@@ -673,7 +678,7 @@ See also: improve, queue, run`);
   const judge = new LLMJudge({ provider, model, rubric });
   const result = await judge.evaluate({
     taskPrompt,
-    agentOutput: values.output,
+    agentOutput,
     referenceContext: savedScenario?.referenceContext,
     requiredConcepts: savedScenario?.requiredConcepts,
     calibrationExamples: savedScenario?.calibrationExamples,

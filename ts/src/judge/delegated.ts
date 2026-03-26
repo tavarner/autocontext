@@ -26,11 +26,31 @@ export interface EvaluateOpts {
   pinnedDimensions?: string[];
 }
 
+export interface JudgeInterface {
+  readonly rubric: string;
+  evaluate(opts: EvaluateOpts): Promise<JudgeResult>;
+}
+
+function toJudgeResult(
+  result: DelegatedResult,
+  parseMethod: "delegated" | "callback",
+): JudgeResult {
+  return {
+    score: result.score,
+    reasoning: result.reasoning,
+    dimensionScores: result.dimensionScores ?? {},
+    rawResponses: [],
+    parseMethod,
+    internalRetries: 0,
+    dimensionsWereGenerated: false,
+  };
+}
+
 /**
  * Judge that returns a pre-loaded result without calling any LLM.
  * Use when an external agent has already evaluated the output.
  */
-export class DelegatedJudge {
+export class DelegatedJudge implements JudgeInterface {
   private result: DelegatedResult;
   readonly rubric: string;
 
@@ -44,15 +64,7 @@ export class DelegatedJudge {
   }
 
   async evaluate(_opts: EvaluateOpts): Promise<JudgeResult> {
-    return {
-      score: this.result.score,
-      reasoning: this.result.reasoning,
-      dimensionScores: this.result.dimensionScores ?? {},
-      rawResponses: [],
-      parseMethod: "delegated" as JudgeResult["parseMethod"],
-      internalRetries: 0,
-      dimensionsWereGenerated: false,
-    };
+    return toJudgeResult(this.result, "delegated");
   }
 }
 
@@ -62,7 +74,7 @@ export type CallbackEvaluateFn = (opts: EvaluateOpts) => Promise<DelegatedResult
  * Judge that delegates evaluation to a user-supplied callback function.
  * Use when the calling agent wants to provide scoring logic dynamically.
  */
-export class CallbackJudge {
+export class CallbackJudge implements JudgeInterface {
   private callback: CallbackEvaluateFn;
   readonly rubric: string;
 
@@ -73,14 +85,31 @@ export class CallbackJudge {
 
   async evaluate(opts: EvaluateOpts): Promise<JudgeResult> {
     const result = await this.callback(opts);
-    return {
-      score: result.score,
-      reasoning: result.reasoning,
-      dimensionScores: result.dimensionScores ?? {},
-      rawResponses: [],
-      parseMethod: "callback" as JudgeResult["parseMethod"],
-      internalRetries: 0,
-      dimensionsWereGenerated: false,
-    };
+    return toJudgeResult(result, "callback");
+  }
+}
+
+/**
+ * Judge that consumes a precomputed sequence of delegated evaluations.
+ * Each evaluate() call advances to the next supplied result.
+ */
+export class SequentialDelegatedJudge implements JudgeInterface {
+  private index = 0;
+  readonly rubric: string;
+
+  constructor(
+    private readonly results: DelegatedResult[],
+    rubric = "(delegated sequence — externally evaluated)",
+  ) {
+    this.rubric = rubric;
+  }
+
+  async evaluate(_opts: EvaluateOpts): Promise<JudgeResult> {
+    const current = this.results[this.index];
+    if (!current) {
+      throw new Error(`No delegated evaluation available for round ${this.index + 1}`);
+    }
+    this.index += 1;
+    return toJudgeResult(current, "delegated");
   }
 }
