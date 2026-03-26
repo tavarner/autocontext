@@ -230,5 +230,16 @@ export {
   RlmPhaseSchema,
   RlmSessionRecordSchema,
 } from "./rlm/index.js";
+
+// Mission (AC-410)
+export {
+  MissionSchema, MissionStatusSchema, MissionBudgetSchema,
+  MissionStepSchema, StepStatusSchema, VerifierResultSchema,
+  MissionStore, MissionManager,
+} from "./mission/index.js";
+export type {
+  Mission, MissionStatus, MissionBudget,
+  MissionStep, StepStatus, VerifierResult, MissionVerifier,
+} from "./mission/index.js";
 export { SecureExecReplWorker, runAgentTaskRlmSession } from "./rlm/index.js";
 export type { SecureExecReplWorkerOpts, AgentTaskRlmOpts } from "./rlm/index.js";
