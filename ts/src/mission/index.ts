@@ -23,7 +23,8 @@ export { CommandVerifier, CompositeVerifier, createCodeMission, CodeMissionSpecS
 export type { Verifier, CodeMissionSpec } from "./verifiers.js";
 export {
   ProofStatusSchema, isHardVerified, isAdvisory,
-  ProofMissionSpecSchema, LeanVerifier, createProofMission,
+  ProofAssistantIdSchema, ProofMissionSpecSchema,
+  BuildCommandProofVerifier, LeanVerifier, CoqVerifier, IsabelleVerifier, createProofMission,
   SUPPORTED_PROOF_ASSISTANTS,
 } from "./proof.js";
-export type { ProofStatus, ProofMissionSpec, ProofAssistantInfo } from "./proof.js";
+export type { ProofStatus, ProofAssistantId, ProofMissionSpec, ProofAssistantInfo } from "./proof.js";

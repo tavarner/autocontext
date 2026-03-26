@@ -51,17 +51,25 @@ export function isAdvisory(status: ProofStatus): boolean {
 // ---------------------------------------------------------------------------
 
 export interface ProofAssistantInfo {
-  id: string;
+  id: ProofAssistantId;
   name: string;
   defaultBuildCommand: string;
   fileExtension: string;
 }
+
+export const PROOF_ASSISTANT_IDS = ["lean4", "coq", "isabelle"] as const;
+export const ProofAssistantIdSchema = z.enum(PROOF_ASSISTANT_IDS);
+export type ProofAssistantId = z.infer<typeof ProofAssistantIdSchema>;
 
 export const SUPPORTED_PROOF_ASSISTANTS: ProofAssistantInfo[] = [
   { id: "lean4", name: "Lean 4", defaultBuildCommand: "lake build", fileExtension: ".lean" },
   { id: "coq", name: "Coq", defaultBuildCommand: "coqc", fileExtension: ".v" },
   { id: "isabelle", name: "Isabelle", defaultBuildCommand: "isabelle build -d .", fileExtension: ".thy" },
 ];
+
+const PROOF_ASSISTANT_MAP = new Map(
+  SUPPORTED_PROOF_ASSISTANTS.map((assistant) => [assistant.id, assistant]),
+);
 
 // ---------------------------------------------------------------------------
 // ProofMissionSpec
@@ -70,7 +78,7 @@ export const SUPPORTED_PROOF_ASSISTANTS: ProofAssistantInfo[] = [
 export const ProofMissionSpecSchema = z.object({
   name: z.string(),
   goal: z.string(),
-  proofAssistant: z.string(),
+  proofAssistant: ProofAssistantIdSchema,
   projectPath: z.string(),
   buildCommand: z.string(),
   theoremName: z.string().optional(),
@@ -81,18 +89,25 @@ export const ProofMissionSpecSchema = z.object({
 export type ProofMissionSpec = z.infer<typeof ProofMissionSpecSchema>;
 
 // ---------------------------------------------------------------------------
-// LeanVerifier — runs build command for Lean 4 proofs
+// BuildCommandProofVerifier — shared runtime for supported formal assistants
 // ---------------------------------------------------------------------------
 
-export class LeanVerifier implements Verifier {
+export class BuildCommandProofVerifier implements Verifier {
   readonly label: string;
-  readonly proofAssistant = "lean4" as const;
+  readonly proofAssistant: ProofAssistantId;
   private readonly buildCommand: string;
   private readonly cwd: string;
+  private readonly assistantInfo: ProofAssistantInfo;
 
-  constructor(buildCommand: string, cwd: string) {
+  constructor(proofAssistant: ProofAssistantId, buildCommand: string, cwd: string) {
+    const assistantInfo = PROOF_ASSISTANT_MAP.get(proofAssistant);
+    if (!assistantInfo) {
+      throw new Error(`Unsupported proof assistant: ${proofAssistant}`);
+    }
+    this.proofAssistant = proofAssistant;
+    this.assistantInfo = assistantInfo;
     this.buildCommand = buildCommand;
-    this.label = `lean4: ${buildCommand}`;
+    this.label = `${assistantInfo.id}: ${buildCommand}`;
     this.cwd = cwd;
   }
 
@@ -106,11 +121,11 @@ export class LeanVerifier implements Verifier {
       });
       return {
         passed: true,
-        reason: "Proof formally verified by Lean 4",
+        reason: `Proof formally verified by ${this.assistantInfo.name}`,
         suggestions: [],
         metadata: {
           proofStatus: "verified" as ProofStatus,
-          proofAssistant: "lean4",
+          proofAssistant: this.proofAssistant,
           stdout: stdout.trim(),
           command: this.buildCommand,
         },
@@ -126,13 +141,46 @@ export class LeanVerifier implements Verifier {
           : ["Check proof for type errors or unsolved goals"],
         metadata: {
           proofStatus: "rejected" as ProofStatus,
-          proofAssistant: "lean4",
+          proofAssistant: this.proofAssistant,
           exitCode,
           stderr: stderr.trim().slice(0, 2000),
           command: this.buildCommand,
         },
       };
     }
+  }
+}
+
+export class LeanVerifier extends BuildCommandProofVerifier {
+  constructor(buildCommand: string, cwd: string) {
+    super("lean4", buildCommand, cwd);
+  }
+}
+
+export class CoqVerifier extends BuildCommandProofVerifier {
+  constructor(buildCommand: string, cwd: string) {
+    super("coq", buildCommand, cwd);
+  }
+}
+
+export class IsabelleVerifier extends BuildCommandProofVerifier {
+  constructor(buildCommand: string, cwd: string) {
+    super("isabelle", buildCommand, cwd);
+  }
+}
+
+function createProofVerifier(
+  proofAssistant: ProofAssistantId,
+  buildCommand: string,
+  projectPath: string,
+): Verifier {
+  switch (proofAssistant) {
+    case "lean4":
+      return new LeanVerifier(buildCommand, projectPath);
+    case "coq":
+      return new CoqVerifier(buildCommand, projectPath);
+    case "isabelle":
+      return new IsabelleVerifier(buildCommand, projectPath);
   }
 }
 
@@ -161,7 +209,7 @@ export function createProofMission(
   });
 
   // Wire appropriate verifier based on proof assistant
-  const verifier = new LeanVerifier(parsed.buildCommand, parsed.projectPath);
+  const verifier = createProofVerifier(parsed.proofAssistant, parsed.buildCommand, parsed.projectPath);
   manager.setVerifier(id, async (missionId) => verifier.verify(missionId));
 
   return id;

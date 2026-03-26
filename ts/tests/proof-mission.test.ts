@@ -3,8 +3,7 @@
  *
  * - ProofStatus enum (draft, informal, checking, verified, rejected)
  * - ProofMissionSpec schema
- * - LeanVerifier: runs `lake build` for Lean 4 proofs
- * - ProofEvidence: tracks proof state distinct from model self-report
+ * - assistant-specific formal build verifiers
  * - createProofMission factory
  */
 
@@ -77,25 +76,33 @@ describe("ProofMissionSpec", () => {
       projectPath: ".", buildCommand: "isabelle build",
     }).proofAssistant).toBe("isabelle");
   });
+
+  it("rejects unsupported proof assistants", async () => {
+    const { ProofMissionSpecSchema } = await import("../src/mission/proof.js");
+    expect(() => ProofMissionSpecSchema.parse({
+      name: "t", goal: "g", proofAssistant: "agda",
+      projectPath: ".", buildCommand: "agda proof.agda",
+    })).toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// LeanVerifier
+// Formal build verifiers
 // ---------------------------------------------------------------------------
 
-describe("LeanVerifier", () => {
+describe("Formal proof verifiers", () => {
   let dir: string;
   beforeEach(() => { dir = makeTempDir(); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it("has label and proofAssistant properties", async () => {
+  it("LeanVerifier has label and proofAssistant properties", async () => {
     const { LeanVerifier } = await import("../src/mission/proof.js");
     const verifier = new LeanVerifier("lake build", dir);
     expect(verifier.label).toContain("lean");
     expect(verifier.proofAssistant).toBe("lean4");
   });
 
-  it("passes when build command succeeds (exit 0)", async () => {
+  it("passes when Lean build command succeeds (exit 0)", async () => {
     const { LeanVerifier } = await import("../src/mission/proof.js");
     const verifier = new LeanVerifier("true", dir);
     const result = await verifier.verify("m-1");
@@ -103,7 +110,7 @@ describe("LeanVerifier", () => {
     expect(result.metadata?.proofStatus).toBe("verified");
   });
 
-  it("fails when build command fails", async () => {
+  it("fails when Lean build command fails", async () => {
     const { LeanVerifier } = await import("../src/mission/proof.js");
     const verifier = new LeanVerifier("false", dir);
     const result = await verifier.verify("m-1");
@@ -111,11 +118,20 @@ describe("LeanVerifier", () => {
     expect(result.metadata?.proofStatus).toBe("rejected");
   });
 
-  it("includes advisory label when proof is not formally verified", async () => {
+  it("includes advisory label when Lean proof is not formally verified", async () => {
     const { LeanVerifier } = await import("../src/mission/proof.js");
     const verifier = new LeanVerifier("false", dir);
     const result = await verifier.verify("m-1");
     expect(result.reason).toContain("not formally verified");
+  });
+
+  it("Coq verifier keeps Coq labeling through runtime verification", async () => {
+    const { CoqVerifier } = await import("../src/mission/proof.js");
+    const verifier = new CoqVerifier("true", dir);
+    const result = await verifier.verify("m-1");
+    expect(result.passed).toBe(true);
+    expect(result.reason).toContain("Coq");
+    expect(result.metadata?.proofAssistant).toBe("coq");
   });
 });
 
@@ -170,6 +186,29 @@ describe("createProofMission", () => {
     const meta = manager.get(id)!.metadata as Record<string, unknown>;
     expect(meta.theoremName).toBe("MyTheorem");
     expect(meta.proofAssistant).toBe("lean4");
+    manager.close();
+  });
+
+  it("keeps non-Lean proof assistants distinct at runtime", async () => {
+    const { createProofMission } = await import("../src/mission/proof.js");
+    const { MissionManager } = await import("../src/mission/manager.js");
+    const manager = new MissionManager(join(dir, "test.db"));
+
+    const id = createProofMission(manager, {
+      name: "Coq theorem",
+      goal: "Formally verify in Coq",
+      proofAssistant: "coq",
+      projectPath: dir,
+      buildCommand: "true",
+    });
+
+    const mission = manager.get(id)!;
+    expect((mission.metadata as Record<string, unknown>).proofAssistant).toBe("coq");
+
+    const result = await manager.verify(id);
+    expect(result.passed).toBe(true);
+    expect(result.reason).toContain("Coq");
+    expect(result.metadata?.proofAssistant).toBe("coq");
     manager.close();
   });
 });
