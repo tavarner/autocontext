@@ -131,20 +131,28 @@ describe("Solve flow", () => {
     store.close();
   });
 
-  it("fails honestly for generated scenarios that are not runnable in the TS loop", async () => {
+  it("routes generated scenarios through family-aware execution (AC-436)", async () => {
     const { store, server } = await createToolServer(dir);
 
     const submitted = await server._registeredTools.solve_scenario.handler({
-      description: "Optimize a grid capture strategy with custom constraints",
+      description: "Investigate the root cause of a production outage using evidence logs",
       generations: 1,
     }, {});
     const submittedPayload = JSON.parse(submitted.content[0].text) as Record<string, unknown>;
     const jobId = String(submittedPayload.jobId);
 
     const status = await waitForSolveTerminalState(server, jobId);
-    expect(status.status).toBe("failed");
+    // With the codegen pipeline, non-game scenarios should complete and
+    // still return the exported skill-package contract from solve_result.
     expect(status.scenarioName).not.toBe("grid_ctf");
-    expect(String(status.error ?? "")).toContain("not runnable by the TS solve manager yet");
+    expect(status.status).toBe("completed");
+
+    const result = await server._registeredTools.solve_result.handler({ jobId }, {});
+    const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
+    expect(payload.scenario_name).toBe(status.scenarioName);
+    expect(payload.skill_markdown).toBeTypeOf("string");
+    expect(payload.best_score).toBeTypeOf("number");
+    expect((payload.metadata as Record<string, unknown>).family).toBe(status.family);
 
     store.close();
   });
