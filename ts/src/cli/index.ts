@@ -447,10 +447,11 @@ See also: list, replay, export, benchmark`);
     values.provider ? { providerType: values.provider } : {},
   );
 
-  // Resolve scenario
+  // Resolve game scenario
   const ScenarioClass = SCENARIO_REGISTRY[scenarioName];
   if (!ScenarioClass) {
-    console.error(`Unknown scenario: ${scenarioName}. Available: ${Object.keys(SCENARIO_REGISTRY).join(", ")}`);
+    const allScenarios = Object.keys(SCENARIO_REGISTRY).sort();
+    console.error(`Unknown scenario: ${scenarioName}. Available: ${allScenarios.join(", ")}`);
     process.exit(1);
   }
   const scenario = new ScenarioClass();
