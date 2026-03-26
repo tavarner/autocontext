@@ -12,6 +12,9 @@ export const MissionStatusSchema = z.enum([
   "completed",
   "failed",
   "canceled",
+  "blocked",
+  "budget_exhausted",
+  "verifier_failed",
 ]);
 
 export type MissionStatus = z.infer<typeof MissionStatusSchema>;
@@ -44,6 +47,7 @@ export const StepStatusSchema = z.enum([
   "completed",
   "failed",
   "skipped",
+  "blocked",
 ]);
 
 export type StepStatus = z.infer<typeof StepStatusSchema>;
