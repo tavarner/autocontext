@@ -2,7 +2,15 @@
 
 > Produced for [AC-431](https://linear.app/greyhaven/issue/AC-431). Captures the current state of scenario surfaces, creation flows, and runtime support across both packages.
 
+## Product Goal
+
+> A user can describe a scenario, task, mission, or related objective in plain language, and the agent can build, develop, use, think through, and adapt the runtime structures it needs in real time to improve its ultimate output.
+
+Built-in scenarios are **not** the product. They are deterministic test fixtures for CI and development. The actual success criterion is the plain-language creation → runtime adaptation → iterative improvement loop. This matrix measures how close each package is to delivering that end-to-end.
+
 ## 1. Built-in Deterministic Fixtures
+
+> **These exist for testing only.** They are hardcoded harness surfaces for CI smoke tests and deterministic regression coverage. They are not the product abstraction and should not be confused with the plain-language creation flow that represents the real user-facing value.
 
 These are hardcoded scenarios registered in `SCENARIO_REGISTRY` at import time. They exist primarily as **deterministic test fixtures** and CI smoke-test surfaces, not as the primary product abstraction.
 
@@ -99,7 +107,7 @@ How a user goes from a text description to a runnable scenario.
 
 ## 5. Runtime Execution Support
 
-Can a scenario of this family actually be *run* (not just created/designed) in each package?
+**This is the table that matters.** Can a user describe something in plain language and have the agent build, run, and iteratively improve it?
 
 | Family | Python Runtime | TypeScript Runtime | Gap |
 |--------|:--------------:|:------------------:|-----|
@@ -115,7 +123,7 @@ Can a scenario of this family actually be *run* (not just created/designed) in e
 | `operator_loop` | ✅ Via custom codegen | ❌ No codegen | **AC-432**, **AC-434** |
 | `coordination` | ✅ Via custom codegen | ❌ No codegen | **AC-434** |
 
-**Summary:** Python can create and run all 11 families. TypeScript can create specs for all 11 families but can only *execute* `game` (via `GenerationRunner`) and `agent_task` (via `ImprovementLoop`). The remaining 9 families are **creator-only** in TypeScript — they can design and persist specs but cannot run them.
+**Summary:** In Python, a user can describe any of the 11 family types in plain language and the system will classify, design, generate code, validate, register, and run it — the full loop works. In TypeScript, the same description correctly classifies and designs a spec, but for 9 of 11 families the result **cannot actually execute** because there is no codegen step to turn the spec into runnable code. The system looks like it succeeded but leaves a non-runnable artifact.
 
 ## 6. Explicit Limitations & Mismatches
 
