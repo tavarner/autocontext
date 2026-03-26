@@ -236,6 +236,8 @@ describe("Capabilities discovery", () => {
     const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf-8"));
     expect(caps.scenarios).toBeDefined();
     expect(caps.providers).toBeDefined();
+    expect(caps.concept_model).toBeDefined();
+    expect(caps.concept_model.user_facing.some((entry) => entry.name === "Scenario")).toBe(true);
     expect(caps.version).toBe(pkg.version);
     expect(Array.isArray(caps.scenarios)).toBe(true);
     expect(caps.scenarios.length).toBeGreaterThan(0);

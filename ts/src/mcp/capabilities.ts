@@ -4,6 +4,7 @@
  */
 
 import { createRequire } from "node:module";
+import { getConceptModel, type ConceptModel } from "../concepts/model.js";
 import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
 
 const require = createRequire(import.meta.url);
@@ -15,6 +16,7 @@ export interface Capabilities {
   providers: string[];
   features: string[];
   pythonOnly: string[];
+  concept_model: ConceptModel;
 }
 
 export function getCapabilities(): Capabilities {
@@ -60,5 +62,6 @@ export function getCapabilities(): Capabilities {
       "ssh-executor",
       "monty-sandbox",
     ],
+    concept_model: getConceptModel(),
   };
 }

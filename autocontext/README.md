@@ -194,6 +194,7 @@ autocontext exposes:
 
 ## Additional Docs
 
+- [Canonical concept model](../docs/concept-model.md)
 - [Agent integration guide](docs/agent-integration.md) — CLI-first integration for external agents, MCP fallback, JSON output reference
 - [Sandbox modes](docs/sandbox.md)
 - [MLX host training](docs/mlx-training.md)

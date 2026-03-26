@@ -302,6 +302,14 @@ describe("AC-405: autoctx capabilities", () => {
     expect(caps.providers).toBeDefined();
     expect(Array.isArray(caps.commands)).toBe(true);
     expect(caps.commands).toContain("run");
+    expect(caps.concept_model).toBeDefined();
+    expect(caps.concept_model.source_doc).toBe("docs/concept-model.md");
+    expect(caps.concept_model.user_facing.map((entry: { name: string }) => entry.name)).toEqual(
+      expect.arrayContaining(["Scenario", "Task", "Mission", "Campaign"]),
+    );
+    expect(caps.concept_model.runtime.map((entry: { name: string }) => entry.name)).toEqual(
+      expect.arrayContaining(["Run", "Step", "Verifier", "Artifact", "Knowledge", "Budget", "Policy"]),
+    );
   });
 
   it("includes project-specific config, active runs, and knowledge state when configured", async () => {

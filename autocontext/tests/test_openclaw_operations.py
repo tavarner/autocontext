@@ -369,8 +369,13 @@ class TestCapabilities:
 
         caps = get_capabilities()
         assert "operations" in caps
+        assert "concept_model" in caps
         assert isinstance(caps["operations"], list)
         assert len(caps["operations"]) > 0
+        assert caps["concept_model"]["source_doc"] == "docs/concept-model.md"
+        user_facing = [entry["name"] for entry in caps["concept_model"]["user_facing"]]
+        assert "Scenario" in user_facing
+        assert "Mission" in user_facing
         # Verify all expected operations present
         op_names = [op["name"] for op in caps["operations"]]
         assert "evaluate_strategy" in op_names
@@ -500,6 +505,7 @@ class TestRESTEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert "operations" in data
+        assert "concept_model" in data
         assert "version" in data
 
     def test_openclaw_context_is_scoped_to_each_app(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

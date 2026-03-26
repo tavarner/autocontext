@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from autocontext.concepts import get_concept_model
 from autocontext.scenarios.families import detect_family
 from autocontext.storage.artifacts import EMPTY_PLAYBOOK_SENTINEL
 
@@ -68,6 +69,7 @@ class CapabilityAdvertisement(BaseModel):
 
     version: str
     runtime_health: RuntimeHealth
+    concept_model: dict[str, object] = Field(default_factory=dict)
     scenario_capabilities: dict[str, ScenarioCapabilities] = Field(default_factory=dict)
     artifact_counts: dict[str, int] = Field(default_factory=dict)
 
@@ -230,6 +232,7 @@ def advertise_capabilities(ctx: MtsToolContext) -> CapabilityAdvertisement:
     return CapabilityAdvertisement(
         version=_DISCOVERY_VERSION,
         runtime_health=runtime_health,
+        concept_model=get_concept_model(),
         scenario_capabilities=scenario_capabilities,
         artifact_counts=artifact_counts,
     )
