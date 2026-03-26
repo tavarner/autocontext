@@ -55,13 +55,13 @@ The creation pipeline takes a plain-language description through: **classify →
 |-----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Designer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Spec schema | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Codegen | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Creator | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Codegen | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ disabled | ✅ |
+| Creator | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ disabled | ✅ |
 | Validator | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Pipeline (`FamilyPipeline`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Family classifier | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-**Note:** Only `agent_task` has a dedicated validator module (`agent_task_validator.py`). All other families validate via their `FamilyPipeline.validate_spec()` and `validate_source()` methods.
+**Note:** Only `agent_task` has a dedicated validator module (`agent_task_validator.py`). All other families validate via their `FamilyPipeline.validate_spec()` and `validate_source()` methods. `operator_loop` is the explicit exception on the runtime side: the family metadata, spec, and pipeline exist, but code generation and creator scaffolding are intentionally disabled.
 
 ### TypeScript (`ts/`)
 
@@ -86,11 +86,11 @@ How a user goes from a text description to a runnable scenario.
 | Path | Command | What it does | Families supported |
 |------|---------|-------------|-------------------|
 | **Template scaffolding** | `autoctx new-scenario --template <t> --name <n>` | Scaffolds from built-in templates (`content-generation`, `prompt-optimization`, `rag-accuracy`) | `agent_task` only |
-| **Solve on demand** | `autoctx solve --description "..."` | NL → classify family → design spec → codegen → validate → register → run GenerationRunner → export package | All 10 custom families |
-| **MCP tool** | `autocontext_new_scenario` | Same creation pipeline exposed via MCP server | All 10 custom families |
+| **Solve on demand** | `autoctx solve --description "..."` | NL → legacy `ScenarioCreator` → generic scenario spec → codegen → validate → register → run GenerationRunner → export package | Legacy generic `ScenarioInterface` path; not family-aware |
+| **MCP tool** | `autocontext_solve_scenario` | Same solve-manager pipeline exposed via MCP server | Same legacy generic solve path |
 | **Custom loader** | Automatic on startup | Scans `knowledge/_custom_scenarios/` and registers persisted scenarios | All families with persisted artifacts |
 
-**Python solve is family-aware end-to-end:** The `SolveManager` uses `ScenarioCreator` which routes through the family classifier, calls the family-specific designer → codegen → validator pipeline, and persists a runnable artifact. The `GenerationRunner` then executes the created scenario.
+**Python's public solve path is still legacy:** `autoctx solve` and `autocontext_solve_scenario` currently use the older generic `ScenarioCreator`, not the richer family-specific creators. The family-specific Python creators do exist internally for most families, but that is not yet the path exposed by the public solve/MCP surface.
 
 ### TypeScript
 
@@ -120,10 +120,10 @@ How a user goes from a text description to a runnable scenario.
 | `negotiation` | ✅ Via custom codegen | ❌ No codegen | **AC-434** |
 | `schema_evolution` | ✅ Via custom codegen | ❌ No codegen | **AC-434** |
 | `tool_fragility` | ✅ Via custom codegen | ❌ No codegen | **AC-434** |
-| `operator_loop` | ✅ Via custom codegen | ❌ No codegen | **AC-432**, **AC-434** |
+| `operator_loop` | ❌ Scaffolding intentionally disabled | ❌ No codegen | **AC-432**, **AC-434** |
 | `coordination` | ✅ Via custom codegen | ❌ No codegen | **AC-434** |
 
-**Summary:** In Python, a user can describe any of the 11 family types in plain language and the system will classify, design, generate code, validate, register, and run it — the full loop works. In TypeScript, the same description correctly classifies and designs a spec, but for 9 of 11 families the result **cannot actually execute** because there is no codegen step to turn the spec into runnable code. The system looks like it succeeded but leaves a non-runnable artifact.
+**Summary:** Python has internal family-specific creation/runtime support for most custom families, but the public `solve`/MCP path still uses a legacy generic scenario creator and `operator_loop` remains intentionally unsupported. TypeScript correctly classifies and designs specs, but for 9 of 11 families the result **cannot actually execute** because there is no codegen step to turn the spec into runnable code. In both packages, the user-facing plain-language story is therefore narrower than the internal family metadata suggests.
 
 ## 6. Explicit Limitations & Mismatches
 
@@ -142,6 +142,8 @@ How a user goes from a text description to a runnable scenario.
 1. **`resource_trader` fixture** — TS-only built-in game scenario; not ported to Python.
 2. **`word_count` fixture** — TS-only deterministic agent task; not ported to Python.
 3. **`AGENT_TASK_REGISTRY`** — TS has a separate registry for built-in agent tasks with algorithmic evaluation; Python does not distinguish these from custom agent tasks.
+4. **Family-aware public solve/MCP path** — `autoctx solve` and `autocontext_solve_scenario` still use the legacy generic `ScenarioCreator`, not the richer family-specific creation pipeline.
+5. **Executable `operator_loop` scaffolding** — Family metadata exists, but runtime scaffolding is intentionally disabled.
 
 ### Both packages share:
 
@@ -149,7 +151,7 @@ How a user goes from a text description to a runnable scenario.
 - Same family classification logic
 - Same custom scenario persistence layout (`knowledge/_custom_scenarios/<name>/`)
 - Same migration SQL (cross-compatible)
-- Same MCP tool surface for scenario creation
+- Solve-on-demand MCP entrypoints, but with different runtime depth and naming conventions
 
 ## 7. Follow-up Issues
 
@@ -158,6 +160,7 @@ How a user goes from a text description to a runnable scenario.
 | **AC-432** | Decide operator_loop support scope | Backlog |
 | **AC-433** | TS `new-scenario` must materialize runnable artifacts, not just specs | Backlog |
 | **AC-434** | TS `solve` must honor family-aware created scenarios instead of collapsing to game-only | Backlog |
+| *New* | Align Python `solve`/MCP with the family-specific creator pipeline, or explicitly document the legacy generic scope | To create |
 | *New* | Add codegen modules to TypeScript for non-game families (prerequisite for AC-434) | To create |
 | *New* | Port scenario templates to TypeScript (`content-generation`, `prompt-optimization`, `rag-accuracy`) | To create |
 | *New* | Add spec auto-heal to TypeScript | To create |
