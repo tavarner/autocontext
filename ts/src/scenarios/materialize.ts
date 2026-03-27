@@ -15,12 +15,13 @@
  * and runnable through the appropriate execution path.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getScenarioTypeMarker, type ScenarioFamilyName } from "./families.js";
 import { hasCodegen, generateScenarioSource } from "./codegen/index.js";
 import { validateGeneratedScenario } from "./codegen/execution-validator.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { AgentTaskSpecSchema, type AgentTaskSpec } from "./agent-task-spec.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,75 +74,157 @@ export async function materializeScenario(opts: MaterializeOpts): Promise<Materi
   const scenarioDir = join(knowledgeRoot, "_custom_scenarios", name);
   const errors: string[] = [];
 
-  // Create directory
+  // Auto-heal spec before persisting
+  const healedSpec = healSpec(spec, family);
+  const scenarioType = getScenarioTypeMarker(family);
+
+  if (family === "game") {
+    errors.push(
+      "custom scenario materialization does not support family 'game'; use a built-in game scenario instead",
+    );
+    return {
+      persisted: false,
+      generatedSource: false,
+      scenarioDir,
+      family,
+      name,
+      errors,
+    };
+  }
+
+  let generatedSource = false;
+  let source: string | null = null;
+  let persistedSpec: Record<string, unknown> = {
+    name,
+    family,
+    scenario_type: scenarioType,
+    ...healedSpec,
+  };
+  let agentTaskSpec: AgentTaskSpec | null = null;
+
+  if (family === AGENT_TASK_FAMILY) {
+    const validation = AgentTaskSpecSchema.safeParse({
+      taskPrompt: String(healedSpec.taskPrompt ?? healedSpec.task_prompt ?? ""),
+      judgeRubric: String(
+        healedSpec.judgeRubric ?? healedSpec.judge_rubric ?? healedSpec.rubric ?? "",
+      ),
+      outputFormat: healedSpec.outputFormat ?? healedSpec.output_format ?? "free_text",
+      judgeModel: healedSpec.judgeModel ?? healedSpec.judge_model ?? "",
+      difficultyTiers: healedSpec.difficultyTiers ?? healedSpec.difficulty_tiers ?? null,
+      referenceContext: healedSpec.referenceContext ?? healedSpec.reference_context ?? null,
+      referenceSources: healedSpec.referenceSources ?? healedSpec.reference_sources ?? null,
+      requiredConcepts: healedSpec.requiredConcepts ?? healedSpec.required_concepts ?? null,
+      calibrationExamples:
+        healedSpec.calibrationExamples ?? healedSpec.calibration_examples ?? null,
+      contextPreparation:
+        healedSpec.contextPreparation ?? healedSpec.context_preparation ?? null,
+      requiredContextKeys:
+        healedSpec.requiredContextKeys ?? healedSpec.required_context_keys ?? null,
+      maxRounds: healedSpec.maxRounds ?? healedSpec.max_rounds ?? 1,
+      qualityThreshold:
+        healedSpec.qualityThreshold ?? healedSpec.quality_threshold ?? 0.9,
+      revisionPrompt: healedSpec.revisionPrompt ?? healedSpec.revision_prompt ?? null,
+      sampleInput: healedSpec.sampleInput ?? healedSpec.sample_input ?? null,
+    });
+
+    if (!validation.success) {
+      errors.push(
+        ...validation.error.issues.map((issue) => `agent_task spec validation: ${issue.message}`),
+      );
+    } else {
+      agentTaskSpec = validation.data;
+      persistedSpec = {
+        ...persistedSpec,
+        taskPrompt: agentTaskSpec.taskPrompt,
+        judgeRubric: agentTaskSpec.judgeRubric,
+        rubric: agentTaskSpec.judgeRubric,
+        outputFormat: agentTaskSpec.outputFormat,
+        judgeModel: agentTaskSpec.judgeModel,
+        difficultyTiers: agentTaskSpec.difficultyTiers ?? null,
+        referenceContext: agentTaskSpec.referenceContext ?? null,
+        referenceSources: agentTaskSpec.referenceSources ?? null,
+        requiredConcepts: agentTaskSpec.requiredConcepts ?? null,
+        calibrationExamples: agentTaskSpec.calibrationExamples ?? null,
+        contextPreparation: agentTaskSpec.contextPreparation ?? null,
+        requiredContextKeys: agentTaskSpec.requiredContextKeys ?? null,
+        maxRounds: agentTaskSpec.maxRounds,
+        qualityThreshold: agentTaskSpec.qualityThreshold,
+        revisionPrompt: agentTaskSpec.revisionPrompt ?? null,
+        sampleInput: agentTaskSpec.sampleInput ?? null,
+      };
+    }
+  } else if (hasCodegen(family)) {
+    try {
+      source = generateScenarioSource(family as ScenarioFamilyName, healedSpec, name);
+      const validation = await validateGeneratedScenario(source, family, name);
+      if (!validation.valid) {
+        errors.push(...validation.errors.map((e) => `codegen validation: ${e}`));
+      } else {
+        generatedSource = true;
+      }
+    } catch (err) {
+      errors.push(`codegen failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  } else {
+    errors.push(`custom scenario materialization is not supported for family '${family}'`);
+  }
+
+  if (errors.length > 0) {
+    return {
+      persisted: false,
+      generatedSource: false,
+      scenarioDir,
+      family,
+      name,
+      errors,
+    };
+  }
+
   if (!existsSync(scenarioDir)) {
     mkdirSync(scenarioDir, { recursive: true });
   }
 
-  // Auto-heal spec before persisting
-  const healedSpec = healSpec(spec, family);
-
   // 1. Write scenario_type.txt
-  const scenarioType = getScenarioTypeMarker(family);
   writeFileSync(join(scenarioDir, "scenario_type.txt"), scenarioType, "utf-8");
 
   // 2. Write spec.json (full spec)
   writeFileSync(
     join(scenarioDir, "spec.json"),
-    JSON.stringify(
-      {
-        name,
-        family,
-        scenario_type: scenarioType,
-        ...healedSpec,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(persistedSpec, null, 2),
     "utf-8",
   );
 
   // 3. Write agent_task_spec.json for agent_task (custom-loader compat)
-  if (family === AGENT_TASK_FAMILY) {
+  if (family === AGENT_TASK_FAMILY && agentTaskSpec) {
     writeFileSync(
       join(scenarioDir, "agent_task_spec.json"),
       JSON.stringify(
         {
-          task_prompt: String(healedSpec.taskPrompt ?? ""),
-          judge_rubric: String(healedSpec.rubric ?? healedSpec.judgeRubric ?? ""),
-          output_format: String(healedSpec.outputFormat ?? healedSpec.output_format ?? "free_text"),
-          judge_model: String(healedSpec.judgeModel ?? healedSpec.judge_model ?? ""),
-          max_rounds: Number(healedSpec.maxRounds ?? healedSpec.max_rounds ?? 1),
-          quality_threshold: Number(healedSpec.qualityThreshold ?? healedSpec.quality_threshold ?? 0.9),
-          revision_prompt: healedSpec.revisionPrompt ?? healedSpec.revision_prompt ?? null,
-          sample_input: healedSpec.sampleInput ?? healedSpec.sample_input ?? null,
-          reference_context: healedSpec.referenceContext ?? healedSpec.reference_context ?? null,
-          required_concepts: healedSpec.requiredConcepts ?? healedSpec.required_concepts ?? null,
+          task_prompt: agentTaskSpec.taskPrompt,
+          judge_rubric: agentTaskSpec.judgeRubric,
+          output_format: agentTaskSpec.outputFormat,
+          judge_model: agentTaskSpec.judgeModel,
+          max_rounds: agentTaskSpec.maxRounds,
+          quality_threshold: agentTaskSpec.qualityThreshold,
+          revision_prompt: agentTaskSpec.revisionPrompt ?? null,
+          sample_input: agentTaskSpec.sampleInput ?? null,
+          reference_context: agentTaskSpec.referenceContext ?? null,
+          reference_sources: agentTaskSpec.referenceSources ?? null,
+          required_concepts: agentTaskSpec.requiredConcepts ?? null,
+          calibration_examples: agentTaskSpec.calibrationExamples ?? null,
+          context_preparation: agentTaskSpec.contextPreparation ?? null,
+          required_context_keys: agentTaskSpec.requiredContextKeys ?? null,
+          difficulty_tiers: agentTaskSpec.difficultyTiers ?? null,
         },
         null,
         2,
       ),
       "utf-8",
     );
-  }
-
-  // 4. Generate scenario.js for codegen-supported families
-  let generatedSource = false;
-  if (family !== AGENT_TASK_FAMILY && hasCodegen(family)) {
-    try {
-      const source = generateScenarioSource(family as ScenarioFamilyName, healedSpec, name);
-
-      // Validate by execution before persisting
-      const validation = await validateGeneratedScenario(source, family, name);
-      if (!validation.valid) {
-        errors.push(...validation.errors.map((e) => `codegen validation: ${e}`));
-      } else {
-        writeFileSync(join(scenarioDir, "scenario.js"), source, "utf-8");
-        generatedSource = true;
-      }
-    } catch (err) {
-      errors.push(`codegen failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    rmSync(join(scenarioDir, "scenario.js"), { force: true });
+  } else if (source) {
+    rmSync(join(scenarioDir, "agent_task_spec.json"), { force: true });
+    writeFileSync(join(scenarioDir, "scenario.js"), source, "utf-8");
   }
 
   return {

@@ -131,6 +131,26 @@ describe("materializeScenario", () => {
 
     expect(result.scenarioDir).toBe(join(tmpDir, "_custom_scenarios", "path_test"));
   });
+
+  it("fails without persisting artifacts for unsupported dead-end families", async () => {
+    const result = await materializeScenario({
+      name: "custom_board_game",
+      family: "game",
+      spec: {
+        description: "A custom board game with turns and scoring",
+        taskPrompt: "Create a two-player board game with scoring and turns",
+        rubric: "Strategic depth and fairness",
+      },
+      knowledgeRoot: tmpDir,
+    });
+
+    expect(result.persisted).toBe(false);
+    expect(result.generatedSource).toBe(false);
+    expect(result.errors.join(" ")).toContain("family 'game'");
+    expect(
+      existsSync(join(tmpDir, "_custom_scenarios", "custom_board_game")),
+    ).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

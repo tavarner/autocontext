@@ -1671,6 +1671,19 @@ Options:
     };
   };
 
+  const failMaterialization = (errors: string[]): never => {
+    const message = errors.length > 0
+      ? errors.join("; ")
+      : "scenario materialization did not produce a runnable custom artifact";
+    console.error(`Error: ${message}`);
+    process.exit(1);
+  };
+
+  const ensureMaterialized = (result: { persisted: boolean; errors: string[] }): void => {
+    if (result.persisted && result.errors.length === 0) return;
+    failMaterialization(result.errors);
+  };
+
   // Mode 1: --from-spec <file>
   if (values["from-spec"]) {
     const { readFileSync } = await import("node:fs");
@@ -1690,11 +1703,20 @@ Options:
       spec: parsed.spec,
       knowledgeRoot: resolve(settings.knowledgeRoot),
     });
-    if (matResult.errors.length > 0) {
-      console.error(`Warning: ${matResult.errors.join("; ")}`);
-    }
+    ensureMaterialized(matResult);
     if (values.json) {
-      console.log(JSON.stringify({ ...parsed, scenarioDir: matResult.scenarioDir, generatedSource: matResult.generatedSource }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            ...parsed,
+            scenarioDir: matResult.scenarioDir,
+            generatedSource: matResult.generatedSource,
+            persisted: matResult.persisted,
+          },
+          null,
+          2,
+        ),
+      );
     } else {
       console.log(`Materialized scenario: ${parsed.name} (family: ${parsed.family})`);
       console.log(`  Directory: ${matResult.scenarioDir}`);
@@ -1726,11 +1748,20 @@ Options:
       spec: parsed.spec,
       knowledgeRoot: resolve(settings.knowledgeRoot),
     });
-    if (matResult.errors.length > 0) {
-      console.error(`Warning: ${matResult.errors.join("; ")}`);
-    }
+    ensureMaterialized(matResult);
     if (values.json) {
-      console.log(JSON.stringify({ ...parsed, scenarioDir: matResult.scenarioDir, generatedSource: matResult.generatedSource }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            ...parsed,
+            scenarioDir: matResult.scenarioDir,
+            generatedSource: matResult.generatedSource,
+            persisted: matResult.persisted,
+          },
+          null,
+          2,
+        ),
+      );
     } else {
       console.log(`Materialized scenario: ${parsed.name} (family: ${parsed.family})`);
       console.log(`  Directory: ${matResult.scenarioDir}`);
@@ -1776,10 +1807,7 @@ Options:
     spec: result.spec,
     knowledgeRoot: resolve(settings.knowledgeRoot),
   });
-
-  if (matResult.errors.length > 0) {
-    console.error(`Warning: ${matResult.errors.join("; ")}`);
-  }
+  ensureMaterialized(matResult);
 
   if (values.json) {
     console.log(JSON.stringify({
