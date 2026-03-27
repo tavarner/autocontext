@@ -318,6 +318,10 @@ export class InteractiveServer {
         const maxIterations = typeof body.maxIterations === "number"
           ? body.maxIterations
           : Number.parseInt(String(body.maxIterations ?? "1"), 10);
+        const missionType = (mission.metadata as Record<string, unknown> | undefined)?.missionType;
+        const provider = missionType !== "code" && missionType !== "proof"
+          ? this.runManager.buildMissionProvider()
+          : undefined;
         const payload = await runMissionLoop(
           this.missionManager,
           missionId!,
@@ -325,6 +329,7 @@ export class InteractiveServer {
           {
             maxIterations: Number.isInteger(maxIterations) && maxIterations > 0 ? maxIterations : 1,
             stepDescription: typeof body.stepDescription === "string" ? body.stepDescription : undefined,
+            provider,
           },
         );
         json(200, payload);

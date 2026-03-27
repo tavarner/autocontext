@@ -125,6 +125,10 @@ export class RunManager {
     return this._active;
   }
 
+  buildMissionProvider() {
+    return this.buildProvider();
+  }
+
   listScenarios(): string[] {
     return Object.keys(SCENARIO_REGISTRY).sort();
   }

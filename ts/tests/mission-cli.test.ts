@@ -231,7 +231,7 @@ describe("autoctx mission run and artifacts", () => {
   beforeEach(() => { dir = setupProjectDir(); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-  it("run advances a mission and artifacts exposes persisted checkpoints", () => {
+  it("run uses adaptive planning for generic missions and artifacts exposes persisted checkpoints", () => {
     const { stdout: created } = runCli(
       ["mission", "create", "--name", "T", "--goal", "Ship OAuth"],
       { cwd: dir },
@@ -246,13 +246,15 @@ describe("autoctx mission run and artifacts", () => {
     const runPayload = JSON.parse(runOut);
     expect(runPayload.id).toBe(id);
     expect(runPayload.stepsExecuted).toBe(1);
-    expect(runPayload.finalStatus).toBe("active");
+    expect(runPayload.planGenerated).toBe(true);
+    expect(runPayload.finalStatus).toBe("completed");
     expect(runPayload.checkpointPath).toContain(`/missions/${id}/checkpoints/`);
 
     const { stdout: statusOut } = runCli(["mission", "status", "--id", id], { cwd: dir });
     const statusPayload = JSON.parse(statusOut);
     expect(statusPayload.stepsCount).toBe(1);
-    expect(statusPayload.latestVerification.reason).toContain("No verifier registered");
+    expect(statusPayload.subgoalCount).toBeGreaterThanOrEqual(1);
+    expect(statusPayload.latestVerification.reason).toContain("All subgoals completed");
 
     const { stdout: artifactsOut, exitCode: artifactsExit } = runCli(
       ["mission", "artifacts", "--id", id],
