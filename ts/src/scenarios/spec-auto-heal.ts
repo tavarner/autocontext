@@ -140,6 +140,123 @@ export function generateSyntheticSampleInput(
   return JSON.stringify(sample, null, 2);
 }
 
+function getStringValue(spec: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = spec[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function getNumberValue(spec: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = spec[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getStringArrayValue(spec: Record<string, unknown>, ...keys: string[]): string[] | null {
+  for (const key of keys) {
+    const value = spec[key];
+    if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getRecordArrayValue(
+  spec: Record<string, unknown>,
+  ...keys: string[]
+): Array<Record<string, unknown>> | null {
+  for (const key of keys) {
+    const value = spec[key];
+    if (Array.isArray(value) && value.every((entry) => entry != null && typeof entry === "object")) {
+      return value as Array<Record<string, unknown>>;
+    }
+  }
+  return null;
+}
+
+function normalizeAgentTaskHealSpec(spec: Record<string, unknown>): AgentTaskSpec {
+  const outputFormat = getStringValue(spec, "outputFormat", "output_format");
+  return {
+    taskPrompt: getStringValue(spec, "taskPrompt", "task_prompt") ?? "",
+    judgeRubric: getStringValue(spec, "judgeRubric", "judge_rubric", "rubric") ?? "Evaluate the response.",
+    outputFormat: outputFormat === "json_schema" || outputFormat === "code" ? outputFormat : "free_text",
+    judgeModel: getStringValue(spec, "judgeModel", "judge_model") ?? "",
+    difficultyTiers: getRecordArrayValue(spec, "difficultyTiers", "difficulty_tiers"),
+    referenceContext: getStringValue(spec, "referenceContext", "reference_context"),
+    referenceSources: getStringArrayValue(spec, "referenceSources", "reference_sources"),
+    requiredConcepts: getStringArrayValue(spec, "requiredConcepts", "required_concepts"),
+    calibrationExamples: getRecordArrayValue(spec, "calibrationExamples", "calibration_examples"),
+    contextPreparation: getStringValue(spec, "contextPreparation", "context_preparation"),
+    requiredContextKeys: getStringArrayValue(spec, "requiredContextKeys", "required_context_keys"),
+    maxRounds: getNumberValue(spec, "maxRounds", "max_rounds") ?? 1,
+    qualityThreshold: getNumberValue(spec, "qualityThreshold", "quality_threshold") ?? 0.9,
+    revisionPrompt: getStringValue(spec, "revisionPrompt", "revision_prompt"),
+    sampleInput: getStringValue(spec, "sampleInput", "sample_input"),
+  };
+}
+
+function applyHealedAgentTaskSpec(
+  original: Record<string, unknown>,
+  healedTask: AgentTaskSpec,
+): Record<string, unknown> {
+  const healed = { ...original };
+  const usesSnakeCase =
+    "task_prompt" in healed ||
+    "judge_rubric" in healed ||
+    "output_format" in healed ||
+    "max_rounds" in healed ||
+    "quality_threshold" in healed ||
+    "sample_input" in healed;
+
+  if (usesSnakeCase) {
+    healed.task_prompt = healedTask.taskPrompt;
+    healed.judge_rubric = healedTask.judgeRubric;
+    healed.output_format = healedTask.outputFormat;
+    healed.judge_model = healedTask.judgeModel;
+    healed.max_rounds = healedTask.maxRounds;
+    healed.quality_threshold = healedTask.qualityThreshold;
+    healed.sample_input = healedTask.sampleInput ?? null;
+    healed.context_preparation = healedTask.contextPreparation ?? null;
+    healed.reference_context = healedTask.referenceContext ?? null;
+    healed.reference_sources = healedTask.referenceSources ?? null;
+    healed.required_concepts = healedTask.requiredConcepts ?? null;
+    healed.calibration_examples = healedTask.calibrationExamples ?? null;
+    healed.required_context_keys = healedTask.requiredContextKeys ?? null;
+    healed.revision_prompt = healedTask.revisionPrompt ?? null;
+    healed.difficulty_tiers = healedTask.difficultyTiers ?? null;
+    return healed;
+  }
+
+  healed.taskPrompt = healedTask.taskPrompt;
+  healed.judgeRubric = healedTask.judgeRubric;
+  healed.outputFormat = healedTask.outputFormat;
+  healed.judgeModel = healedTask.judgeModel;
+  healed.maxRounds = healedTask.maxRounds;
+  healed.qualityThreshold = healedTask.qualityThreshold;
+  healed.sampleInput = healedTask.sampleInput ?? null;
+  healed.contextPreparation = healedTask.contextPreparation ?? null;
+  healed.referenceContext = healedTask.referenceContext ?? null;
+  healed.referenceSources = healedTask.referenceSources ?? null;
+  healed.requiredConcepts = healedTask.requiredConcepts ?? null;
+  healed.calibrationExamples = healedTask.calibrationExamples ?? null;
+  healed.requiredContextKeys = healedTask.requiredContextKeys ?? null;
+  healed.revisionPrompt = healedTask.revisionPrompt ?? null;
+  healed.difficultyTiers = healedTask.difficultyTiers ?? null;
+  if (!getStringValue(healed, "rubric")) {
+    healed.rubric = healedTask.judgeRubric;
+  }
+  return healed;
+}
+
 // ---------------------------------------------------------------------------
 // Agent task spec healing
 // ---------------------------------------------------------------------------
@@ -172,6 +289,20 @@ export function coerceSpecTypes(spec: Record<string, unknown>): Record<string, u
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(spec)) {
+    if (Array.isArray(value)) {
+      result[key] = value.map((entry) =>
+        entry != null && typeof entry === "object"
+          ? coerceSpecTypes(entry as Record<string, unknown>)
+          : entry
+      );
+      continue;
+    }
+
+    if (value != null && typeof value === "object") {
+      result[key] = coerceSpecTypes(value as Record<string, unknown>);
+      continue;
+    }
+
     if (typeof value === "string") {
       // String → number
       if (NUMERIC_FIELD_PATTERNS.test(key) || key.endsWith("_steps") || key.endsWith("Steps")) {
@@ -205,10 +336,10 @@ export function coerceSpecTypes(spec: Record<string, unknown>): Record<string, u
  */
 export function inferMissingFields(spec: Record<string, unknown>): Record<string, unknown> {
   const result = { ...spec };
-  const taskPrompt = typeof spec.taskPrompt === "string" ? spec.taskPrompt : "";
+  const taskPrompt = getStringValue(spec, "taskPrompt", "task_prompt") ?? "";
 
   // Infer description from taskPrompt
-  if (!result.description || (typeof result.description === "string" && !result.description.trim())) {
+  if (!getStringValue(result, "description")) {
     if (taskPrompt) {
       // Take first sentence or first 100 chars
       const firstSentence = taskPrompt.split(/[.!?]\s/)[0];
@@ -219,12 +350,12 @@ export function inferMissingFields(spec: Record<string, unknown>): Record<string
   }
 
   // Infer rubric from taskPrompt
-  const hasRubric = (result.rubric && typeof result.rubric === "string" && result.rubric.trim()) ||
-    (result.judgeRubric && typeof result.judgeRubric === "string" && (result.judgeRubric as string).trim());
+  const hasRubric = getStringValue(result, "rubric", "judgeRubric", "judge_rubric");
   if (!hasRubric && taskPrompt) {
     const inferredRubric = `Evaluate the quality and completeness of the response to: ${taskPrompt.slice(0, 80)}`;
     result.rubric = inferredRubric;
     result.judgeRubric = inferredRubric;
+    result.judge_rubric = inferredRubric;
   }
 
   return result;
@@ -258,9 +389,8 @@ export function healSpec(
 
   // Pass 3: family-specific healing
   if (family === "agent_task") {
-    const taskSpec = healed as unknown as AgentTaskSpec;
-    const healedTask = healAgentTaskSpec(taskSpec, description);
-    healed = healedTask as unknown as Record<string, unknown>;
+    const healedTask = healAgentTaskSpec(normalizeAgentTaskHealSpec(healed), description);
+    healed = applyHealedAgentTaskSpec(healed, healedTask);
   }
 
   return healed;
