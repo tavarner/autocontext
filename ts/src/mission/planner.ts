@@ -10,7 +10,6 @@
  */
 
 import type { LLMProvider } from "../types/index.js";
-import type { VerifierResult } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +29,7 @@ export interface StepPlan {
   description: string;
   reasoning: string;
   shouldRevise: boolean;
+  targetSubgoal?: string;
   revisedSubgoals?: SubgoalPlan[];
 }
 
@@ -72,7 +72,8 @@ Output a JSON object with this shape:
 {
   "nextStep": "What to do next",
   "reasoning": "Why this is the right next step",
-  "shouldRevise": false
+  "shouldRevise": false,
+  "targetSubgoal": "Exact string from Remaining Subgoals"
 }
 
 If verifier feedback suggests the current plan is wrong, set shouldRevise: true and include revised subgoals:
@@ -89,6 +90,8 @@ Rules:
 - Base your decision on verifier feedback and completed work
 - If feedback has suggestions, incorporate them
 - Don't repeat already-completed steps
+- When the next step advances an existing remaining subgoal, set targetSubgoal to the exact subgoal text from Remaining Subgoals
+- If you are revising the plan instead of completing a current subgoal, omit targetSubgoal
 - Be specific about what to do, not generic
 - Output ONLY the JSON object`;
 
@@ -170,6 +173,15 @@ export class MissionPlanner {
         shouldRevise: parsed.shouldRevise === true,
       };
 
+      if (
+        typeof parsed.targetSubgoal === "string"
+        && opts.remainingSubgoals.includes(parsed.targetSubgoal)
+      ) {
+        plan.targetSubgoal = parsed.targetSubgoal;
+      } else if (!plan.shouldRevise && opts.remainingSubgoals.length === 1) {
+        plan.targetSubgoal = opts.remainingSubgoals[0];
+      }
+
       if (plan.shouldRevise && Array.isArray(parsed.revisedSubgoals)) {
         plan.revisedSubgoals = (parsed.revisedSubgoals as Array<Record<string, unknown>>)
           .filter((s) => typeof s.description === "string")
@@ -222,6 +234,7 @@ export class MissionPlanner {
       description: next ? `Work on: ${next}` : `Continue: ${opts.goal}`,
       reasoning: "Fallback: could not plan step via LLM",
       shouldRevise: false,
+      ...(next ? { targetSubgoal: next } : {}),
     };
   }
 }

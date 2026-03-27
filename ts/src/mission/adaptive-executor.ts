@@ -16,12 +16,11 @@ import type { LLMProvider } from "../types/index.js";
 import type { MissionManager } from "./manager.js";
 import type { MissionStatus, VerifierResult } from "./types.js";
 import { MissionPlanner, type SubgoalPlan } from "./planner.js";
-import { saveCheckpoint } from "./checkpoint.js";
 import { rehydrateMissionVerifier } from "./verifiers.js";
-import { join } from "node:path";
 
 export interface AdaptiveRunOpts {
   maxIterations?: number;
+  stepDescription?: string;
 }
 
 export interface AdaptiveRunResult {
@@ -46,7 +45,7 @@ export async function adaptiveRunMissionLoop(
   manager: MissionManager,
   missionId: string,
   provider: LLMProvider,
-  runsRoot: string,
+  _runsRoot: string,
   opts?: AdaptiveRunOpts,
 ): Promise<AdaptiveRunResult> {
   const mission = manager.get(missionId);
@@ -113,16 +112,23 @@ export async function adaptiveRunMissionLoop(
       : undefined;
 
     // Plan next step
-    const stepPlan = await planner.planNextStep({
-      goal: mission.goal,
-      completedSteps,
-      remainingSubgoals,
-      verifierFeedback,
-    });
+    const stepPlan = i === 0 && opts?.stepDescription?.trim()
+      ? {
+          description: opts.stepDescription.trim(),
+          reasoning: "Operator-provided step override",
+          shouldRevise: false,
+          ...(remainingSubgoals.length === 1 ? { targetSubgoal: remainingSubgoals[0] } : {}),
+        }
+      : await planner.planNextStep({
+          goal: mission.goal,
+          completedSteps,
+          remainingSubgoals,
+          verifierFeedback,
+        });
 
     // Apply plan revision if needed
     if (stepPlan.shouldRevise && stepPlan.revisedSubgoals?.length) {
-      applySubgoals(manager, missionId, stepPlan.revisedSubgoals);
+      replacePendingSubgoals(manager, missionId, stepPlan.revisedSubgoals);
     }
 
     // Execute the step (record it)
@@ -132,11 +138,13 @@ export async function adaptiveRunMissionLoop(
 
     // Mark matching subgoal as completed
     const currentSubgoals = manager.subgoals(missionId);
-    const matchingSubgoal = currentSubgoals.find(
-      (s) =>
-        (s.status === "pending" || s.status === "active") &&
-        stepPlan.description.toLowerCase().includes(s.description.toLowerCase().slice(0, 30)),
-    );
+    const matchingSubgoal = stepPlan.targetSubgoal
+      ? currentSubgoals.find(
+          (s) =>
+            (s.status === "pending" || s.status === "active")
+            && s.description === stepPlan.targetSubgoal,
+        )
+      : undefined;
     if (matchingSubgoal) {
       manager.updateSubgoalStatus(matchingSubgoal.id, "completed");
     }
@@ -151,23 +159,12 @@ export async function adaptiveRunMissionLoop(
   // Final state
   const finalMission = manager.get(missionId);
   const finalStatus = finalMission?.status ?? "active";
-
-  // Save checkpoint
-  const checkpointDir = join(runsRoot, "missions", missionId, "checkpoints");
-  let checkpointPath: string | undefined;
-  try {
-    checkpointPath = manager.saveCheckpoint(missionId, checkpointDir);
-  } catch {
-    // Checkpoint failure is not fatal
-  }
-
   return {
     finalStatus: finalStatus as MissionStatus,
     stepsExecuted,
     verifierPassed: latestVerification?.passed ?? false,
     planGenerated,
     latestVerification,
-    checkpointPath,
   };
 }
 
@@ -179,6 +176,15 @@ function applySubgoals(manager: MissionManager, missionId: string, subgoals: Sub
   for (const sg of subgoals) {
     manager.addSubgoal(missionId, { description: sg.description, priority: sg.priority });
   }
+}
+
+function replacePendingSubgoals(manager: MissionManager, missionId: string, subgoals: SubgoalPlan[]): void {
+  for (const existing of manager.subgoals(missionId)) {
+    if (existing.status === "pending" || existing.status === "active") {
+      manager.updateSubgoalStatus(existing.id, "skipped");
+    }
+  }
+  applySubgoals(manager, missionId, subgoals);
 }
 
 function buildSubgoalVerifier(manager: MissionManager, missionId: string): () => Promise<VerifierResult> {

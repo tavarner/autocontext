@@ -147,6 +147,7 @@ describe("adaptiveRunMissionLoop", () => {
       nextStep: "Execute the current subgoal",
       reasoning: "Working through plan",
       shouldRevise: false,
+      targetSubgoal: "Step A",
     });
 
     const provider = mockProvider([decomposition, stepPlan, stepPlan, stepPlan]);
@@ -178,6 +179,7 @@ describe("adaptiveRunMissionLoop", () => {
     // Subgoals should have been created from the decomposition
     const subgoals = manager.subgoals(missionId);
     expect(subgoals.length).toBeGreaterThanOrEqual(2);
+    expect(subgoals.some((s) => s.description === "Step A" && s.status === "completed")).toBe(true);
 
     manager.close();
   });
@@ -262,6 +264,41 @@ describe("adaptiveRunMissionLoop", () => {
     const subgoals = manager.subgoals(missionId);
     const descriptions = subgoals.map((s) => s.description);
     expect(descriptions.some((d) => d.includes("New approach"))).toBe(true);
+    expect(subgoals.some((s) => s.description === "Original plan" && s.status === "skipped")).toBe(true);
+
+    manager.close();
+  });
+
+  it("completes the exact target subgoal instead of relying on description substring matching", async () => {
+    const provider = mockProvider([
+      JSON.stringify({
+        subgoals: [
+          { description: "Write integration tests", priority: 1 },
+        ],
+      }),
+      JSON.stringify({
+        nextStep: "Run the test suite to verify OAuth integration",
+        reasoning: "This is the concrete action for the test subgoal",
+        shouldRevise: false,
+        targetSubgoal: "Write integration tests",
+      }),
+    ]);
+
+    const manager = new MissionManager(dbPath);
+    const missionId = manager.create({
+      name: "Targeted mission",
+      goal: "Ship OAuth safely",
+      budget: { maxSteps: 3 },
+    });
+
+    const result = await adaptiveRunMissionLoop(manager, missionId, provider, tmpDir, {
+      maxIterations: 1,
+    });
+
+    expect(result.finalStatus).toBe("completed");
+    const subgoals = manager.subgoals(missionId);
+    expect(subgoals).toHaveLength(1);
+    expect(subgoals[0]!.status).toBe("completed");
 
     manager.close();
   });

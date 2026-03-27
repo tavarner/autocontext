@@ -2283,10 +2283,18 @@ See also: run, improve, judge`);
           console.error("Usage: autoctx mission run --id <mission-id> [--max-iterations N] [--step-description <text>]");
           process.exit(1);
         }
-        requireMission(manager, values.id);
+        const mission = requireMission(manager, values.id);
+        const missionType = (mission.metadata as Record<string, unknown> | undefined)?.missionType;
+        const needsAdaptivePlanning = missionType !== "code" && missionType !== "proof";
+        let provider: import("../types/index.js").LLMProvider | undefined;
+        if (needsAdaptivePlanning) {
+          const { createProvider, resolveProviderConfig } = await import("../providers/index.js");
+          provider = createProvider(resolveProviderConfig());
+        }
         const payload = await runMissionLoop(manager, values.id, runsRoot, {
           maxIterations: parseInt(values["max-iterations"] ?? "1", 10),
           stepDescription: values["step-description"],
+          provider,
         });
         console.log(JSON.stringify(payload, null, 2));
         break;

@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { saveCheckpoint } from "./checkpoint.js";
+import { adaptiveRunMissionLoop } from "./adaptive-executor.js";
 import { runUntilDone } from "./executor.js";
 import type { MissionManager } from "./manager.js";
 import type { Mission, VerifierResult } from "./types.js";
 import { rehydrateMissionVerifier } from "./verifiers.js";
+import type { LLMProvider } from "../types/index.js";
 
 export function missionCheckpointDir(runsRoot: string, missionId: string): string {
   return join(runsRoot, "missions", missionId, "checkpoints");
@@ -126,11 +127,11 @@ export async function runMissionLoop(
   manager: MissionManager,
   missionId: string,
   runsRoot: string,
-  opts?: { maxIterations?: number; stepDescription?: string },
+  opts?: { maxIterations?: number; stepDescription?: string; provider?: LLMProvider },
 ): Promise<Record<string, unknown>> {
   const mission = requireMission(manager, missionId);
   const maxIterations = opts?.maxIterations ?? 1;
-  let iteration = 0;
+  const missionType = (mission.metadata as Record<string, unknown> | undefined)?.missionType;
 
   if (!manager.hasVerifier(missionId)) {
     rehydrateMissionVerifier(manager, mission);
@@ -140,40 +141,24 @@ export async function runMissionLoop(
     manager.setVerifier(missionId, buildFallbackVerifier(manager, missionId));
   }
 
-  const result = await runUntilDone(
-    manager,
-    missionId,
-    async (currentMissionId) => {
-      iteration += 1;
-      const nextSubgoal = manager.subgoals(currentMissionId).find((subgoal) => (
-        subgoal.status === "pending" || subgoal.status === "active"
-      ));
-
-      if (nextSubgoal) {
-        manager.updateSubgoalStatus(nextSubgoal.id, "completed");
-        return {
-          description: `Completed subgoal: ${nextSubgoal.description}`,
-          status: "completed" as const,
-        };
-      }
-
-      const description = opts?.stepDescription?.trim()
-        ?? (maxIterations === 1
-          ? `Advance mission toward goal: ${mission.goal}`
-          : `Advance mission toward goal (${iteration}/${maxIterations}): ${mission.goal}`);
-      return {
-        description,
-        status: "completed" as const,
-      };
-    },
-    { maxIterations },
-  );
+  const result = missionType !== "code" && opts?.provider
+    ? await adaptiveRunMissionLoop(
+        manager,
+        missionId,
+        opts.provider,
+        runsRoot,
+        {
+          maxIterations,
+          stepDescription: opts.stepDescription,
+        },
+      )
+    : await runLegacyMissionLoop(manager, missionId, mission.goal, maxIterations, opts?.stepDescription);
 
   const latestVerification = manager.verifications(missionId).at(-1) ?? null;
   let finalStatus = result.finalStatus;
 
   if (
-    (mission.metadata as Record<string, unknown> | undefined)?.missionType === "code"
+    missionType === "code"
     && latestVerification
     && latestVerification.passed === false
     && result.finalStatus === "active"
@@ -190,4 +175,42 @@ export async function runMissionLoop(
     latestVerification,
     checkpointPath,
   };
+}
+
+async function runLegacyMissionLoop(
+  manager: MissionManager,
+  missionId: string,
+  goal: string,
+  maxIterations: number,
+  stepDescription?: string,
+) {
+  let iteration = 0;
+  return runUntilDone(
+    manager,
+    missionId,
+    async (currentMissionId) => {
+      iteration += 1;
+      const nextSubgoal = manager.subgoals(currentMissionId).find((subgoal) => (
+        subgoal.status === "pending" || subgoal.status === "active"
+      ));
+
+      if (nextSubgoal) {
+        manager.updateSubgoalStatus(nextSubgoal.id, "completed");
+        return {
+          description: `Completed subgoal: ${nextSubgoal.description}`,
+          status: "completed" as const,
+        };
+      }
+
+      const description = stepDescription?.trim()
+        ?? (maxIterations === 1
+          ? `Advance mission toward goal: ${goal}`
+          : `Advance mission toward goal (${iteration}/${maxIterations}): ${goal}`);
+      return {
+        description,
+        status: "completed" as const,
+      };
+    },
+    { maxIterations },
+  );
 }

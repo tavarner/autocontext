@@ -290,6 +290,8 @@ describe("Mission dashboard integration", () => {
     });
     expect(advanced.status).toBe(200);
     expect((advanced.body as Record<string, unknown>).checkpointPath).toBeDefined();
+    expect((advanced.body as Record<string, unknown>).planGenerated).toBe(true);
+    expect((advanced.body as Record<string, unknown>).finalStatus).toBe("completed");
 
     const artifacts = await fetchJson(`${baseUrl}/api/missions/${missionId}/artifacts`);
     expect(Array.isArray((artifacts.body as Record<string, unknown>).checkpoints)).toBe(true);
