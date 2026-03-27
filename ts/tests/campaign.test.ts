@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import {
   CampaignManager,
   type Campaign,
-  type CampaignStatus,
   type CampaignProgress,
 } from "../src/mission/campaign.js";
 import { MissionManager } from "../src/mission/manager.js";
@@ -30,7 +29,8 @@ beforeEach(() => {
   campaignManager = new CampaignManager(missionManager);
 });
 afterEach(() => {
-  missionManager.close();
+  campaignManager?.close();
+  missionManager?.close();
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -65,6 +65,29 @@ describe("campaign lifecycle", () => {
     expect(active.length).toBe(2);
   });
 
+  it("persists campaigns and campaign missions across manager restart", () => {
+    const campaignId = campaignManager.create({ name: "Persist", goal: "Survive restart" });
+    const missionId = missionManager.create({ name: "Mission", goal: "Persisted mission" });
+    campaignManager.addMission(campaignId, missionId, { priority: 2 });
+
+    campaignManager.close();
+    missionManager.close();
+
+    missionManager = new MissionManager(dbPath);
+    campaignManager = new CampaignManager(missionManager);
+
+    const campaign = campaignManager.get(campaignId);
+    expect(campaign).not.toBeNull();
+    expect(campaign!.name).toBe("Persist");
+    expect(campaignManager.missions(campaignId)).toEqual([
+      expect.objectContaining({
+        campaignId,
+        missionId,
+        priority: 2,
+      }),
+    ]);
+  });
+
   it("supports pause, resume, cancel", () => {
     const id = campaignManager.create({ name: "Control", goal: "Test controls" });
 
@@ -96,6 +119,20 @@ describe("campaign-mission relationships", () => {
     expect(missions.length).toBe(2);
     expect(missions[0].missionId).toBe(m1);
     expect(missions[0].priority).toBe(1);
+  });
+
+  it("rejects nonexistent and duplicate mission IDs", () => {
+    const campaignId = campaignManager.create({ name: "Validated", goal: "Validate membership" });
+    const missionId = missionManager.create({ name: "Mission", goal: "Real mission" });
+
+    expect(() => campaignManager.addMission(campaignId, "mission-does-not-exist")).toThrow(
+      "Mission not found: mission-does-not-exist",
+    );
+
+    campaignManager.addMission(campaignId, missionId);
+    expect(() => campaignManager.addMission(campaignId, missionId)).toThrow(
+      `Mission already in campaign: ${missionId}`,
+    );
   });
 
   it("removes a mission from a campaign", () => {
@@ -132,6 +169,15 @@ describe("campaign-mission relationships", () => {
     const missions = campaignManager.missions(campaignId);
     const feature = missions.find((m) => m.missionId === m2);
     expect(feature!.dependsOn).toContain(m1);
+  });
+
+  it("rejects dependencies that are not already in the campaign", () => {
+    const campaignId = campaignManager.create({ name: "Deps", goal: "Dependency validation" });
+    const m1 = missionManager.create({ name: "Mission", goal: "Mission" });
+
+    expect(() =>
+      campaignManager.addMission(campaignId, m1, { dependsOn: ["mission-missing"] }),
+    ).toThrow("Dependency mission not in campaign: mission-missing");
   });
 });
 
@@ -229,6 +275,8 @@ describe("campaign completion", () => {
     // Campaign should auto-complete or can be explicitly verified
     const progress = campaignManager.progress(campaignId);
     expect(progress.allMissionsComplete).toBe(true);
+    expect(campaignManager.get(campaignId)!.status).toBe("completed");
+    expect(campaignManager.list("completed").map((campaign) => campaign.id)).toContain(campaignId);
   });
 
   it("reports failed when any mission fails", () => {
@@ -241,6 +289,8 @@ describe("campaign completion", () => {
     const progress = campaignManager.progress(campaignId);
     expect(progress.failedMissions).toBe(1);
     expect(progress.allMissionsComplete).toBe(false);
+    expect(campaignManager.get(campaignId)!.status).toBe("failed");
+    expect(campaignManager.list("failed").map((campaign) => campaign.id)).toContain(campaignId);
   });
 });
 
