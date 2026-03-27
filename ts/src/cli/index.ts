@@ -1671,9 +1671,23 @@ Options:
     };
   };
 
+  const failMaterialization = (errors: string[]): never => {
+    const message = errors.length > 0
+      ? errors.join("; ")
+      : "scenario materialization did not produce a runnable custom artifact";
+    console.error(`Error: ${message}`);
+    process.exit(1);
+  };
+
+  const ensureMaterialized = (result: { persisted: boolean; errors: string[] }): void => {
+    if (result.persisted && result.errors.length === 0) return;
+    failMaterialization(result.errors);
+  };
+
   // Mode 1: --from-spec <file>
   if (values["from-spec"]) {
     const { readFileSync } = await import("node:fs");
+    const { materializeScenario } = await import("../scenarios/materialize.js");
     let spec: Record<string, unknown>;
     try {
       spec = JSON.parse(readFileSync(values["from-spec"], "utf-8"));
@@ -1681,13 +1695,39 @@ Options:
       console.error(`Error reading spec file: ${(err as Error).message}`);
       process.exit(1);
     }
-    const result = normalizeImportedScenario(spec);
-    console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
+    const parsed = normalizeImportedScenario(spec);
+    const settings = loadSettings();
+    const matResult = await materializeScenario({
+      name: parsed.name,
+      family: parsed.family,
+      spec: parsed.spec,
+      knowledgeRoot: resolve(settings.knowledgeRoot),
+    });
+    ensureMaterialized(matResult);
+    if (values.json) {
+      console.log(
+        JSON.stringify(
+          {
+            ...parsed,
+            scenarioDir: matResult.scenarioDir,
+            generatedSource: matResult.generatedSource,
+            persisted: matResult.persisted,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(`Materialized scenario: ${parsed.name} (family: ${parsed.family})`);
+      console.log(`  Directory: ${matResult.scenarioDir}`);
+      if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
+    }
     return;
   }
 
   // Mode 2: --from-stdin
   if (values["from-stdin"]) {
+    const { materializeScenario } = await import("../scenarios/materialize.js");
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) {
       chunks.push(chunk as Buffer);
@@ -1700,8 +1740,33 @@ Options:
       console.error("Error: stdin must contain valid JSON");
       process.exit(1);
     }
-    const result = normalizeImportedScenario(spec);
-    console.log(values.json ? JSON.stringify(result, null, 2) : `Registered scenario: ${result.name}`);
+    const parsed = normalizeImportedScenario(spec);
+    const settings = loadSettings();
+    const matResult = await materializeScenario({
+      name: parsed.name,
+      family: parsed.family,
+      spec: parsed.spec,
+      knowledgeRoot: resolve(settings.knowledgeRoot),
+    });
+    ensureMaterialized(matResult);
+    if (values.json) {
+      console.log(
+        JSON.stringify(
+          {
+            ...parsed,
+            scenarioDir: matResult.scenarioDir,
+            generatedSource: matResult.generatedSource,
+            persisted: matResult.persisted,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(`Materialized scenario: ${parsed.name} (family: ${parsed.family})`);
+      console.log(`  Directory: ${matResult.scenarioDir}`);
+      if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
+    }
     return;
   }
 
@@ -1732,12 +1797,31 @@ Options:
   }
 
   const result = await createScenarioFromDescription(values.description, provider);
+
+  // Materialize the created scenario to disk (AC-433)
+  const { materializeScenario } = await import("../scenarios/materialize.js");
+  const settings = loadSettings();
+  const matResult = await materializeScenario({
+    name: result.name,
+    family: result.family,
+    spec: result.spec,
+    knowledgeRoot: resolve(settings.knowledgeRoot),
+  });
+  ensureMaterialized(matResult);
+
   if (values.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({
+      ...result,
+      scenarioDir: matResult.scenarioDir,
+      generatedSource: matResult.generatedSource,
+      persisted: matResult.persisted,
+    }, null, 2));
   } else {
-    console.log(`Created scenario: ${result.name} (family: ${result.family})`);
-    console.log(`Task prompt: ${result.spec.taskPrompt}`);
-    console.log(`Rubric: ${result.spec.rubric}`);
+    console.log(`Materialized scenario: ${result.name} (family: ${result.family})`);
+    console.log(`  Directory: ${matResult.scenarioDir}`);
+    console.log(`  Task prompt: ${result.spec.taskPrompt}`);
+    console.log(`  Rubric: ${result.spec.rubric}`);
+    if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
   }
 }
 
