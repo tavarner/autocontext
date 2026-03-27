@@ -7,18 +7,31 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import {
   SimulationEngine,
   parseVariableOverrides,
   parseSweepSpec,
-  type SimulationRequest,
   type SimulationResult,
-  type SweepDimension,
 } from "../src/simulation/engine.js";
 import type { LLMProvider } from "../src/types/index.js";
+
+const CLI = join(import.meta.dirname, "..", "src", "cli", "index.ts");
+const SANITIZED_KEYS = [
+  "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AUTOCONTEXT_API_KEY",
+  "AUTOCONTEXT_AGENT_API_KEY", "AUTOCONTEXT_PROVIDER", "AUTOCONTEXT_AGENT_PROVIDER",
+  "AUTOCONTEXT_DB_PATH", "AUTOCONTEXT_RUNS_ROOT", "AUTOCONTEXT_KNOWLEDGE_ROOT",
+  "AUTOCONTEXT_CONFIG_DIR", "AUTOCONTEXT_AGENT_DEFAULT_MODEL", "AUTOCONTEXT_MODEL",
+];
+
+function buildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_NO_WARNINGS: "1" };
+  for (const key of SANITIZED_KEYS) delete env[key];
+  return { ...env, ...overrides };
+}
 
 // ---------------------------------------------------------------------------
 // Mock provider
@@ -187,6 +200,21 @@ describe("SimulationEngine — sweep", () => {
     expect(result.sweep!.dimensions.length).toBe(1);
   });
 
+  it("changes execution when sweep parameters change the generated variant", async () => {
+    const engine = new SimulationEngine(mockProvider(), tmpDir);
+
+    const result = await engine.run({
+      description: "Simulate a deployment pipeline with bounded rollout steps",
+      sweep: [{ name: "max_steps", values: [1, 2] }],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.sweep!.results).toHaveLength(2);
+    const scores = result.sweep!.results.map((entry) => entry.score);
+    expect(new Set(scores).size).toBeGreaterThan(1);
+    expect(result.summary.mostSensitiveVariables).toContain("max_steps");
+  });
+
   it("produces best/worst case in sweep summary", async () => {
     const engine = new SimulationEngine(mockProvider(), tmpDir);
 
@@ -235,6 +263,31 @@ describe("SimulationEngine — family inference", () => {
     });
     expect(result.family).toBe("operator_loop");
   });
+
+  it("exercises operator-loop clarification and escalation mechanics", async () => {
+    const specWithEscalation = JSON.stringify({
+      description: "Escalation simulation",
+      environment_description: "Env",
+      initial_state_description: "Start",
+      escalation_policy: { escalation_threshold: "medium", max_escalations: 3 },
+      success_criteria: ["correct judgment"],
+      failure_modes: ["over-escalation"],
+      max_steps: 3,
+      actions: [
+        { name: "step_a", description: "Do the first thing", parameters: {}, preconditions: [], effects: ["done_a"] },
+        { name: "step_b", description: "Do the second thing", parameters: {}, preconditions: ["step_a"], effects: ["done_b"] },
+      ],
+    });
+
+    const engine = new SimulationEngine(mockProvider([specWithEscalation]), tmpDir);
+    const result = await engine.run({
+      description: "Simulate when an agent should escalate to a human operator",
+    });
+
+    expect(result.family).toBe("operator_loop");
+    expect(result.summary.reasoning).toMatch(/Escalations:\s+[1-9]/);
+    expect(result.summary.reasoning).toMatch(/Clarifications:\s+[1-9]/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -264,5 +317,24 @@ describe("SimulationResult contract", () => {
     expect(Array.isArray(result.warnings)).toBe(true);
     expect(typeof result.summary).toBe("object");
     expect(typeof result.artifacts).toBe("object");
+  });
+});
+
+describe("simulate CLI integration", () => {
+  it("fails clearly when no provider is configured", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ac-446-cli-"));
+    try {
+      const result = spawnSync("npx", ["tsx", CLI, "simulate", "-d", "simulate a deployment"], {
+        cwd: dir,
+        encoding: "utf-8",
+        env: buildEnv(),
+        timeout: 15000,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/API key required|ANTHROPIC_API_KEY/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

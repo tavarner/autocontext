@@ -2428,8 +2428,8 @@ Options:
 
 Examples:
   autoctx simulate -d "simulate deploying a web service with rollback"
-  autoctx simulate -d "simulate a pricing war" --variables budget=100,aggression=0.8
-  autoctx simulate -d "simulate escalation thresholds" --sweep threshold=0.3:0.9:0.2
+  autoctx simulate -d "simulate a pricing war" --variables max_steps=12
+  autoctx simulate -d "simulate escalation thresholds" --sweep max_escalations=1:5:1
   autoctx simulate -d "simulate pipeline failure modes" --runs 10 --json`);
     process.exit(0);
   }
@@ -2443,14 +2443,7 @@ Examples:
   const { loadSettings } = await import("../config/index.js");
   const { resolve } = await import("node:path");
 
-  let provider;
-  try {
-    const result = await getProvider();
-    provider = result.provider;
-  } catch {
-    const { DeterministicProvider } = await import("../providers/deterministic.js");
-    provider = new DeterministicProvider();
-  }
+  const { provider } = await getProvider();
 
   const settings = loadSettings();
   const engine = new SimulationEngine(provider, resolve(settings.knowledgeRoot));

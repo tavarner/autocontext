@@ -9,7 +9,7 @@
  * and the codegen/materialization pipeline.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LLMProvider } from "../types/index.js";
 import type { ScenarioFamilyName } from "../scenarios/families.js";
@@ -73,6 +73,11 @@ export interface SimulationResult {
   };
   warnings: string[];
   error?: string;
+}
+
+interface BuiltSimulationVariant {
+  spec: Record<string, unknown>;
+  source: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,53 +150,46 @@ export class SimulationEngine {
   async run(request: SimulationRequest): Promise<SimulationResult> {
     const id = generateId();
     const name = request.saveAs ?? this.deriveName(request.description);
+    const family = this.inferFamily(request.description) as ScenarioFamilyName;
+    const scenarioDir = join(this.knowledgeRoot, "_simulations", name);
 
     try {
-      // Step 1: Infer family
-      const family = this.inferFamily(request.description);
+      const baseVariant = await this.buildVariant(request.description, family, name, request.variables);
+      this.persistArtifacts(name, family, baseVariant.spec, baseVariant.source, scenarioDir);
 
-      // Step 2: Build spec via LLM
-      const spec = await this.buildSpec(request.description, family);
-
-      // Step 3: Apply auto-heal + variable overrides
-      let healedSpec = healSpec(spec, family);
-      if (request.variables) {
-        healedSpec = { ...healedSpec, ...request.variables };
-      }
-
-      // Step 4: Generate + validate code
-      const source = generateScenarioSource(family as ScenarioFamilyName, healedSpec, name);
-      const validation = await validateGeneratedScenario(source, family, name);
-      if (!validation.valid) {
-        return this.failedResult(id, name, family as ScenarioFamilyName, request, validation.errors);
-      }
-
-      // Step 5: Persist artifacts
-      const scenarioDir = this.persistArtifacts(name, family, healedSpec, source);
-
-      // Step 6: Execute — single or sweep
+      // Execute — single or sweep
       let summary: SimulationSummary;
       let sweepResult: SweepResult | undefined;
 
       if (request.sweep && request.sweep.length > 0) {
-        const sweepData = await this.executeSweep(source, family as ScenarioFamilyName, name, request);
+        const sweepData = await this.executeSweep(
+          request.description,
+          family,
+          name,
+          request,
+          scenarioDir,
+        );
         sweepResult = sweepData;
         summary = this.aggregateSweep(sweepData);
       } else {
         const runs = request.runs ?? 1;
-        const results = await this.executeRuns(source, family as ScenarioFamilyName, name, runs, request.maxSteps);
+        const results = await this.executeRuns(
+          baseVariant.source,
+          family,
+          name,
+          runs,
+          request.maxSteps,
+        );
         summary = this.aggregateRuns(results);
       }
 
-      // Step 7: Build assumptions and warnings
-      const assumptions = this.buildAssumptions(healedSpec, family);
-      const warnings = this.buildWarnings(family);
+      const assumptions = this.buildAssumptions(baseVariant.spec, family, request.variables);
+      const warnings = this.buildWarnings(family, this.provider.name);
 
-      // Step 8: Save report
       const reportPath = join(scenarioDir, "report.json");
       const resultObj: SimulationResult = {
         id, name,
-        family: family as ScenarioFamilyName,
+        family,
         status: "completed",
         description: request.description,
         assumptions,
@@ -207,7 +205,7 @@ export class SimulationEngine {
     } catch (err) {
       return {
         id, name,
-        family: "simulation",
+        family,
         status: "failed",
         description: request.description,
         assumptions: [],
@@ -251,7 +249,15 @@ export class SimulationEngine {
     return "simulation";
   }
 
-  private async buildSpec(description: string, family: string): Promise<Record<string, unknown>> {
+  private async buildSpec(
+    description: string,
+    family: string,
+    variables?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const serializedVariables =
+      variables && Object.keys(variables).length > 0
+        ? JSON.stringify(variables, null, 2)
+        : "";
     const systemPrompt = `You are a simulation designer. Given a plain-language description, produce a ${family} spec as a JSON object.
 
 Required fields:
@@ -263,25 +269,121 @@ Required fields:
 - max_steps: positive integer
 - actions: array of {name, description, parameters, preconditions, effects}
 ${family === "operator_loop" ? '- escalation_policy: {escalation_threshold, max_escalations}' : ""}
+${family === "coordination" ? '- workers: array of {worker_id, role} with at least 2 workers' : ""}
+
+${serializedVariables ? `Incorporate these requested simulation parameters directly into the returned spec so they materially change execution when they change:
+${serializedVariables}
+
+Prefer mapping them into native fields like max_steps, escalation_policy, workers, action parameters, environment details, or other family-appropriate controls. If a parameter does not cleanly fit a native field, preserve it under simulation_variables.` : ""}
 
 Output ONLY the JSON object, no markdown fences.`;
 
     const result = await this.provider.complete({
       systemPrompt,
-      userPrompt: `Simulation request: ${description}`,
+      userPrompt: `Simulation request: ${description}${serializedVariables ? `\n\nRequested parameters:\n${serializedVariables}` : ""}`,
     });
 
-    return this.parseJSON(result.text) ?? {
-      description,
-      environment_description: "Simulated environment",
-      initial_state_description: "Initial state",
-      success_criteria: ["achieve objective"],
-      failure_modes: ["timeout"],
-      max_steps: 10,
-      actions: [
-        { name: "act", description: "Take action", parameters: {}, preconditions: [], effects: [] },
-      ],
-    };
+    const parsed = this.parseJSON(result.text);
+    if (!parsed) {
+      throw new Error("Simulation spec generation did not return valid JSON");
+    }
+    return parsed;
+  }
+
+  private async buildVariant(
+    description: string,
+    family: ScenarioFamilyName,
+    name: string,
+    variables?: Record<string, unknown>,
+  ): Promise<BuiltSimulationVariant> {
+    const rawSpec = await this.buildSpec(description, family, variables);
+    const healedSpec = this.applyVariableOverrides(healSpec(rawSpec, family), family, variables);
+    const source = generateScenarioSource(family, healedSpec, name);
+    const validation = await validateGeneratedScenario(source, family, name);
+    if (!validation.valid) {
+      throw new Error(validation.errors.join("; "));
+    }
+    return { spec: healedSpec, source };
+  }
+
+  private applyVariableOverrides(
+    spec: Record<string, unknown>,
+    family: ScenarioFamilyName,
+    variables?: Record<string, unknown>,
+  ): Record<string, unknown> {
+    if (!variables || Object.keys(variables).length === 0) {
+      return spec;
+    }
+
+    const next: Record<string, unknown> = { ...spec };
+    const passthrough: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(variables)) {
+      switch (key) {
+        case "max_steps":
+        case "maxSteps": {
+          const maxSteps = Number(value);
+          if (Number.isFinite(maxSteps) && maxSteps > 0) {
+            next.max_steps = Math.floor(maxSteps);
+          }
+          break;
+        }
+        case "escalation_threshold":
+        case "escalationThreshold": {
+          if (family === "operator_loop") {
+            const policy = { ...((next.escalation_policy as Record<string, unknown>) ?? {}) };
+            policy.escalation_threshold = value;
+            next.escalation_policy = policy;
+          } else {
+            passthrough[key] = value;
+          }
+          break;
+        }
+        case "max_escalations":
+        case "maxEscalations": {
+          const maxEscalations = Number(value);
+          if (family === "operator_loop" && Number.isFinite(maxEscalations) && maxEscalations > 0) {
+            const policy = { ...((next.escalation_policy as Record<string, unknown>) ?? {}) };
+            policy.max_escalations = Math.floor(maxEscalations);
+            next.escalation_policy = policy;
+          } else {
+            passthrough[key] = value;
+          }
+          break;
+        }
+        case "worker_count":
+        case "workerCount": {
+          const workerCount = Number(value);
+          if (family === "coordination" && Number.isFinite(workerCount) && workerCount >= 2) {
+            const existingWorkers = Array.isArray(next.workers) ? [...(next.workers as Array<Record<string, unknown>>)] : [];
+            const normalizedCount = Math.floor(workerCount);
+            const workers = existingWorkers.slice(0, normalizedCount);
+            while (workers.length < normalizedCount) {
+              workers.push({
+                worker_id: `worker_${workers.length + 1}`,
+                role: `Worker ${workers.length + 1}`,
+              });
+            }
+            next.workers = workers;
+          } else {
+            passthrough[key] = value;
+          }
+          break;
+        }
+        default:
+          passthrough[key] = value;
+      }
+    }
+
+    if (Object.keys(passthrough).length > 0) {
+      const existingVariables =
+        next.simulation_variables && typeof next.simulation_variables === "object"
+          ? next.simulation_variables as Record<string, unknown>
+          : {};
+      next.simulation_variables = { ...existingVariables, ...passthrough };
+    }
+
+    return next;
   }
 
   private async executeRuns(
@@ -297,33 +399,74 @@ Output ONLY the JSON object, no markdown fences.`;
   }
 
   private async executeSweep(
-    source: string, family: ScenarioFamilyName, name: string,
+    description: string,
+    family: ScenarioFamilyName,
+    name: string,
     request: SimulationRequest,
+    scenarioDir: string,
   ): Promise<SweepResult> {
     const dimensions = request.sweep ?? [];
     const runResults: SweepResult["results"] = [];
+    const runsPerCombo = Math.max(1, request.runs ?? 1);
 
-    // Generate cartesian product of sweep values
     const combos = this.cartesianProduct(dimensions);
     for (let i = 0; i < combos.length; i++) {
-      const variables = combos[i];
-      const result = await this.executeSingle(source, family, name, i, request.maxSteps);
-      runResults.push({ variables, ...result });
+      const variables = { ...(request.variables ?? {}), ...combos[i] };
+      const variantName = `${name}__sweep_${i + 1}`;
+      const variant = await this.buildVariant(description, family, variantName, variables);
+      this.persistArtifacts(
+        variantName,
+        family,
+        variant.spec,
+        variant.source,
+        join(scenarioDir, "sweep", `${i + 1}`),
+      );
+
+      const results = await this.executeRuns(
+        variant.source,
+        family,
+        variantName,
+        runsPerCombo,
+        request.maxSteps,
+      );
+      const aggregate = this.aggregateRuns(results);
+      runResults.push({
+        variables,
+        score: aggregate.score,
+        reasoning: aggregate.reasoning,
+        dimensionScores: aggregate.dimensionScores,
+      });
     }
 
-    return { dimensions, runs: runResults.length, results: runResults };
+    return { dimensions, runs: runResults.length * runsPerCombo, results: runResults };
   }
 
   private async executeSingle(
-    source: string, family: ScenarioFamilyName, name: string,
+    source: string,
+    family: ScenarioFamilyName,
+    name: string,
     seed: number, maxSteps?: number,
   ): Promise<{ score: number; reasoning: string; dimensionScores: Record<string, number> }> {
-    // Execute via eval (validation already passed)
     const moduleObj = { exports: {} as Record<string, unknown> };
     const fn = new Function("module", "exports", source);
     fn(moduleObj, moduleObj.exports);
     const scenario = (moduleObj.exports as { scenario: Record<string, (...args: unknown[]) => unknown> }).scenario;
 
+    switch (family) {
+      case "operator_loop":
+        return this.executeOperatorLoopScenario(scenario, seed, maxSteps);
+      case "coordination":
+        return this.executeCoordinationScenario(scenario, seed, maxSteps);
+      default:
+        return this.executeGenericScenario(scenario, seed, maxSteps);
+    }
+  }
+
+  private executeGenericScenario(
+    scenario: Record<string, (...args: unknown[]) => unknown>,
+    seed: number,
+    maxSteps?: number,
+  ): { score: number; reasoning: string; dimensionScores: Record<string, number> } {
     let state = scenario.initialState(seed) as Record<string, unknown>;
     const limit = maxSteps ?? 20;
     let steps = 0;
@@ -339,6 +482,152 @@ Output ONLY the JSON object, no markdown fences.`;
       };
       records.push({ result: { success: !!actionResult.result?.success } });
       state = actionResult.state;
+      steps++;
+    }
+
+    const evalResult = scenario.getResult(state, { records }) as {
+      score: number; reasoning: string; dimensionScores?: Record<string, number>;
+    };
+
+    return {
+      score: evalResult.score ?? 0,
+      reasoning: evalResult.reasoning ?? "",
+      dimensionScores: evalResult.dimensionScores ?? {},
+    };
+  }
+
+  private executeOperatorLoopScenario(
+    scenario: Record<string, (...args: unknown[]) => unknown>,
+    seed: number,
+    maxSteps?: number,
+  ): { score: number; reasoning: string; dimensionScores: Record<string, number> } {
+    let state = scenario.initialState(seed) as Record<string, unknown>;
+    const limit = maxSteps ?? 20;
+    let steps = 0;
+    let requestedClarification = false;
+    let escalated = false;
+    const records: Array<{ result: { success: boolean } }> = [];
+
+    while (steps < limit) {
+      const terminal = scenario.isTerminal(state) as boolean;
+      if (terminal) break;
+
+      if (!requestedClarification && typeof scenario.requestClarification === "function") {
+        state = scenario.requestClarification(state, {
+          question: "Clarify the current uncertainty before continuing.",
+          urgency: "medium",
+        }) as Record<string, unknown>;
+        requestedClarification = true;
+      }
+
+      const actions = scenario.getAvailableActions(state) as Array<{ name: string; parameters?: Record<string, unknown> }>;
+      if (!actions || actions.length === 0) break;
+
+      const action = {
+        name: String(actions[0]?.name ?? "unknown"),
+        parameters:
+          actions[0]?.parameters && typeof actions[0].parameters === "object"
+            ? actions[0].parameters
+            : {},
+      };
+      const actionResult = scenario.executeAction(state, action) as {
+        result: Record<string, unknown>;
+        state: Record<string, unknown>;
+      };
+      records.push({ result: { success: !!actionResult.result?.success } });
+      state = actionResult.state ?? state;
+
+      const situations = Array.isArray(state.situationsRequiringEscalation)
+        ? state.situationsRequiringEscalation as Array<Record<string, unknown>>
+        : [];
+      const latest = situations[situations.length - 1];
+      if (latest && typeof scenario.escalate === "function") {
+        state = scenario.escalate(state, {
+          reason: String(latest.reason ?? "action failure"),
+          severity: String(latest.severity ?? "high"),
+          wasNecessary: true,
+        }) as Record<string, unknown>;
+        escalated = true;
+      }
+      steps++;
+    }
+
+    if (!escalated && typeof scenario.escalate === "function") {
+      state = scenario.escalate(state, {
+        reason: "Mandatory operator review checkpoint.",
+        severity: "low",
+        wasNecessary: true,
+      }) as Record<string, unknown>;
+    }
+
+    const evalResult = scenario.getResult(state, { records }) as {
+      score: number; reasoning: string; dimensionScores?: Record<string, number>;
+    };
+
+    return {
+      score: evalResult.score ?? 0,
+      reasoning: evalResult.reasoning ?? "",
+      dimensionScores: evalResult.dimensionScores ?? {},
+    };
+  }
+
+  private executeCoordinationScenario(
+    scenario: Record<string, (...args: unknown[]) => unknown>,
+    seed: number,
+    maxSteps?: number,
+  ): { score: number; reasoning: string; dimensionScores: Record<string, number> } {
+    let state = scenario.initialState(seed) as Record<string, unknown>;
+    const limit = maxSteps ?? 20;
+    let steps = 0;
+    let workerIndex = 0;
+    const records: Array<{ result: { success: boolean } }> = [];
+    const workerContexts =
+      typeof scenario.getWorkerContexts === "function"
+        ? scenario.getWorkerContexts() as Array<Record<string, unknown>>
+        : [];
+    const workerIds = workerContexts.map((worker, index) =>
+      String(worker.workerId ?? worker.id ?? `worker_${index + 1}`),
+    );
+
+    while (steps < limit) {
+      const terminal = scenario.isTerminal(state) as boolean;
+      if (terminal) break;
+
+      const actions = scenario.getAvailableActions(state) as Array<{ name: string; parameters?: Record<string, unknown> }>;
+      if (!actions || actions.length === 0) break;
+
+      const action = {
+        name: String(actions[0]?.name ?? "unknown"),
+        parameters:
+          actions[0]?.parameters && typeof actions[0].parameters === "object"
+            ? actions[0].parameters
+            : {},
+      };
+
+      if (workerIds.length > 1 && typeof scenario.recordHandoff === "function") {
+        const fromWorker = workerIds[workerIndex % workerIds.length];
+        const toWorker = workerIds[(workerIndex + 1) % workerIds.length];
+        state = scenario.recordHandoff(state, fromWorker, toWorker, {
+          action: action.name,
+          step: steps + 1,
+        }) as Record<string, unknown>;
+      }
+
+      const actionResult = scenario.executeAction(state, action) as {
+        result: Record<string, unknown>;
+        state: Record<string, unknown>;
+      };
+      records.push({ result: { success: !!actionResult.result?.success } });
+      state = actionResult.state ?? state;
+
+      if (workerIds.length > 0 && typeof scenario.mergeOutputs === "function") {
+        const workerId = workerIds[workerIndex % workerIds.length];
+        state = scenario.mergeOutputs(state, {
+          [workerId]: [String(actionResult.result?.output ?? action.name)],
+        }) as Record<string, unknown>;
+      }
+
+      workerIndex++;
       steps++;
     }
 
@@ -410,7 +699,11 @@ Output ONLY the JSON object, no markdown fences.`;
     };
   }
 
-  private buildAssumptions(spec: Record<string, unknown>, family: string): string[] {
+  private buildAssumptions(
+    spec: Record<string, unknown>,
+    family: string,
+    variables?: Record<string, unknown>,
+  ): string[] {
     const assumptions: string[] = [];
     assumptions.push(`Modeled as a ${family} scenario with ${(spec.actions as unknown[])?.length ?? 0} actions`);
     if (spec.max_steps || spec.maxSteps) {
@@ -420,24 +713,37 @@ Output ONLY the JSON object, no markdown fences.`;
       const criteria = (spec.success_criteria ?? spec.successCriteria) as string[];
       assumptions.push(`Success defined as: ${criteria.join(", ")}`);
     }
+    if (variables && Object.keys(variables).length > 0) {
+      assumptions.push(`Requested parameters: ${JSON.stringify(variables)}`);
+    }
+    if (family === "operator_loop") {
+      assumptions.push("Runtime includes at least one clarification request and an operator review checkpoint.");
+    }
+    if (family === "coordination") {
+      assumptions.push("Runtime records worker handoffs and merges outputs during execution.");
+    }
     assumptions.push("Agent selects actions greedily (first available)");
-    assumptions.push("Environment is deterministic given the same seed");
+    assumptions.push("Environment is deterministic given the same seed and parameter set");
     return assumptions;
   }
 
-  private buildWarnings(family: string): string[] {
-    return [
+  private buildWarnings(family: string, providerName: string): string[] {
+    const warnings = [
       "Model-driven result only; not empirical evidence.",
       `Simulated using the ${family} family with generated action logic.`,
       "Outcomes depend on the quality of the LLM-generated scenario spec.",
       "Variable sensitivity analysis is based on score variance across sweep values, not causal attribution.",
     ];
+    if (providerName === "deterministic") {
+      warnings.push("Synthetic deterministic provider in use; results are placeholder and not model-derived.");
+    }
+    return warnings;
   }
 
   private persistArtifacts(
     name: string, family: string, spec: Record<string, unknown>, source: string,
+    scenarioDir = join(this.knowledgeRoot, "_simulations", name),
   ): string {
-    const scenarioDir = join(this.knowledgeRoot, "_simulations", name);
     if (!existsSync(scenarioDir)) mkdirSync(scenarioDir, { recursive: true });
 
     writeFileSync(join(scenarioDir, "spec.json"), JSON.stringify({ name, family, ...spec }, null, 2), "utf-8");
