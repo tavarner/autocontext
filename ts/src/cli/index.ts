@@ -2412,6 +2412,8 @@ async function cmdSimulate(): Promise<void> {
       replay: { type: "string" },
       "compare-left": { type: "string" },
       "compare-right": { type: "string" },
+      export: { type: "string" },
+      format: { type: "string" },
       variables: { type: "string" },
       sweep: { type: "string" },
       runs: { type: "string" },
@@ -2435,6 +2437,8 @@ Options:
   --replay <id>              Replay a previously saved simulation
   --compare-left <id>        Left simulation for comparison
   --compare-right <id>       Right simulation for comparison
+  --export <id>              Export a saved simulation as a portable package
+  --format <fmt>             Export format: json (default), markdown, csv
   --variables <key=val,...>   Variable overrides (e.g., threshold=0.7,budget=100)
   --sweep <key=min:max:step>  Parameter sweep (e.g., threshold=0.4:0.9:0.1)
   --runs <N>                  Number of runs (default: 1, or determined by sweep)
@@ -2448,7 +2452,9 @@ Examples:
   autoctx simulate -d "simulate a pricing war" --variables max_steps=12
   autoctx simulate --replay deploy_sim
   autoctx simulate --replay deploy_sim --variables threshold=0.9 --json
-  autoctx simulate --compare-left sim_a --compare-right sim_b --json`);
+  autoctx simulate --compare-left sim_a --compare-right sim_b --json
+  autoctx simulate --export deploy_sim --format markdown
+  autoctx simulate --export deploy_sim --format csv`);
     process.exit(0);
   }
 
@@ -2459,8 +2465,8 @@ Examples:
     process.exit(1);
   }
 
-  if (!values.description && !values.replay && !hasCompareLeft) {
-    console.error("Error: --description, --replay, or --compare-left/--compare-right is required. Run 'autoctx simulate --help' for usage.");
+  if (!values.description && !values.replay && !hasCompareLeft && !values.export) {
+    console.error("Error: --description, --replay, --compare-left/--compare-right, or --export is required. Run 'autoctx simulate --help' for usage.");
     process.exit(1);
   }
 
@@ -2473,6 +2479,27 @@ Examples:
   const { loadSettings } = await import("../config/index.js");
   const { resolve } = await import("node:path");
   const settings = loadSettings();
+
+  // Export mode (AC-452)
+  if (values.export) {
+    const { exportSimulation } = await import("../simulation/export.js");
+    const format = (values.format ?? "json") as "json" | "markdown" | "csv";
+    const result = exportSimulation({
+      id: values.export,
+      knowledgeRoot: resolve(settings.knowledgeRoot),
+      format,
+    });
+    if (result.status === "failed") {
+      console.error(`Export failed: ${result.error}`);
+      process.exit(1);
+    }
+    if (values.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Exported: ${result.outputPath}`);
+    }
+    return;
+  }
 
   // Compare mode (AC-451)
   if (hasCompareLeft && hasCompareRight) {
