@@ -14,7 +14,13 @@ import {
 } from "../src/simulation/engine.js";
 import type { LLMProvider } from "../src/types/index.js";
 
-const CLI = join(process.cwd(), "src/cli/index.ts");
+const CLI = join(import.meta.dirname, "..", "src", "cli", "index.ts");
+const SANITIZED_KEYS = [
+  "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AUTOCONTEXT_API_KEY",
+  "AUTOCONTEXT_AGENT_API_KEY", "AUTOCONTEXT_PROVIDER", "AUTOCONTEXT_AGENT_PROVIDER",
+  "AUTOCONTEXT_DB_PATH", "AUTOCONTEXT_RUNS_ROOT", "AUTOCONTEXT_KNOWLEDGE_ROOT",
+  "AUTOCONTEXT_CONFIG_DIR", "AUTOCONTEXT_AGENT_DEFAULT_MODEL", "AUTOCONTEXT_MODEL",
+];
 
 function mockProvider(): LLMProvider {
   const spec = JSON.stringify({
@@ -35,6 +41,12 @@ function mockProvider(): LLMProvider {
   } as unknown as LLMProvider;
 }
 
+function buildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_NO_WARNINGS: "1" };
+  for (const key of SANITIZED_KEYS) delete env[key];
+  return { ...env, ...overrides };
+}
+
 let tmpDir: string;
 
 beforeEach(() => {
@@ -43,26 +55,6 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
-
-function buildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    OPENAI_API_KEY: "",
-    ANTHROPIC_API_KEY: "",
-    XAI_API_KEY: "",
-    ...overrides,
-  };
-}
-
-function writeSimulationFixture(
-  knowledgeRoot: string,
-  name: string,
-  report: SimulationResult,
-): void {
-  const scenarioDir = join(knowledgeRoot, "_simulations", name);
-  mkdirSync(scenarioDir, { recursive: true });
-  writeFileSync(join(scenarioDir, "report.json"), JSON.stringify(report, null, 2), "utf-8");
-}
 
 // ---------------------------------------------------------------------------
 // Simulation compare
@@ -97,6 +89,19 @@ describe("simulate compare", () => {
     expect(result.variableDeltas.threshold.right).toBe(0.9);
   });
 
+  it("compares an original simulation against a replay artifact by replay id", async () => {
+    const engine = new SimulationEngine(mockProvider(), tmpDir);
+
+    await engine.run({ description: "Replay base", saveAs: "cmp_replay", variables: { max_steps: 2 } });
+    const replay = await engine.replay({ id: "cmp_replay", variables: { max_steps: 1 } });
+
+    const result = await engine.compare({ left: "cmp_replay", right: replay.id });
+
+    expect(result.status).toBe("completed");
+    expect(result.right.name).toBe(replay.id);
+    expect(result.variableDeltas.max_steps.right).toBe(1);
+  });
+
   it("reports dimension score deltas", async () => {
     const engine = new SimulationEngine(mockProvider(), tmpDir);
 
@@ -107,6 +112,29 @@ describe("simulate compare", () => {
 
     expect(result.dimensionDeltas).toBeDefined();
     expect(typeof result.dimensionDeltas).toBe("object");
+  });
+
+  it("includes sweep-cell variables when comparing swept simulations", async () => {
+    const engine = new SimulationEngine(mockProvider(), tmpDir);
+
+    await engine.run({
+      description: "Sweep left",
+      saveAs: "sweep_left",
+      sweep: [{ name: "max_steps", values: [1, 2] }],
+    });
+    await engine.run({
+      description: "Sweep right",
+      saveAs: "sweep_right",
+      sweep: [{ name: "max_steps", values: [3, 4] }],
+    });
+
+    const result = await engine.compare({ left: "sweep_left", right: "sweep_right" });
+
+    expect(result.status).toBe("completed");
+    expect(result.variableDeltas.max_steps).toBeDefined();
+    expect(result.variableDeltas.max_steps.left).toEqual([1, 2]);
+    expect(result.variableDeltas.max_steps.right).toEqual([3, 4]);
+    expect(result.likelyDrivers).toContain("max_steps");
   });
 
   it("identifies which variable changes likely drove outcome differences", async () => {
@@ -224,7 +252,7 @@ describe("SimulationCompareResult shape", () => {
 });
 
 describe("simulate compare CLI integration", () => {
-  it("fails clearly when compare flags are only partially specified", () => {
+  it("fails clearly when only one compare side is provided", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ac-451-cli-"));
     try {
       const result = spawnSync("npx", ["tsx", CLI, "simulate", "--compare-left", "sim_a"], {

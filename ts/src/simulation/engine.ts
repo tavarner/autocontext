@@ -9,7 +9,7 @@
  * and the codegen/materialization pipeline.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LLMProvider } from "../types/index.js";
 import type { ScenarioFamilyName } from "../scenarios/families.js";
@@ -436,8 +436,8 @@ export class SimulationEngine {
     const scoreDelta = Math.round((rightScore - leftScore) * 10000) / 10000;
 
     // Variable deltas
-    const leftVars = leftReport.variables ?? {};
-    const rightVars = rightReport.variables ?? {};
+    const leftVars = this.collectCompareVariables(leftReport);
+    const rightVars = this.collectCompareVariables(rightReport);
     const allVarKeys = new Set([...Object.keys(leftVars), ...Object.keys(rightVars)]);
     const variableDeltas: Record<string, VariableDelta> = {};
     for (const key of allVarKeys) {
@@ -463,7 +463,7 @@ export class SimulationEngine {
     // Likely drivers: variables that changed AND where dimensions shifted
     const likelyDrivers: string[] = [];
     for (const [key, vd] of Object.entries(variableDeltas)) {
-      if (vd.delta != null && Math.abs(vd.delta) > 0) {
+      if (!this.valuesEqual(vd.left, vd.right)) {
         likelyDrivers.push(key);
       }
     }
@@ -502,13 +502,62 @@ export class SimulationEngine {
   }
 
   private loadReport(name: string): SimulationResult | null {
-    const reportPath = join(this.knowledgeRoot, "_simulations", name, "report.json");
-    if (!existsSync(reportPath)) return null;
-    try {
-      return JSON.parse(readFileSync(reportPath, "utf-8")) as SimulationResult;
-    } catch {
-      return null;
+    const simulationsRoot = join(this.knowledgeRoot, "_simulations");
+    const baseReportPath = join(simulationsRoot, name, "report.json");
+    if (existsSync(baseReportPath)) {
+      try {
+        return JSON.parse(readFileSync(baseReportPath, "utf-8")) as SimulationResult;
+      } catch {
+        return null;
+      }
     }
+
+    if (!existsSync(simulationsRoot)) return null;
+
+    for (const entry of readdirSync(simulationsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith("_")) continue;
+      const replayReportPath = join(simulationsRoot, entry.name, `replay_${name}.json`);
+      if (!existsSync(replayReportPath)) continue;
+      try {
+        return JSON.parse(readFileSync(replayReportPath, "utf-8")) as SimulationResult;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  private collectCompareVariables(report: SimulationResult): Record<string, unknown> {
+    const merged: Record<string, unknown> = { ...(report.variables ?? {}) };
+
+    if (!report.sweep?.results?.length) {
+      return merged;
+    }
+
+    const valueSets = new Map<string, unknown[]>();
+    for (const result of report.sweep.results) {
+      for (const [key, value] of Object.entries(result.variables ?? {})) {
+        const existing = valueSets.get(key) ?? [];
+        if (!existing.some((entry) => this.valuesEqual(entry, value))) {
+          existing.push(value);
+          valueSets.set(key, existing);
+        }
+      }
+    }
+
+    for (const [key, values] of valueSets.entries()) {
+      if (key in merged && values.length === 1 && this.valuesEqual(merged[key], values[0])) {
+        continue;
+      }
+      merged[key] = values.length === 1 ? values[0] : values;
+    }
+
+    return merged;
+  }
+
+  private valuesEqual(left: unknown, right: unknown): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
   }
 
   // Internals

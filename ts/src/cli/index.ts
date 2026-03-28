@@ -2464,6 +2464,11 @@ Examples:
     process.exit(1);
   }
 
+  if ((values["compare-left"] && !values["compare-right"]) || (!values["compare-left"] && values["compare-right"])) {
+    console.error("Error: --compare-left and --compare-right must be provided together. Run 'autoctx simulate --help' for usage.");
+    process.exit(1);
+  }
+
   const { SimulationEngine, parseVariableOverrides, parseSweepSpec } = await import("../simulation/engine.js");
   const { loadSettings } = await import("../config/index.js");
   const { resolve } = await import("node:path");
