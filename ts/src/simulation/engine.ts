@@ -9,7 +9,7 @@
  * and the codegen/materialization pipeline.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LLMProvider } from "../types/index.js";
 import type { ScenarioFamilyName } from "../scenarios/families.js";
@@ -57,6 +57,16 @@ export interface SimulationSummary {
   mostSensitiveVariables?: string[];
 }
 
+export interface SimulationExecutionConfig {
+  /**
+   * Number of repeated runs for a single scenario variant, or per sweep cell
+   * when `sweep` is present.
+   */
+  runs: number;
+  maxSteps?: number;
+  sweep?: SweepDimension[];
+}
+
 export interface SimulationResult {
   id: string;
   name: string;
@@ -67,17 +77,39 @@ export interface SimulationResult {
   variables: Record<string, unknown>;
   sweep?: SweepResult;
   summary: SimulationSummary;
+  execution?: SimulationExecutionConfig;
   artifacts: {
     scenarioDir: string;
     reportPath?: string;
   };
   warnings: string[];
   error?: string;
+  /** Present on replay results — the id of the original simulation */
+  replayOf?: string;
+  /** Present on replay results — the original simulation's score */
+  originalScore?: number;
+  /** Present on replay results — delta between replay and original score */
+  scoreDelta?: number;
+}
+
+export interface ReplayRequest {
+  /** ID (name) of the saved simulation to replay */
+  id: string;
+  /** Optional variable overrides for the replay */
+  variables?: Record<string, unknown>;
+  /** Optional max steps override */
+  maxSteps?: number;
 }
 
 interface BuiltSimulationVariant {
   spec: Record<string, unknown>;
   source: string;
+}
+
+interface ReplayVariant {
+  spec: Record<string, unknown>;
+  source: string;
+  variables: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +184,7 @@ export class SimulationEngine {
     const name = request.saveAs ?? this.deriveName(request.description);
     const family = this.inferFamily(request.description) as ScenarioFamilyName;
     const scenarioDir = join(this.knowledgeRoot, "_simulations", name);
+    const execution = this.buildExecutionConfig(request);
 
     try {
       const baseVariant = await this.buildVariant(request.description, family, name, request.variables);
@@ -172,13 +205,12 @@ export class SimulationEngine {
         sweepResult = sweepData;
         summary = this.aggregateSweep(sweepData);
       } else {
-        const runs = request.runs ?? 1;
         const results = await this.executeRuns(
           baseVariant.source,
           family,
           name,
-          runs,
-          request.maxSteps,
+          execution.runs,
+          execution.maxSteps,
         );
         summary = this.aggregateRuns(results);
       }
@@ -196,6 +228,7 @@ export class SimulationEngine {
         variables: request.variables ?? {},
         sweep: sweepResult,
         summary,
+        execution,
         artifacts: { scenarioDir, reportPath },
         warnings,
       };
@@ -211,9 +244,117 @@ export class SimulationEngine {
         assumptions: [],
         variables: request.variables ?? {},
         summary: { score: 0, reasoning: "", dimensionScores: {} },
+        execution,
         artifacts: { scenarioDir: "" },
         warnings: [],
         error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Replay a previously saved simulation (AC-450).
+   *
+   * Loads the saved spec + generated code from artifacts, re-executes
+   * with the same (or optionally modified) parameters, and returns
+   * a result with comparison data against the original.
+   */
+  async replay(request: ReplayRequest): Promise<SimulationResult> {
+    const id = generateId();
+    const name = request.id;
+    const scenarioDir = join(this.knowledgeRoot, "_simulations", name);
+
+    // Load saved report
+    const reportPath = join(scenarioDir, "report.json");
+    if (!existsSync(reportPath)) {
+      return {
+        id, name, family: "simulation", status: "failed",
+        description: "", assumptions: [], variables: {},
+        summary: { score: 0, reasoning: "", dimensionScores: {} },
+        artifacts: { scenarioDir: "" }, warnings: [],
+        error: `Simulation '${name}' not found at ${scenarioDir}`,
+      };
+    }
+
+    const originalReport = JSON.parse(readFileSync(reportPath, "utf-8")) as SimulationResult;
+    const originalScore = originalReport.summary?.score ?? 0;
+    const family = (originalReport.family ?? "simulation") as ScenarioFamilyName;
+    const execution = this.resolveExecutionConfig(originalReport);
+    const replayMaxSteps = request.maxSteps ?? execution.maxSteps;
+
+    try {
+      let summary: SimulationSummary;
+      let sweepResult: SweepResult | undefined;
+      let variables: Record<string, unknown>;
+
+      if (execution.sweep && execution.sweep.length > 0) {
+        const replayedSweep = await this.replaySweep(
+          scenarioDir,
+          family,
+          name,
+          execution,
+          originalReport,
+          request.variables,
+          replayMaxSteps,
+        );
+        sweepResult = replayedSweep;
+        summary = this.aggregateSweep(replayedSweep);
+        variables = this.collectReplayVariables(originalReport, request.variables);
+      } else {
+        const variant = await this.loadReplayVariant(
+          scenarioDir,
+          family,
+          name,
+          this.collectReplayVariables(originalReport, request.variables),
+          Object.keys(request.variables ?? {}).length > 0,
+        );
+        variables = variant.variables;
+        const results = await this.executeRuns(
+          variant.source,
+          family,
+          name,
+          execution.runs,
+          replayMaxSteps,
+        );
+        summary = this.aggregateRuns(results);
+      }
+
+      const replayReportPath = join(scenarioDir, `replay_${id}.json`);
+      const result: SimulationResult = {
+        id, name, family,
+        status: "completed",
+        description: originalReport.description ?? "",
+        assumptions: originalReport.assumptions ?? [],
+        variables,
+        sweep: sweepResult,
+        summary,
+        execution: {
+          runs: execution.runs,
+          maxSteps: replayMaxSteps,
+          sweep: execution.sweep,
+        },
+        artifacts: { scenarioDir, reportPath: replayReportPath },
+        warnings: [
+          ...(originalReport.warnings ?? []),
+          "This is a replay of a previously saved simulation.",
+        ],
+        replayOf: name,
+        originalScore,
+        scoreDelta: Math.round((summary.score - originalScore) * 10000) / 10000,
+      };
+
+      writeFileSync(replayReportPath, JSON.stringify(result, null, 2), "utf-8");
+      return result;
+    } catch (err) {
+      return {
+        id, name, family, status: "failed",
+        description: originalReport.description ?? "",
+        assumptions: [],
+        variables: this.collectReplayVariables(originalReport, request.variables),
+        summary: { score: 0, reasoning: "", dimensionScores: {} },
+        artifacts: { scenarioDir }, warnings: [],
+        error: err instanceof Error ? err.message : String(err),
+        replayOf: name,
       };
     }
   }
@@ -247,6 +388,146 @@ export class SimulationEngine {
     const lower = description.toLowerCase();
     if (/escalat|operator|human.in.the.loop|clarification/i.test(lower)) return "operator_loop";
     return "simulation";
+  }
+
+  private buildExecutionConfig(request: SimulationRequest): SimulationExecutionConfig {
+    return {
+      runs: Math.max(1, request.runs ?? 1),
+      maxSteps: request.maxSteps,
+      sweep: request.sweep && request.sweep.length > 0 ? request.sweep : undefined,
+    };
+  }
+
+  private resolveExecutionConfig(report: SimulationResult): SimulationExecutionConfig {
+    if (report.execution) {
+      return {
+        runs: Math.max(1, report.execution.runs ?? 1),
+        maxSteps: report.execution.maxSteps,
+        sweep: report.execution.sweep && report.execution.sweep.length > 0
+          ? report.execution.sweep
+          : undefined,
+      };
+    }
+
+    if (report.sweep && report.sweep.results.length > 0) {
+      const runsPerCell = Math.max(
+        1,
+        Math.round(report.sweep.runs / Math.max(report.sweep.results.length, 1)),
+      );
+      return {
+        runs: runsPerCell,
+        sweep: report.sweep.dimensions,
+      };
+    }
+
+    return { runs: 1 };
+  }
+
+  private collectReplayVariables(
+    originalReport: SimulationResult,
+    overrides?: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      ...(originalReport.variables ?? {}),
+      ...(overrides ?? {}),
+    };
+  }
+
+  private loadPersistedSpec(specPath: string): Record<string, unknown> | null {
+    if (!existsSync(specPath)) return null;
+    const persisted = JSON.parse(readFileSync(specPath, "utf-8")) as Record<string, unknown>;
+    const { name: _name, family: _family, ...spec } = persisted;
+    return spec;
+  }
+
+  private async loadReplayVariant(
+    scenarioDir: string,
+    family: ScenarioFamilyName,
+    name: string,
+    variables: Record<string, unknown>,
+    regenerate: boolean,
+  ): Promise<ReplayVariant> {
+    const sourcePath = join(scenarioDir, "scenario.js");
+    const specPath = join(scenarioDir, "spec.json");
+    const savedSpec = this.loadPersistedSpec(specPath);
+
+    if (!regenerate && existsSync(sourcePath)) {
+      return {
+        spec: savedSpec ?? {},
+        source: readFileSync(sourcePath, "utf-8"),
+        variables,
+      };
+    }
+
+    if (!savedSpec) {
+      throw new Error(`Saved simulation spec not found at ${specPath}`);
+    }
+
+    const spec = this.applyVariableOverrides(savedSpec, family, variables);
+    const validation = await validateGeneratedScenario(generateScenarioSource(family, spec, name), family, name);
+    if (!validation.valid) {
+      throw new Error(validation.errors.join("; "));
+    }
+
+    return {
+      spec,
+      source: generateScenarioSource(family, spec, name),
+      variables,
+    };
+  }
+
+  private async replaySweep(
+    scenarioDir: string,
+    family: ScenarioFamilyName,
+    name: string,
+    execution: SimulationExecutionConfig,
+    originalReport: SimulationResult,
+    overrides?: Record<string, unknown>,
+    maxSteps?: number,
+  ): Promise<SweepResult> {
+    const originalSweep = originalReport.sweep;
+    if (!originalSweep) {
+      throw new Error("Saved simulation does not contain sweep metadata");
+    }
+
+    const results: SweepResult["results"] = [];
+    for (let i = 0; i < originalSweep.results.length; i++) {
+      const originalCell = originalSweep.results[i];
+      const variantDir = join(scenarioDir, "sweep", `${i + 1}`);
+      const variantName = `${name}__sweep_${i + 1}`;
+      const variables = {
+        ...(originalCell.variables ?? {}),
+        ...(overrides ?? {}),
+      };
+      const regenerate = Object.keys(overrides ?? {}).length > 0;
+      const variant = await this.loadReplayVariant(
+        variantDir,
+        family,
+        variantName,
+        variables,
+        regenerate,
+      );
+      const rerunResults = await this.executeRuns(
+        variant.source,
+        family,
+        variantName,
+        execution.runs,
+        maxSteps,
+      );
+      const aggregate = this.aggregateRuns(rerunResults);
+      results.push({
+        variables,
+        score: aggregate.score,
+        reasoning: aggregate.reasoning,
+        dimensionScores: aggregate.dimensionScores,
+      });
+    }
+
+    return {
+      dimensions: execution.sweep ?? originalSweep.dimensions,
+      runs: results.length * execution.runs,
+      results,
+    };
   }
 
   private async buildSpec(
