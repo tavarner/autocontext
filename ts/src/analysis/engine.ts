@@ -13,8 +13,16 @@
  * rubric-drift, run-trace) and artifact persistence from simulate/investigate.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { SQLiteStore } from "../storage/index.js";
+import { MissionManager } from "../mission/manager.js";
+
+interface AnalysisEngineOpts {
+  knowledgeRoot: string;
+  runsRoot?: string;
+  dbPath?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,9 +87,20 @@ function generateId(): string {
 
 export class AnalysisEngine {
   private knowledgeRoot: string;
+  private runsRoot: string;
+  private dbPath?: string;
 
-  constructor(knowledgeRoot: string) {
-    this.knowledgeRoot = knowledgeRoot;
+  constructor(opts: string | AnalysisEngineOpts) {
+    if (typeof opts === "string") {
+      this.knowledgeRoot = opts;
+      this.runsRoot = opts;
+      this.dbPath = undefined;
+      return;
+    }
+
+    this.knowledgeRoot = opts.knowledgeRoot;
+    this.runsRoot = opts.runsRoot ?? opts.knowledgeRoot;
+    this.dbPath = opts.dbPath;
   }
 
   /**
@@ -160,6 +179,20 @@ export class AnalysisEngine {
       };
     }
 
+    if (request.left.type !== request.right.type) {
+      return {
+        id,
+        target: request.left,
+        compareTarget: request.right,
+        mode: "compare",
+        summary: { headline: "Comparison unavailable across different artifact types", confidence: 0 },
+        findings: [],
+        regressions: [],
+        limitations,
+        artifacts: {},
+      };
+    }
+
     const findings = this.compareFindings(left, right, request.left.type);
     const regressions = this.compareRegressions(left, right);
     const attribution = this.computeAttribution(left, right);
@@ -192,42 +225,146 @@ export class AnalysisEngine {
   // -------------------------------------------------------------------------
 
   private loadArtifact(id: string, type: AnalysisTargetType): Record<string, unknown> | null {
-    const dirs: string[] = [];
     switch (type) {
       case "simulation":
-        dirs.push(join(this.knowledgeRoot, "_simulations", id));
-        break;
+        return this.loadDirectoryArtifact(join(this.knowledgeRoot, "_simulations", id));
       case "investigation":
-        dirs.push(join(this.knowledgeRoot, "_investigations", id));
-        break;
+        return this.loadDirectoryArtifact(join(this.knowledgeRoot, "_investigations", id));
       case "mission":
-        dirs.push(join(this.knowledgeRoot, "missions", id));
-        break;
+        return this.loadMissionArtifact(id);
       case "run":
-        dirs.push(join(this.knowledgeRoot, "runs", id));
-        break;
+        return this.loadRunArtifact(id);
+    }
+  }
+
+  private loadDirectoryArtifact(dir: string): Record<string, unknown> | null {
+    const reportPath = join(dir, "report.json");
+    if (!existsSync(reportPath)) {
+      return null;
+    }
+    try {
+      return JSON.parse(readFileSync(reportPath, "utf-8")) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private loadMissionArtifact(id: string): Record<string, unknown> | null {
+    const checkpointDir = join(this.runsRoot, "missions", id, "checkpoints");
+    const latestCheckpoint = this.loadLatestCheckpoint(checkpointDir);
+    let missionPayload: Record<string, unknown> | null = null;
+
+    if (this.dbPath && existsSync(this.dbPath)) {
+      const manager = new MissionManager(this.dbPath);
+      try {
+        const mission = manager.get(id);
+        if (mission) {
+          const steps = manager.steps(id);
+          const subgoals = manager.subgoals(id);
+          const verifications = manager.verifications(id);
+          missionPayload = {
+            mission,
+            status: mission.status,
+            steps,
+            subgoals,
+            verifications,
+            budgetUsage: manager.budgetUsage(id),
+            latestVerification: verifications.at(-1) ?? null,
+          };
+        }
+      } finally {
+        manager.close();
+      }
     }
 
-    for (const dir of dirs) {
-      const reportPath = join(dir, "report.json");
-      if (existsSync(reportPath)) {
-        try {
-          return JSON.parse(readFileSync(reportPath, "utf-8")) as Record<string, unknown>;
-        } catch { /* continue */ }
-      }
-      // Try checkpoint for missions
-      const checkpointDir = join(dir, "checkpoints");
-      if (existsSync(checkpointDir)) {
-        try {
-          const files = require("node:fs").readdirSync(checkpointDir) as string[];
-          const latest = files.filter((f: string) => f.endsWith(".json")).sort().pop();
-          if (latest) {
-            return JSON.parse(readFileSync(join(checkpointDir, latest), "utf-8")) as Record<string, unknown>;
-          }
-        } catch { /* continue */ }
-      }
+    if (missionPayload && latestCheckpoint) {
+      return {
+        ...missionPayload,
+        checkpointDir,
+        latestCheckpoint,
+      };
     }
+
+    if (missionPayload) {
+      return missionPayload;
+    }
+
+    if (latestCheckpoint) {
+      const checkpointMission = latestCheckpoint.mission as Record<string, unknown> | undefined;
+      return {
+        ...latestCheckpoint,
+        status: checkpointMission?.status ?? "unknown",
+        checkpointDir,
+      };
+    }
+
     return null;
+  }
+
+  private loadRunArtifact(id: string): Record<string, unknown> | null {
+    if (!this.dbPath || !existsSync(this.dbPath)) {
+      return null;
+    }
+
+    const store = new SQLiteStore(this.dbPath);
+    try {
+      const run = store.getRun(id);
+      if (!run) {
+        return null;
+      }
+
+      const trajectory = store.getScoreTrajectory(id);
+      const latestGeneration = trajectory.at(-1) ?? null;
+      const sessionReportPath = join(this.runsRoot, id, "session_report.md");
+      const sessionReport = existsSync(sessionReportPath)
+        ? readFileSync(sessionReportPath, "utf-8")
+        : "";
+
+      return {
+        ...run,
+        status: run.status,
+        trajectory,
+        latestGeneration,
+        sessionReport,
+        sessionReportPath: sessionReport ? sessionReportPath : undefined,
+        summary: latestGeneration
+          ? {
+              score: latestGeneration.best_score,
+              reasoning: sessionReport
+                ? this.extractSessionReportSummary(sessionReport)
+                : `Latest gate decision: ${latestGeneration.gate_decision}`,
+              dimensionScores: latestGeneration.dimension_summary,
+            }
+          : {
+              score: 0,
+              reasoning: sessionReport
+                ? this.extractSessionReportSummary(sessionReport)
+                : `Run '${run.run_id}' has no completed generations yet`,
+              dimensionScores: {},
+            },
+      };
+    } finally {
+      store.close();
+    }
+  }
+
+  private loadLatestCheckpoint(checkpointDir: string): Record<string, unknown> | null {
+    if (!existsSync(checkpointDir)) {
+      return null;
+    }
+
+    try {
+      const latest = readdirSync(checkpointDir)
+        .filter((name) => name.endsWith(".json"))
+        .sort()
+        .pop();
+      if (!latest) {
+        return null;
+      }
+      return JSON.parse(readFileSync(join(checkpointDir, latest), "utf-8")) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -284,6 +421,43 @@ export class AnalysisEngine {
       }
     }
 
+    if (type === "run") {
+      const scenario = String(artifact.scenario ?? "unknown");
+      const status = String(artifact.status ?? "unknown");
+      const summary = artifact.summary as Record<string, unknown> | undefined;
+      findings.push({
+        kind: status === "completed" ? "observation" : "warning",
+        statement: `Run for scenario '${scenario}' is ${status}`,
+        evidence: ["run metadata"],
+      });
+      if (summary && typeof summary.score === "number") {
+        findings.push({
+          kind: summary.score >= 0.8 ? "improvement" : summary.score >= 0.5 ? "observation" : "regression",
+          statement: `Best generation score reached ${summary.score.toFixed(2)}`,
+          evidence: ["run trajectory"],
+        });
+      }
+    }
+
+    if (type === "mission") {
+      const mission = (artifact.mission as Record<string, unknown> | undefined) ?? artifact;
+      const name = String(mission.name ?? mission.id ?? "mission");
+      const status = String(mission.status ?? artifact.status ?? "unknown");
+      findings.push({
+        kind: status === "completed" ? "conclusion" : status === "failed" || status === "verifier_failed" ? "warning" : "observation",
+        statement: `Mission '${name}' is ${status}`,
+        evidence: ["mission status"],
+      });
+      const latestVerification = artifact.latestVerification as Record<string, unknown> | undefined;
+      if (latestVerification?.reason) {
+        findings.push({
+          kind: latestVerification.passed === true ? "driver" : "warning",
+          statement: String(latestVerification.reason),
+          evidence: ["latest verification"],
+        });
+      }
+    }
+
     if (findings.length === 0) {
       findings.push({
         kind: "observation",
@@ -306,6 +480,26 @@ export class AnalysisEngine {
         }
       }
     }
+    if (type === "run") {
+      const summary = artifact.summary as Record<string, unknown> | undefined;
+      const dims = summary?.dimensionScores as Record<string, number> | undefined;
+      if (dims) {
+        for (const [dim, val] of Object.entries(dims)) {
+          if (val < 0.4) regressions.push(`${dim}: ${val.toFixed(2)} (below threshold)`);
+        }
+      }
+    }
+    if (type === "mission") {
+      const mission = (artifact.mission as Record<string, unknown> | undefined) ?? artifact;
+      const status = String(mission.status ?? artifact.status ?? "unknown");
+      if (["failed", "verifier_failed", "blocked", "budget_exhausted", "canceled"].includes(status)) {
+        regressions.push(`Mission status is ${status}`);
+      }
+      const latestVerification = artifact.latestVerification as Record<string, unknown> | undefined;
+      if (latestVerification?.passed === false && typeof latestVerification.reason === "string") {
+        regressions.push(String(latestVerification.reason));
+      }
+    }
     return regressions;
   }
 
@@ -325,6 +519,22 @@ export class AnalysisEngine {
         confidence: Number(conclusion?.confidence ?? 0.5),
       };
     }
+    if (type === "run") {
+      const summary = artifact.summary as Record<string, unknown> | undefined;
+      const score = Number(summary?.score ?? 0);
+      return {
+        headline: `Run '${artifact.run_id ?? "unknown"}' for scenario '${artifact.scenario ?? "unknown"}' reached ${score.toFixed(2)}`,
+        confidence: Math.min(1, Math.max(0.2, score)),
+      };
+    }
+    if (type === "mission") {
+      const mission = (artifact.mission as Record<string, unknown> | undefined) ?? artifact;
+      const status = String(mission.status ?? artifact.status ?? "unknown");
+      return {
+        headline: `Mission '${mission.name ?? mission.id ?? "unknown"}' is ${status}`,
+        confidence: status === "completed" ? 0.9 : status === "active" || status === "paused" ? 0.6 : 0.7,
+      };
+    }
     return {
       headline: `${type} artifact analyzed — ${findings.length} finding(s)`,
       confidence: 0.5,
@@ -342,6 +552,18 @@ export class AnalysisEngine {
       limitations.push("Analysis based on generated investigation scenario");
       const lims = (artifact.conclusion as Record<string, unknown> | undefined)?.limitations as string[] | undefined;
       if (lims) limitations.push(...lims);
+    }
+    if (type === "run") {
+      limitations.push("Analysis based on stored run trajectory and session report");
+      if (!artifact.sessionReport) {
+        limitations.push("No session report was available for this run");
+      }
+    }
+    if (type === "mission") {
+      limitations.push("Analysis based on mission state and latest checkpoint");
+      if (!(artifact.latestCheckpoint as Record<string, unknown> | undefined)) {
+        limitations.push("No mission checkpoint was available");
+      }
     }
     limitations.push("Heuristic attribution — not causal proof");
     return limitations;
@@ -468,5 +690,13 @@ export class AnalysisEngine {
       return dims as Record<string, number>;
     }
     return {};
+  }
+
+  private extractSessionReportSummary(report: string): string {
+    const lines = report
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    return lines.slice(0, 2).join(" ").trim() || "Session report available";
   }
 }

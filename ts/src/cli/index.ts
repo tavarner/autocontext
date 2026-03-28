@@ -2624,7 +2624,11 @@ Examples:
   const { resolve } = await import("node:path");
 
   const settings = loadSettings();
-  const engine = new AnalysisEngine(resolve(settings.knowledgeRoot));
+  const engine = new AnalysisEngine({
+    knowledgeRoot: resolve(settings.knowledgeRoot),
+    runsRoot: resolve(settings.runsRoot),
+    dbPath: resolve(settings.dbPath),
+  });
   const type = (values.type ?? "simulation") as "run" | "simulation" | "investigation" | "mission";
 
   let result;
