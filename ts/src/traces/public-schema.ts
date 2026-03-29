@@ -232,7 +232,7 @@ export function exportToPublicTrace(
   ]);
 
   for (const event of trace.events) {
-    const actorRole = event.actor.actorId;
+    const actorRole = event.actor.actorName || event.actor.actorId;
     let role: TraceMessage["role"];
 
     if (SYSTEM_EVENTS.has(event.eventType)) {

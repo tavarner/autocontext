@@ -6,8 +6,12 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { SensitiveDataDetector, applyRedactionPolicy } from "../src/traces/redaction.js";
 import { PublicTraceSchema, exportToPublicTrace, SCHEMA_VERSION } from "../src/traces/public-schema.js";
+import { TraceExportWorkflow } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // 1. Expanded redaction patterns
@@ -144,6 +148,21 @@ describe("exportToPublicTrace: explicit role mapping (AC-468 fix 3)", () => {
     expect(result.messages[0].metadata?.internalRole).toBe("analyst");
   });
 
+  it("maps assistant roles from actorName when actorId is an opaque runtime id", async () => {
+    const { RunTrace, TraceEvent, ActorRef } = await import("../src/analytics/run-trace.js");
+    const trace = new RunTrace("run_3b", "grid_ctf");
+    trace.addEvent(new TraceEvent({
+      eventType: "analysis_ready",
+      actor: new ActorRef("agent", "agent_123", "analyst"),
+      payload: { output: "analysis" },
+    }));
+
+    const result = exportToPublicTrace(trace, { sourceHarness: "autocontext" });
+
+    expect(result.messages[0].role).toBe("assistant");
+    expect(result.messages[0].metadata?.internalRole).toBe("analyst");
+  });
+
   it("maps tournament events to system", async () => {
     const { RunTrace, TraceEvent, ActorRef } = await import("../src/analytics/run-trace.js");
     const trace = new RunTrace("run_4", "grid_ctf");
@@ -161,7 +180,43 @@ describe("exportToPublicTrace: explicit role mapping (AC-468 fix 3)", () => {
 // 4. Export workflow warnings (tested via export-workflow if present)
 // ---------------------------------------------------------------------------
 
-// Covered by updating export-workflow.ts to add warnings field
+describe("TraceExportWorkflow warnings (AC-468 fix 4)", () => {
+  it("reports unreadable artifacts instead of silently skipping them", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ac-468-warnings-"));
+    try {
+      const runDir = join(root, "runs", "run_warn");
+      const genDir = join(runDir, "generations", "gen_1");
+      mkdirSync(genDir, { recursive: true });
+
+      writeFileSync(join(runDir, "run_meta.json"), "{not valid json", "utf-8");
+      mkdirSync(join(genDir, "competitor_output.md"));
+      writeFileSync(join(genDir, "analyst.md"), "usable analysis", "utf-8");
+
+      const workflow = new TraceExportWorkflow({
+        runsRoot: join(root, "runs"),
+        outputDir: join(root, "exports"),
+      });
+
+      const result = await workflow.export({
+        runId: "run_warn",
+        scenario: "grid_ctf",
+        submitterId: "user_test",
+        license: "CC-BY-4.0",
+        consentGiven: true,
+        dataOrigin: "own_work",
+        allowRedistribution: true,
+        allowTraining: true,
+      });
+
+      expect(result.status).toBe("completed");
+      expect(result.warnings.length).toBeGreaterThanOrEqual(2);
+      expect(result.warnings.some((warning) => warning.includes("run_meta.json"))).toBe(true);
+      expect(result.warnings.some((warning) => warning.includes("competitor_output.md"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 5. HF format fix — covered in publishers.test.ts update
