@@ -243,6 +243,18 @@ export type {
   ExportResult as TraceExportResult,
   TraceExportWorkflowOpts,
 } from "./traces/export-workflow.js";
+export {
+  LocalPublisher,
+  GistPublisher,
+  HuggingFacePublisher,
+  TraceIngester,
+} from "./traces/publishers.js";
+export type {
+  TraceArtifact,
+  PublishResult,
+  PublishOpts,
+  IngestResult,
+} from "./traces/publishers.js";
 
 // MCP
 export { createMcpServer, startServer } from "./mcp/server.js";
