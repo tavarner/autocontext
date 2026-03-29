@@ -272,6 +272,14 @@ export type {
   AdaptedDataset,
   DiscoveryManifest,
 } from "./traces/dataset-discovery.js";
+export { DistillationPipeline } from "./traces/distillation-pipeline.js";
+export type {
+  FailurePolicy,
+  DistillationPolicy,
+  DistillationManifest,
+  DistillationResult,
+  DistillationPipelineConfig,
+} from "./traces/distillation-pipeline.js";
 
 // MCP
 export { createMcpServer, startServer } from "./mcp/server.js";
