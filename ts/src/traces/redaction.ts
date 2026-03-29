@@ -69,6 +69,10 @@ interface PatternDef {
   confidence: number;
 }
 
+interface ScanOptions {
+  dedup?: boolean;
+}
+
 const BUILTIN_PATTERNS: PatternDef[] = [
   // API keys
   { pattern: /sk-ant-[a-zA-Z0-9_-]{10,}/g, category: "api_key", label: "Anthropic API key", confidence: 0.95 },
@@ -116,14 +120,19 @@ export class SensitiveDataDetector {
     }
   }
 
-  scan(text: string): Detection[] {
+  scan(text: string, opts?: ScanOptions): Detection[] {
     const detections: Detection[] = [];
 
     for (const def of this.patterns) {
-      // Reset regex state for global patterns
-      const regex = new RegExp(def.pattern.source, def.pattern.flags);
+      // Normalize custom patterns so non-global regexes cannot hang exec() loops.
+      const flags = def.pattern.flags.replace(/y/g, "");
+      const regex = new RegExp(def.pattern.source, flags.includes("g") ? flags : `${flags}g`);
       let match: RegExpExecArray | null;
       while ((match = regex.exec(text)) !== null) {
+        if (match[0].length === 0) {
+          regex.lastIndex += 1;
+          continue;
+        }
         detections.push({
           category: def.category,
           matched: match[0],
@@ -135,25 +144,27 @@ export class SensitiveDataDetector {
       }
     }
 
-    // Deduplicate overlapping detections (keep highest confidence)
-    return this.dedup(detections);
+    return opts?.dedup === false ? detections : this.dedup(detections);
   }
 
   private dedup(detections: Detection[]): Detection[] {
     if (detections.length <= 1) return detections;
 
-    // Sort by start position, then by confidence descending
-    detections.sort((a, b) => a.start - b.start || b.confidence - a.confidence);
+    const sorted = [...detections].sort((a, b) => {
+      const confidenceDelta = b.confidence - a.confidence;
+      if (confidenceDelta !== 0) return confidenceDelta;
+      const widthDelta = (a.end - a.start) - (b.end - b.start);
+      if (widthDelta !== 0) return widthDelta;
+      return a.start - b.start;
+    });
 
     const result: Detection[] = [];
-    let lastEnd = -1;
-    for (const d of detections) {
-      if (d.start >= lastEnd) {
+    for (const d of sorted) {
+      if (!result.some((existing) => overlaps(existing, d))) {
         result.push(d);
-        lastEnd = d.end;
       }
     }
-    return result;
+    return result.sort((a, b) => a.start - b.start || b.confidence - a.confidence);
   }
 }
 
@@ -183,6 +194,48 @@ export class RedactionPolicy {
   }
 }
 
+function overlaps(left: Detection, right: Detection): boolean {
+  return left.start < right.end && right.start < left.end;
+}
+
+function actionPriority(action: PolicyAction): number {
+  switch (action) {
+    case "block":
+      return 3;
+    case "require-manual-approval":
+      return 2;
+    case "redact":
+      return 1;
+    case "warn":
+    default:
+      return 0;
+  }
+}
+
+function resolvePolicyOverlaps(detections: Detection[], policy: RedactionPolicy): Detection[] {
+  if (detections.length <= 1) return detections;
+
+  const sorted = [...detections].sort((a, b) => {
+    const priorityDelta =
+      actionPriority(policy.actionFor(b.category)) - actionPriority(policy.actionFor(a.category));
+    if (priorityDelta !== 0) return priorityDelta;
+    const confidenceDelta = b.confidence - a.confidence;
+    if (confidenceDelta !== 0) return confidenceDelta;
+    const widthDelta = (a.end - a.start) - (b.end - b.start);
+    if (widthDelta !== 0) return widthDelta;
+    return a.start - b.start;
+  });
+
+  const result: Detection[] = [];
+  for (const detection of sorted) {
+    if (!result.some((existing) => overlaps(existing, detection))) {
+      result.push(detection);
+    }
+  }
+
+  return result.sort((a, b) => a.start - b.start || b.confidence - a.confidence);
+}
+
 // ---------------------------------------------------------------------------
 // Apply pipeline
 // ---------------------------------------------------------------------------
@@ -194,7 +247,7 @@ export function applyRedactionPolicy(
   const detector = opts?.detector ?? new SensitiveDataDetector();
   const policy = opts?.policy ?? new RedactionPolicy();
 
-  const detections = detector.scan(text);
+  const detections = resolvePolicyOverlaps(detector.scan(text, { dedup: false }), policy);
   const redactions: Redaction[] = [];
   const blockReasons: string[] = [];
   let requiresManualReview = false;

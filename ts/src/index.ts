@@ -226,6 +226,17 @@ export type {
   ValidationResult as PublicTraceValidationResult,
 } from "./traces/public-schema.js";
 
+// Trace redaction
+export { SensitiveDataDetector, RedactionPolicy, applyRedactionPolicy } from "./traces/redaction.js";
+export type {
+  DetectionCategory,
+  PolicyAction,
+  Detection,
+  Redaction,
+  RedactionResult,
+  CustomPattern,
+} from "./traces/redaction.js";
+
 // MCP
 export { createMcpServer, startServer } from "./mcp/server.js";
 export type { MtsServerOpts } from "./mcp/server.js";

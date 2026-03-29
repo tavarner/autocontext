@@ -16,6 +16,7 @@ import {
   type PolicyAction,
   type RedactionResult,
 } from "../src/traces/redaction.js";
+import * as pkg from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // Detector — secrets
@@ -116,6 +117,17 @@ describe("SensitiveDataDetector — custom patterns", () => {
     const findings = detector.scan(text);
     expect(findings.some((f) => f.category === "internal_id")).toBe(true);
   });
+
+  it("normalizes non-global custom patterns instead of hanging", () => {
+    const detector = new SensitiveDataDetector({
+      customPatterns: [
+        { pattern: /PROJ-\d{4,}/, category: "internal_id", label: "Project ID" },
+      ],
+    });
+    const text = "PROJ-12345 and PROJ-67890";
+    const findings = detector.scan(text);
+    expect(findings.filter((f) => f.category === "internal_id")).toHaveLength(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -183,6 +195,16 @@ describe("applyRedactionPolicy", () => {
     expect(result.blockReasons.length).toBeGreaterThan(0);
   });
 
+  it("preserves the strongest overlap when policy actions differ", () => {
+    const text = "API_KEY=sk-ant-api03-abc123def456ghi789";
+    const result = applyRedactionPolicy(text, {
+      policy: new RedactionPolicy({ overrides: { api_key: "block", credential: "warn" } }),
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result.detections.some((d) => d.category === "api_key")).toBe(true);
+  });
+
   it("returns clean result for innocuous text", () => {
     const text = "A simple function that adds numbers.";
     const result = applyRedactionPolicy(text);
@@ -235,5 +257,13 @@ describe("RedactionResult shape", () => {
     expect(Array.isArray(result.detections)).toBe(true);
     expect(Array.isArray(result.redactions)).toBe(true);
     expect(typeof result.blocked).toBe("boolean");
+  });
+});
+
+describe("package entrypoint exports", () => {
+  it("exposes the redaction pipeline through src/index", () => {
+    expect(pkg.SensitiveDataDetector).toBeDefined();
+    expect(pkg.RedactionPolicy).toBeDefined();
+    expect(pkg.applyRedactionPolicy).toBeDefined();
   });
 });
