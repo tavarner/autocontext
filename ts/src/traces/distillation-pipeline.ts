@@ -43,6 +43,7 @@ export interface DistillationManifest {
   trainSize: number;
   heldOutSize: number;
   evalOnlySize: number;
+  contrastiveSize: number;
   curationPolicy: DistillationPolicy;
   sources: Record<string, number>;
   createdAt: string;
@@ -56,11 +57,12 @@ export interface DistillationResult {
   trainSize: number;
   heldOutSize: number;
   evalOnlyTraces: number;
+  contrastiveTraces: number;
   outputDir: string;
   error?: string;
 }
 
-interface DistillationPipelineConfig {
+export interface DistillationPipelineConfig {
   traceDir: string;
   outputDir: string;
   policy?: DistillationPolicy;
@@ -70,7 +72,7 @@ interface DistillationPipelineConfig {
 // ShareGPT conversion
 // ---------------------------------------------------------------------------
 
-function toShareGPT(trace: PublicTrace): Record<string, unknown> {
+function toShareGPT(trace: PublicTrace, extraMetadata?: Record<string, unknown>): Record<string, unknown> {
   const roleMap: Record<string, string> = {
     user: "human", assistant: "gpt", system: "system", tool: "tool",
   };
@@ -83,6 +85,7 @@ function toShareGPT(trace: PublicTrace): Record<string, unknown> {
       traceId: trace.traceId,
       sourceHarness: trace.sourceHarness,
       score: (trace.outcome as Record<string, unknown> | undefined)?.score,
+      ...extraMetadata,
     },
   };
 }
@@ -111,7 +114,7 @@ export class DistillationPipeline {
   build(): DistillationResult {
     try {
       const entries = this.loadEntries();
-      const { included, excluded, evalOnly } = this.applyPolicy(entries);
+      const { included, excluded, evalOnly, contrastive } = this.applyPolicy(entries);
       const { train, heldOut } = this.splitHeldOut(included);
 
       if (!existsSync(this.config.outputDir)) mkdirSync(this.config.outputDir, { recursive: true });
@@ -129,6 +132,13 @@ export class DistillationPipeline {
         this.writeJSONL(join(this.config.outputDir, "eval_only.jsonl"), evalOnly);
       }
 
+      // Write contrastive.jsonl
+      if (contrastive.length > 0) {
+        this.writeJSONL(join(this.config.outputDir, "contrastive.jsonl"), contrastive, {
+          examplePolicy: "contrastive",
+        });
+      }
+
       // Write manifest
       const sources: Record<string, number> = {};
       for (const e of included) {
@@ -143,6 +153,7 @@ export class DistillationPipeline {
         trainSize: train.length,
         heldOutSize: heldOut.length,
         evalOnlySize: evalOnly.length,
+        contrastiveSize: contrastive.length,
         curationPolicy: this.config.policy ?? {},
         sources,
         createdAt: new Date().toISOString(),
@@ -157,13 +168,14 @@ export class DistillationPipeline {
         trainSize: train.length,
         heldOutSize: heldOut.length,
         evalOnlyTraces: evalOnly.length,
+        contrastiveTraces: contrastive.length,
         outputDir: this.config.outputDir,
       };
     } catch (err) {
       return {
         status: "failed",
         totalTraces: 0, includedTraces: 0, excludedTraces: 0,
-        trainSize: 0, heldOutSize: 0, evalOnlyTraces: 0,
+        trainSize: 0, heldOutSize: 0, evalOnlyTraces: 0, contrastiveTraces: 0,
         outputDir: this.config.outputDir,
         error: err instanceof Error ? err.message : String(err),
       };
@@ -178,6 +190,7 @@ export class DistillationPipeline {
     included: TraceEntry[];
     excluded: TraceEntry[];
     evalOnly: TraceEntry[];
+    contrastive: TraceEntry[];
   } {
     let candidates = entries;
 
@@ -211,6 +224,7 @@ export class DistillationPipeline {
     const included: TraceEntry[] = [];
     const excluded: TraceEntry[] = [];
     const evalOnly: TraceEntry[] = [];
+    const contrastive: TraceEntry[] = [];
 
     for (const e of candidates) {
       const score = (e.trace.outcome as Record<string, unknown> | undefined)?.score as number | undefined;
@@ -220,6 +234,8 @@ export class DistillationPipeline {
         included.push(e);
       } else if (this.policy.failurePolicy === "eval_only") {
         evalOnly.push(e);
+      } else if (this.policy.failurePolicy === "contrastive") {
+        contrastive.push(e);
       } else {
         excluded.push(e);
       }
@@ -228,7 +244,7 @@ export class DistillationPipeline {
     // Also track entries removed by consent/gate/family as excluded
     const allExcluded = [...excluded, ...entries.filter((e) => !candidates.includes(e))];
 
-    return { included, excluded: allExcluded, evalOnly };
+    return { included, excluded: allExcluded, evalOnly, contrastive };
   }
 
   private computeTopQuartileThreshold(entries: TraceEntry[]): number {
@@ -277,10 +293,14 @@ export class DistillationPipeline {
     return entries;
   }
 
-  private writeJSONL(path: string, entries: TraceEntry[]): void {
+  private writeJSONL(
+    path: string,
+    entries: TraceEntry[],
+    extraMetadata?: Record<string, unknown>,
+  ): void {
     writeFileSync(path, "", "utf-8");
     for (const e of entries) {
-      appendFileSync(path, JSON.stringify(toShareGPT(e.trace)) + "\n", "utf-8");
+      appendFileSync(path, JSON.stringify(toShareGPT(e.trace, extraMetadata)) + "\n", "utf-8");
     }
   }
 }

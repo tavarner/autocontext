@@ -11,11 +11,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   DistillationPipeline,
-  type DistillationPolicy,
   type DistillationManifest,
   type DistillationResult,
-} from "../src/traces/distillation-pipeline.js";
+} from "../src/index.js";
 import { SCHEMA_VERSION } from "../src/traces/public-schema.js";
+import * as pkg from "../src/index.js";
 
 let tmpDir: string;
 
@@ -178,6 +178,31 @@ describe("failure-example policy", () => {
     expect(result.includedTraces).toBe(1);
     expect(result.evalOnlyTraces).toBe(1);
   });
+
+  it("preserves failures in a dedicated contrastive split when failurePolicy is contrastive", () => {
+    const traceDir = join(tmpDir, "traces");
+    seedTraces(traceDir, [
+      { id: "t1", score: 0.9 },
+      { id: "t2", score: 0.2 },
+    ]);
+
+    const pipeline = new DistillationPipeline({
+      traceDir,
+      outputDir: join(tmpDir, "out"),
+      policy: { minScore: 0.5, failurePolicy: "contrastive" },
+    });
+    const result = pipeline.build();
+
+    expect(result.includedTraces).toBe(1);
+    expect(result.excludedTraces).toBe(0);
+    expect(result.contrastiveTraces).toBe(1);
+    expect(existsSync(join(tmpDir, "out", "contrastive.jsonl"))).toBe(true);
+
+    const lines = readFileSync(join(tmpDir, "out", "contrastive.jsonl"), "utf-8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]) as { metadata?: Record<string, unknown> };
+    expect(record.metadata?.examplePolicy).toBe("contrastive");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -200,6 +225,7 @@ describe("distillation manifest", () => {
     expect(manifest.curationPolicy.minScore).toBe(0.7);
     expect(manifest.curationPolicy.advanceOnly).toBe(true);
     expect(manifest.curationPolicy.heldOutRatio).toBe(0.1);
+    expect(manifest.contrastiveSize).toBe(0);
   });
 
   it("records source provenance per trace", () => {
@@ -242,6 +268,13 @@ describe("DistillationResult shape", () => {
     expect(result).toHaveProperty("trainSize");
     expect(result).toHaveProperty("heldOutSize");
     expect(result).toHaveProperty("evalOnlyTraces");
+    expect(result).toHaveProperty("contrastiveTraces");
     expect(result).toHaveProperty("outputDir");
+  });
+});
+
+describe("package entrypoint exports", () => {
+  it("exposes the distillation pipeline through src/index", () => {
+    expect(pkg.DistillationPipeline).toBe(DistillationPipeline);
   });
 });
