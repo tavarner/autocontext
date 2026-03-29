@@ -13,7 +13,14 @@
  * with provenance intact.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { PublicTrace, ProvenanceManifest, SubmissionAttestation } from "./public-schema.js";
 
@@ -181,6 +188,15 @@ function toShareGPT(trace: PublicTrace): Record<string, unknown> {
   };
 }
 
+function toPublishedDatasetRow(artifact: TraceArtifact): Record<string, unknown> {
+  return {
+    ...toShareGPT(artifact.trace),
+    provenance: artifact.manifest,
+    attestation: artifact.attestation,
+    redactionSummary: artifact.redactionSummary,
+  };
+}
+
 export class HuggingFacePublisher {
   private token: string;
   private repoId: string;
@@ -191,8 +207,8 @@ export class HuggingFacePublisher {
   }
 
   async publish(artifact: TraceArtifact, opts?: PublishOpts): Promise<PublishResult> {
-    const shareGPT = toShareGPT(artifact.trace);
-    const content = JSON.stringify(shareGPT);
+    const datasetRow = toPublishedDatasetRow(artifact);
+    const content = JSON.stringify(datasetRow);
     const filename = `${artifact.trace.traceId}.jsonl`;
 
     const payload = {
@@ -309,7 +325,7 @@ export class TraceIngester {
   private loadSeenIds(): void {
     if (!existsSync(this.cacheDir)) return;
     try {
-      const files = require("node:fs").readdirSync(this.cacheDir) as string[];
+      const files = readdirSync(this.cacheDir) as string[];
       for (const f of files) {
         if (f.endsWith(".json")) {
           this.seenIds.add(f.replace(".json", ""));

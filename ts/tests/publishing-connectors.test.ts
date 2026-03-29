@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -15,10 +15,10 @@ import {
   HuggingFacePublisher,
   TraceIngester,
   type PublishResult,
-  type IngestResult,
   type TraceArtifact,
-} from "../src/traces/publishers.js";
+} from "../src/index.js";
 import { SCHEMA_VERSION } from "../src/traces/public-schema.js";
+import * as pkg from "../src/index.js";
 
 let tmpDir: string;
 
@@ -144,6 +144,18 @@ describe("HuggingFacePublisher", () => {
     expect(parsed.conversations[0]).toHaveProperty("from");
     expect(parsed.conversations[0]).toHaveProperty("value");
   });
+
+  it("preserves provenance and attestation in uploaded dataset rows", async () => {
+    const publisher = new HuggingFacePublisher({ token: "test_token", repoId: "user/traces" });
+    const result = await publisher.publish(sampleArtifact(), { dryRun: true });
+
+    const content = result.payload!.content as string;
+    const parsed = JSON.parse(content);
+    expect(parsed.provenance.license).toBe("CC-BY-4.0");
+    expect(parsed.provenance.sourceHarness).toBe("autocontext");
+    expect(parsed.attestation.submitterId).toBe("user_test");
+    expect(parsed.attestation.allowRedistribution).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -194,6 +206,21 @@ describe("TraceIngester", () => {
     expect(r2.tracesIngested).toBe(0); // deduplicated
     expect(r2.duplicatesSkipped).toBe(1);
   });
+
+  it("reloads seen ids from disk across ingester restarts", async () => {
+    const publisher = new LocalPublisher(join(tmpDir, "published"));
+    await publisher.publish(sampleArtifact());
+
+    const firstIngester = new TraceIngester(join(tmpDir, "cache"));
+    const first = await firstIngester.ingestFromFile(join(tmpDir, "published", "traces.jsonl"));
+
+    const restartedIngester = new TraceIngester(join(tmpDir, "cache"));
+    const second = await restartedIngester.ingestFromFile(join(tmpDir, "published", "traces.jsonl"));
+
+    expect(first.tracesIngested).toBe(1);
+    expect(second.tracesIngested).toBe(0);
+    expect(second.duplicatesSkipped).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -208,5 +235,14 @@ describe("PublishResult shape", () => {
     expect(result).toHaveProperty("status");
     expect(result).toHaveProperty("location");
     expect(result).toHaveProperty("host");
+  });
+});
+
+describe("Package entrypoint", () => {
+  it("exports publishing connectors through the public package surface", () => {
+    expect(pkg.LocalPublisher).toBe(LocalPublisher);
+    expect(pkg.GistPublisher).toBe(GistPublisher);
+    expect(pkg.HuggingFacePublisher).toBe(HuggingFacePublisher);
+    expect(pkg.TraceIngester).toBe(TraceIngester);
   });
 });
