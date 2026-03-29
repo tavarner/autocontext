@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Session notebook context now flows into runtime prompts and cockpit views for active runs.
 - World-state abstractions now support stateful scenario families and workflow-style scenarios.
 - Base model selection and adapter strategy: maps scenario families to training modes (from-scratch, LoRA, full fine-tune) with explicit recommendations (AC-459).
+- Training backend abstraction with CUDA and MLX: backend registry, training runner, artifact publishing with backend metadata (AC-460).
 - Curated distillation dataset pipeline: gate filtering, top-quartile, family filtering, failure-example policy, rich manifest (AC-458).
 - Repo-local dataset discovery and schema adaptation: scan repo trees, convert JSONL/JSON/CSV to ShareGPT training format with provenance (AC-461).
 - Trace pipeline audit fixes: expanded redaction patterns, ISO 8601 timestamps, explicit role mapping, export warnings, HF format fix (AC-468).
