@@ -47,7 +47,7 @@ Commands:
   queue            Add a task to the background runner queue
   status           Show queue status
   serve            Start HTTP API server [--json]
-  train            Train a distilled model from curated dataset
+  train            Train a distilled model from curated dataset (requires configured executor)
   simulate         Run a plain-language simulation with sweeps and analysis
   investigate      Run a plain-language investigation with evidence and hypotheses
   analyze          Analyze and compare runs, simulations, investigations, and missions
@@ -55,7 +55,7 @@ Commands:
   version          Show version
 
 Python-only commands (not supported in npm package):
-  train, ecosystem, ab-test, resume, wait, trigger-distillation
+  ecosystem, ab-test, resume, wait, trigger-distillation
 
 Run \`autoctx <command> --help\` for command-specific options.
 
@@ -2841,7 +2841,11 @@ Options:
   --base-model <id>        Base model for adapter/full fine-tune
   -o, --output <dir>       Output directory
   --json                   Output as JSON
-  -h, --help               Show this help`);
+  -h, --help               Show this help
+
+Notes:
+  The TypeScript package requires an injected training executor for real MLX/CUDA training.
+  For end-to-end local training, prefer the Python package's \`autoctx train\` command.`);
     process.exit(0);
   }
 
@@ -2856,6 +2860,13 @@ Options:
   const settings = loadSettings();
 
   const runner = new TrainingRunner();
+  if (runner.usesSyntheticExecutor()) {
+    console.error(
+      "Training failed: no real training executor is configured in the TypeScript package. "
+      + "Use the Python package's 'autoctx train' command or inject a TrainingRunner executor via the package API.",
+    );
+    process.exit(1);
+  }
   const result = await runner.train({
     scenario: values.scenario,
     family: values.family ?? "agent_task",

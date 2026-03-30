@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { TrainingMode } from "./model-strategy.js";
+import { ModelStrategySelector, type TrainingMode } from "./model-strategy.js";
 
 // ---------------------------------------------------------------------------
 // Backend interface
@@ -214,6 +214,10 @@ export class TrainingRunner {
     this.executor = opts?.executor ?? defaultExecutor;
   }
 
+  usesSyntheticExecutor(): boolean {
+    return this.executor === defaultExecutor;
+  }
+
   async train(config: TrainingConfig): Promise<TrainingResult> {
     const start = performance.now();
 
@@ -256,6 +260,41 @@ export class TrainingRunner {
         heldOutSize = heldOutContent.trim().split("\n").filter(Boolean).length;
       }
 
+      const selector = new ModelStrategySelector();
+      const strategy = selector.select({
+        family: config.family,
+        datasetSize,
+        trainingModeOverride: config.trainingMode,
+        baseModelOverride: config.baseModel,
+      });
+      const resolvedConfig: TrainingConfig = {
+        ...config,
+        trainingMode: strategy.trainingMode,
+        baseModel: strategy.baseModel,
+        adapterType: config.adapterType ?? strategy.adapterType,
+      };
+
+      if (resolvedConfig.trainingMode !== "from_scratch" && !resolvedConfig.baseModel) {
+        return {
+          status: "failed",
+          backend: config.backend,
+          durationMs: performance.now() - start,
+          error: `Training mode '${resolvedConfig.trainingMode}' requires a base model`,
+        };
+      }
+
+      if (resolvedConfig.baseModel) {
+        const validation = selector.validateBaseModel(resolvedConfig.baseModel, config.backend);
+        if (!validation.valid) {
+          return {
+            status: "failed",
+            backend: config.backend,
+            durationMs: performance.now() - start,
+            error: validation.warnings.join("; "),
+          };
+        }
+      }
+
       // Create checkpoint directory
       const checkpointDir = join(
         config.outputDir,
@@ -265,18 +304,18 @@ export class TrainingRunner {
 
       // Write training manifest
       const manifest = {
-        scenario: config.scenario,
-        family: config.family,
-        backend: config.backend,
-        trainingMode: config.trainingMode,
-        baseModel: config.baseModel ?? null,
-        adapterType: config.adapterType ?? null,
+        scenario: resolvedConfig.scenario,
+        family: resolvedConfig.family,
+        backend: resolvedConfig.backend,
+        trainingMode: resolvedConfig.trainingMode,
+        baseModel: resolvedConfig.baseModel ?? null,
+        adapterType: resolvedConfig.adapterType ?? null,
         datasetPath: config.datasetPath,
         datasetSize,
         heldOutSize,
-        maxEpochs: config.maxEpochs ?? 3,
-        batchSize: config.batchSize ?? 4,
-        learningRate: config.learningRate ?? 5e-5,
+        maxEpochs: resolvedConfig.maxEpochs ?? 3,
+        batchSize: resolvedConfig.batchSize ?? 4,
+        learningRate: resolvedConfig.learningRate ?? 5e-5,
         startedAt: new Date().toISOString(),
       };
       writeFileSync(
@@ -286,7 +325,7 @@ export class TrainingRunner {
       );
 
       // Execute training via the injected executor
-      const execResult = await this.executor(config, checkpointDir);
+      const execResult = await this.executor(resolvedConfig, checkpointDir);
       if (!execResult.success) {
         return {
           status: "failed",
@@ -303,13 +342,14 @@ export class TrainingRunner {
         scenario: config.scenario,
         family: config.family,
         backend: config.backend,
-        trainingMode: config.trainingMode,
-        baseModel: config.baseModel,
-        adapterType: config.adapterType,
+        trainingMode: resolvedConfig.trainingMode,
+        baseModel: resolvedConfig.baseModel,
+        adapterType: resolvedConfig.adapterType,
         checkpointDir,
         datasetSize,
         heldOutSize,
         trainedAt: new Date().toISOString(),
+        metrics: execResult.metrics,
       };
 
       writeFileSync(
