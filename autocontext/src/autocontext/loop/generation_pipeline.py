@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from autocontext.consultation.stage import stage_consultation
 from autocontext.execution.phased_execution import (
@@ -128,7 +128,7 @@ def _build_phase_result(
     phase_start_time: float,
     status: str,
     error: str | None = None,
-    outputs: dict[str, object] | None = None,
+    outputs: dict[str, Any] | None = None,
 ) -> PhaseResult:
     elapsed = _phase_elapsed_seconds(phase_start_time)
     remaining = max(0.0, budget.budget_seconds - elapsed)
@@ -176,7 +176,7 @@ def _finalize_phased_execution(
     ctx.phased_execution = phased_execution.to_dict()
 
 
-def _scaffolding_phase_outputs(ctx: GenerationContext) -> dict[str, object]:
+def _scaffolding_phase_outputs(ctx: GenerationContext) -> dict[str, Any]:
     return {
         "outputs_ready": ctx.outputs is not None,
         "tool_count": len(ctx.created_tools),
@@ -186,7 +186,7 @@ def _scaffolding_phase_outputs(ctx: GenerationContext) -> dict[str, object]:
     }
 
 
-def _execution_phase_outputs(ctx: GenerationContext) -> dict[str, object]:
+def _execution_phase_outputs(ctx: GenerationContext) -> dict[str, Any]:
     matches = 0
     best_score = 0.0
     if ctx.tournament is not None:
@@ -203,7 +203,7 @@ def _execution_phase_outputs(ctx: GenerationContext) -> dict[str, object]:
 def _build_cost_control_metadata(
     ctx: GenerationContext,
     meta_optimizer: MetaOptimizer | None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     if meta_optimizer is None:
         return {}
     summary = meta_optimizer.cost_summary()

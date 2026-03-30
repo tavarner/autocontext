@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 import uvicorn
@@ -59,7 +59,7 @@ class SolveRunSummary:
     generations: int
     progress: int
     output_path: str | None
-    result: dict[str, object] | None
+    result: dict[str, Any] | None
 
 app = typer.Typer(help="autocontext control-plane CLI", invoke_without_command=True)
 console = Console()
@@ -945,7 +945,7 @@ def new_scenario(
         raise typer.Exit(code=1) from None
 
     # Build overrides
-    overrides: dict[str, object] = {}
+    overrides: dict[str, Any] = {}
     if judge_model is not None:
         overrides["judge_model"] = judge_model
 
@@ -1063,7 +1063,7 @@ def simulate(
         raise typer.Exit(code=1)
 
     # Parse variables
-    parsed_vars: dict[str, object] = {}
+    parsed_vars: dict[str, Any] = {}
     if variables:
         for pair in variables.split(","):
             parts = pair.split("=", 1)
@@ -1075,7 +1075,7 @@ def simulate(
                     parsed_vars[key] = val
 
     # Parse sweep
-    parsed_sweep: list[dict[str, object]] | None = None
+    parsed_sweep: list[dict[str, Any]] | None = None
     if sweep:
         parsed_sweep = []
         for pair in sweep.split(","):

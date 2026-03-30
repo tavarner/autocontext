@@ -210,7 +210,7 @@ def read_package_metadata(artifacts: ArtifactStore, scenario_name: str) -> dict[
 
 
 def _write_package_metadata(artifacts: ArtifactStore, package: StrategyPackage) -> None:
-    payload: dict[str, object] = {
+    payload: dict[str, Any] = {
         "format_version": package.format_version,
         "best_strategy": cast(object, package.best_strategy),
         "best_score": package.best_score,

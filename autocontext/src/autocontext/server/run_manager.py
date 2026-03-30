@@ -4,6 +4,7 @@ import logging
 import threading
 import uuid
 from pathlib import Path
+from typing import Any
 
 from autocontext.config import AppSettings, load_settings
 from autocontext.loop.controller import LoopController
@@ -32,7 +33,7 @@ class RunManager:
     def list_scenarios(self) -> list[str]:
         return sorted(SCENARIO_REGISTRY.keys())
 
-    def get_environment_info(self) -> dict[str, object]:
+    def get_environment_info(self) -> dict[str, Any]:
         """Return environment metadata for TUI display."""
         scenarios: list[dict[str, str]] = []
         for name in sorted(SCENARIO_REGISTRY.keys()):
@@ -44,7 +45,7 @@ class RunManager:
             })
 
         pi_configured = bool(self.settings.primeintellect_api_key)
-        executors: list[dict[str, object]] = [
+        executors: list[dict[str, Any]] = [
             {
                 "mode": "local",
                 "available": True,

@@ -15,7 +15,7 @@ import queue
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class BufferedWriter:
             return
         self._queue.put(item)
 
-    def write_json(self, path: Path, payload: dict[str, object]) -> None:
+    def write_json(self, path: Path, payload: dict[str, Any]) -> None:
         """Queue a JSON write."""
         content = json.dumps(payload, indent=2, sort_keys=True)
         self.write_text(path, content)

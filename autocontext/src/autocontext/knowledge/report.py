@@ -25,7 +25,7 @@ class SessionReport:
     scoring_backend: str = "elo"
     end_rating_uncertainty: float | None = None
     gate_counts: dict[str, int] = field(default_factory=dict)
-    top_improvements: list[dict[str, object]] = field(default_factory=list)
+    top_improvements: list[dict[str, Any]] = field(default_factory=list)
     dead_ends_found: int = 0
     exploration_mode: str = "linear"
     stale_lessons_count: int = 0
@@ -90,7 +90,7 @@ class SessionReport:
 def generate_session_report(
     run_id: str,
     scenario: str,
-    trajectory_rows: list[dict[str, object]],
+    trajectory_rows: list[dict[str, Any]],
     exploration_mode: str = "linear",
     duration_seconds: float = 0.0,
     dead_ends_found: int = 0,
@@ -125,7 +125,7 @@ def generate_session_report(
         gate_counts[decision] = gate_counts.get(decision, 0) + 1
 
     # Find top improvements (positive deltas, sorted descending)
-    improvements: list[dict[str, object]] = []
+    improvements: list[dict[str, Any]] = []
     for row in trajectory_rows:
         delta = _to_float(row.get("delta", 0))
         if delta > 0:

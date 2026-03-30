@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -72,7 +72,7 @@ class CapabilityAdvertisement(BaseModel):
 
     version: str
     runtime_health: RuntimeHealth
-    concept_model: dict[str, object] = Field(default_factory=dict)
+    concept_model: dict[str, Any] = Field(default_factory=dict)
     scenario_capabilities: dict[str, ScenarioCapabilities] = Field(default_factory=dict)
     artifact_counts: dict[str, int] = Field(default_factory=dict)
 

@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from autocontext.concepts import get_concept_model
 from autocontext.config import AppSettings
@@ -63,8 +63,8 @@ class MtsToolContext:
 
 def _resolve_objective_verification(
     ctx: MtsToolContext,
-    objective_verification: dict[str, object] | None,
-) -> dict[str, object] | None:
+    objective_verification: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     """Resolve inline or dataset-backed objective verification into live config."""
     if objective_verification is None:
         return None
@@ -107,7 +107,7 @@ def describe_scenario(name: str) -> dict[str, str]:
     }
 
 
-def validate_strategy(name: str, strategy: dict[str, object]) -> dict[str, object]:
+def validate_strategy(name: str, strategy: dict[str, Any]) -> dict[str, Any]:
     """Validate a strategy dict against scenario constraints."""
     scenario = SCENARIO_REGISTRY[name]()
     if not can_validate_actions(scenario):
@@ -117,16 +117,16 @@ def validate_strategy(name: str, strategy: dict[str, object]) -> dict[str, objec
     return {"valid": valid, "reason": reason}
 
 
-def run_match(name: str, strategy: dict[str, object], seed: int) -> dict[str, object]:
+def run_match(name: str, strategy: dict[str, Any], seed: int) -> dict[str, Any]:
     """Execute a single match, return Result as dict."""
     scenario = SCENARIO_REGISTRY[name]()
     if not can_run_match(scenario):
         return {"error": "Agent task scenarios use judge evaluation; use evaluate_output() instead"}
     result = scenario.execute_match(strategy, seed)
-    return cast(dict[str, object], result.model_dump())
+    return result.model_dump()  # type: ignore[no-any-return]
 
 
-def run_tournament(name: str, strategy: dict[str, object], matches: int, seed_base: int) -> dict[str, object]:
+def run_tournament(name: str, strategy: dict[str, Any], matches: int, seed_base: int) -> dict[str, Any]:
     """Run N matches, return aggregate stats."""
     scenario = SCENARIO_REGISTRY[name]()
     if not can_run_match(scenario):
@@ -182,7 +182,7 @@ def read_skills(ctx: MtsToolContext, scenario_name: str) -> str:
 # -- Run management --
 
 
-def list_runs(ctx: MtsToolContext) -> list[dict[str, object]]:
+def list_runs(ctx: MtsToolContext) -> list[dict[str, Any]]:
     """List recent runs from SQLite."""
     with ctx.sqlite.connect() as conn:
         rows = conn.execute(
@@ -192,12 +192,12 @@ def list_runs(ctx: MtsToolContext) -> list[dict[str, object]]:
     return [dict(row) for row in rows]
 
 
-def run_status(ctx: MtsToolContext, run_id: str) -> list[dict[str, object]]:
+def run_status(ctx: MtsToolContext, run_id: str) -> list[dict[str, Any]]:
     """Get generation-level metrics for a run."""
     return ctx.sqlite.get_generation_metrics(run_id)
 
 
-def run_replay(ctx: MtsToolContext, run_id: str, generation: int) -> dict[str, object]:
+def run_replay(ctx: MtsToolContext, run_id: str, generation: int) -> dict[str, Any]:
     """Read replay JSON for a specific generation."""
 
     replay_dir = ctx.settings.runs_root / run_id / "generations" / f"gen_{generation}" / "replays"
@@ -212,7 +212,7 @@ def run_replay(ctx: MtsToolContext, run_id: str, generation: int) -> dict[str, o
 # -- Knowledge API --
 
 
-def export_skill(ctx: MtsToolContext, scenario_name: str) -> dict[str, object]:
+def export_skill(ctx: MtsToolContext, scenario_name: str) -> dict[str, Any]:
     """Export a portable skill package for a solved scenario.
 
     Returns the structured package dict with two additional keys:
@@ -228,14 +228,14 @@ def export_skill(ctx: MtsToolContext, scenario_name: str) -> dict[str, object]:
     return result
 
 
-def list_solved(ctx: MtsToolContext) -> list[dict[str, object]]:
+def list_solved(ctx: MtsToolContext) -> list[dict[str, Any]]:
     """List scenarios with solved strategies."""
     from autocontext.knowledge.export import list_solved_scenarios
 
     return list_solved_scenarios(ctx)
 
 
-def search_strategies(ctx: MtsToolContext, query: str, top_k: int = 5) -> list[dict[str, object]]:
+def search_strategies(ctx: MtsToolContext, query: str, top_k: int = 5) -> list[dict[str, Any]]:
     """Search solved scenarios by query."""
     from autocontext.knowledge.search import search_strategies as _search
 
@@ -264,7 +264,7 @@ def record_feedback(
     human_score: float | None = None,
     human_notes: str = "",
     generation_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Record human feedback on an agent task output."""
     if not agent_output.strip():
         return {"error": "agent_output cannot be empty"}
@@ -284,7 +284,7 @@ def get_feedback(
     ctx: MtsToolContext,
     scenario_name: str,
     limit: int = 10,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """Get recent human feedback for a scenario."""
     return ctx.sqlite.get_human_feedback(scenario_name, limit=limit)  # type: ignore[return-value]
 
@@ -297,7 +297,7 @@ def run_improvement_loop(
     quality_threshold: float = 0.9,
     reference_context: str | None = None,
     required_concepts: list[str] | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Run the multi-step improvement loop for an agent task.
 
     Evaluates and iteratively improves agent output until quality threshold
@@ -343,7 +343,7 @@ def run_improvement_loop(
         for r in result.rounds
     ]
 
-    rubric_calibration: dict[str, object] | None = None
+    rubric_calibration: dict[str, Any] | None = None
     if len(calibration) >= 2:
         provider = get_provider(ctx.settings)
         report = run_judge_calibration(
@@ -358,7 +358,7 @@ def run_improvement_loop(
         )
         rubric_calibration = report.to_dict() if report is not None else None
 
-    payload: dict[str, object] = {
+    payload: dict[str, Any] = {
         "scenario_name": scenario_name,
         "total_rounds": result.total_rounds,
         "met_threshold": result.met_threshold,
@@ -414,8 +414,8 @@ def create_agent_task(
     max_rounds: int = 5,
     quality_threshold: float = 0.9,
     revision_prompt: str | None = None,
-    objective_verification: dict[str, object] | None = None,
-) -> dict[str, object]:
+    objective_verification: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create and register an agent task spec for evaluation."""
 
     if err := _validate_task_name(name):
@@ -444,7 +444,7 @@ def create_agent_task(
     return {"name": name, "status": "created", "path": str(spec_path)}
 
 
-def list_agent_tasks(ctx: MtsToolContext) -> list[dict[str, object]]:
+def list_agent_tasks(ctx: MtsToolContext) -> list[dict[str, Any]]:
     """List all saved agent task specs."""
 
     spec_dir = ctx.settings.knowledge_root / "_agent_tasks"
@@ -470,7 +470,7 @@ def list_agent_tasks(ctx: MtsToolContext) -> list[dict[str, object]]:
     return tasks
 
 
-def get_agent_task(ctx: MtsToolContext, name: str) -> dict[str, object]:
+def get_agent_task(ctx: MtsToolContext, name: str) -> dict[str, Any]:
     """Get full agent task spec by name."""
 
     if err := _validate_task_name(name):
@@ -479,11 +479,11 @@ def get_agent_task(ctx: MtsToolContext, name: str) -> dict[str, object]:
     spec_path = ctx.settings.knowledge_root / "_agent_tasks" / f"{name}.json"
     if not spec_path.exists():
         return {"error": f"Agent task '{name}' not found"}
-    data: dict[str, object] = read_json(spec_path)
+    data: dict[str, Any] = read_json(spec_path)
     return data
 
 
-def delete_agent_task(ctx: MtsToolContext, name: str) -> dict[str, object]:
+def delete_agent_task(ctx: MtsToolContext, name: str) -> dict[str, Any]:
     """Delete an agent task spec."""
     if err := _validate_task_name(name):
         return {"error": err}
@@ -499,7 +499,7 @@ def evaluate_output(
     ctx: MtsToolContext,
     task_name: str,
     output: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """One-shot evaluation of an output against a saved agent task spec."""
 
     if err := _validate_task_name(task_name):
@@ -534,7 +534,7 @@ def evaluate_output(
         calibration_examples=calibration if calibration else None,
     )
 
-    payload: dict[str, object] = {
+    payload: dict[str, Any] = {
         "task_name": task_name,
         "score": result.score,
         "reasoning": result.reasoning,
@@ -594,7 +594,7 @@ def evaluate_output(
 def generate_output(
     ctx: MtsToolContext,
     task_name: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Generate an initial output for an agent task using the configured provider.
 
     This gives agents a starting point that can be fed into evaluate_output
@@ -633,7 +633,7 @@ def queue_improvement_run(
     task_name: str,
     initial_output: str | None = None,
     priority: int = 0,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Add a task to the runner queue for background processing."""
 
     if err := _validate_task_name(task_name):
@@ -648,7 +648,7 @@ def queue_improvement_run(
     from autocontext.execution.task_runner import enqueue_task
 
     objective_verification = data.get("objective_verification")
-    resolved_objective_verification: dict[str, object] | None = None
+    resolved_objective_verification: dict[str, Any] | None = None
     if isinstance(objective_verification, dict):
         try:
             resolved_objective_verification = _resolve_objective_verification(
@@ -686,7 +686,7 @@ def queue_improvement_run(
     }
 
 
-def get_queue_status(ctx: MtsToolContext) -> dict[str, object]:
+def get_queue_status(ctx: MtsToolContext) -> dict[str, Any]:
     """Get task queue status summary."""
     pending = ctx.sqlite.list_tasks(status="pending")
     running = ctx.sqlite.list_tasks(status="running")
@@ -707,7 +707,7 @@ def get_queue_status(ctx: MtsToolContext) -> dict[str, object]:
     }
 
 
-def get_task_result(ctx: MtsToolContext, task_id: str) -> dict[str, object]:
+def get_task_result(ctx: MtsToolContext, task_id: str) -> dict[str, Any]:
     """Get the result of a specific queued task."""
     import json
 
@@ -715,7 +715,7 @@ def get_task_result(ctx: MtsToolContext, task_id: str) -> dict[str, object]:
     if not task:
         return {"error": f"Task '{task_id}' not found"}
 
-    result: dict[str, object] = {
+    result: dict[str, Any] = {
         "id": task["id"],
         "spec_name": task["spec_name"],
         "status": task["status"],
@@ -755,7 +755,7 @@ def get_task_result(ctx: MtsToolContext, task_id: str) -> dict[str, object]:
     return result
 
 
-def get_best_output(ctx: MtsToolContext, task_name: str) -> dict[str, object]:
+def get_best_output(ctx: MtsToolContext, task_name: str) -> dict[str, Any]:
     """Get the highest-scoring output for a task across all runs."""
     completed = ctx.sqlite.list_tasks(spec_name=task_name, status="completed")
     if not completed:
@@ -776,7 +776,7 @@ def get_best_output(ctx: MtsToolContext, task_name: str) -> dict[str, object]:
 def export_agent_task_skill(
     ctx: MtsToolContext,
     task_name: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Export a skill package for an agent task, including best outputs and lessons learned.
 
     Assembles results from completed task queue runs into a portable
@@ -843,10 +843,10 @@ _OPENCLAW_VERSION = "0.1.0"
 
 def evaluate_strategy(
     scenario_name: str,
-    strategy: dict[str, object],
+    strategy: dict[str, Any],
     num_matches: int = 3,
     seed_base: int = 42,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Evaluate a candidate strategy against a scenario by running matches.
 
     Returns aggregate scores for the strategy across multiple seeds.
@@ -880,9 +880,9 @@ def evaluate_strategy(
 
 def validate_strategy_against_harness(
     scenario_name: str,
-    strategy: dict[str, object],
+    strategy: dict[str, Any],
     ctx: MtsToolContext | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Validate a strategy against scenario constraints and any harness validators.
 
     Checks both built-in scenario validation and any published harness artifacts.
@@ -951,7 +951,7 @@ def _sync_published_harness_artifacts(ctx: MtsToolContext, scenario_name: str) -
 
 def _validate_and_persist_artifact(
     ctx: MtsToolContext,
-    artifact_data: dict[str, object],
+    artifact_data: dict[str, Any],
     artifact_type: str,
 ) -> tuple[str, str]:
     """Validate artifact data and persist to disk. Returns (artifact_id, json_content)."""
@@ -977,8 +977,8 @@ def _validate_and_persist_artifact(
 
 def publish_artifact(
     ctx: MtsToolContext,
-    artifact_data: dict[str, object],
-) -> dict[str, object]:
+    artifact_data: dict[str, Any],
+) -> dict[str, Any]:
     """Publish an artifact (harness, policy, or distilled model) to the local store.
 
     The artifact_data must be a valid serialized artifact dict with an artifact_type field.
@@ -1009,7 +1009,7 @@ def publish_artifact(
 def fetch_artifact(
     ctx: MtsToolContext,
     artifact_id: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Fetch a published artifact by its ID."""
 
     artifacts_dir = ctx.settings.knowledge_root / "_openclaw_artifacts"
@@ -1017,7 +1017,7 @@ def fetch_artifact(
     if not artifact_path.exists():
         return {"error": f"Artifact '{artifact_id}' not found"}
 
-    data: dict[str, object] = read_json(artifact_path)
+    data: dict[str, Any] = read_json(artifact_path)
     return data
 
 
@@ -1025,17 +1025,17 @@ def list_artifacts(
     ctx: MtsToolContext,
     scenario: str | None = None,
     artifact_type: str | None = None,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """List published artifacts, optionally filtered by scenario or type."""
 
     artifacts_dir = ctx.settings.knowledge_root / "_openclaw_artifacts"
     if not artifacts_dir.exists():
         return []
 
-    results: list[dict[str, object]] = []
+    results: list[dict[str, Any]] = []
     for path in sorted(artifacts_dir.glob("*.json")):
         try:
-            data: dict[str, object] = read_json(path)
+            data: dict[str, Any] = read_json(path)
         except Exception:
             logger.debug("mcp.tools: caught Exception", exc_info=True)
             continue
@@ -1056,7 +1056,7 @@ def list_artifacts(
 def distill_status(
     ctx: MtsToolContext,
     scenario: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Return the status of distillation workflows.
 
     Uses DistillJobManager for structured job lifecycle tracking.
@@ -1066,7 +1066,7 @@ def distill_status(
 
     mgr = DistillJobManager(ctx.settings.knowledge_root)
     jobs: list[DistillJob] = [_sync_distill_job(ctx, mgr, job) for job in mgr.list_jobs(scenario=scenario)]
-    job_dicts: list[dict[str, object]] = [
+    job_dicts: list[dict[str, Any]] = [
         j.model_dump() for j in jobs
     ]
     active = sum(1 for j in jobs if j.status in ("pending", "running"))
@@ -1077,8 +1077,8 @@ def trigger_distillation(
     ctx: MtsToolContext,
     scenario: str,
     source_artifact_ids: list[str] | None = None,
-    training_config: dict[str, object] | None = None,
-) -> dict[str, object]:
+    training_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Trigger a distillation workflow for a scenario.
 
     Creates a job record and launches the configured distillation sidecar.
@@ -1128,7 +1128,7 @@ def trigger_distillation(
 def get_distill_job(
     ctx: MtsToolContext,
     job_id: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Fetch a single distillation job by ID."""
     from autocontext.openclaw.distill import DistillJobManager
 
@@ -1147,8 +1147,8 @@ def update_distill_job(
     *,
     result_artifact_id: str | None = None,
     error_message: str | None = None,
-    training_metrics: dict[str, object] | None = None,
-) -> dict[str, object]:
+    training_metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Update a distillation job status with lifecycle validation."""
     from autocontext.openclaw.distill import DistillJobError, DistillJobManager
 
@@ -1200,14 +1200,14 @@ def _sync_distill_job(
             status,
             result_artifact_id=cast(str | None, update.get("result_artifact_id")),
             error_message=cast(str | None, update.get("error_message")),
-            training_metrics=cast(dict[str, object] | None, update.get("training_metrics")),
+            training_metrics=cast(dict[str, Any] | None, update.get("training_metrics")),
         )
     except DistillJobError:
         return job
     return synced or job
 
 
-def export_package(ctx: MtsToolContext, scenario_name: str) -> dict[str, object]:
+def export_package(ctx: MtsToolContext, scenario_name: str) -> dict[str, Any]:
     """Export a versioned, portable strategy package for a scenario."""
     from autocontext.knowledge.export import export_strategy_package
 
@@ -1215,14 +1215,14 @@ def export_package(ctx: MtsToolContext, scenario_name: str) -> dict[str, object]
         pkg = export_strategy_package(ctx, scenario_name)
     except ValueError as exc:
         return {"error": str(exc)}
-    return cast(dict[str, object], json.loads(pkg.to_json()))
+    return json.loads(pkg.to_json())  # type: ignore[no-any-return]
 
 
 def import_package(
     ctx: MtsToolContext,
-    package_data: dict[str, object],
+    package_data: dict[str, Any],
     conflict_policy: str = "merge",
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Import a strategy package into scenario knowledge."""
     from autocontext.knowledge.package import ConflictPolicy, StrategyPackage, import_strategy_package
 
@@ -1239,7 +1239,7 @@ def import_package(
     return result.model_dump()
 
 
-def get_capabilities() -> dict[str, object]:
+def get_capabilities() -> dict[str, Any]:
     """Return capability metadata for this autocontext instance.
 
     Lists all available OpenClaw operations and their descriptions,
@@ -1290,49 +1290,49 @@ def get_capabilities() -> dict[str, object]:
 # -- Discovery & capability advertisement (AC-195) --
 
 
-def skill_advertise_capabilities(ctx: MtsToolContext) -> dict[str, object]:
+def skill_advertise_capabilities(ctx: MtsToolContext) -> dict[str, Any]:
     """Return full capability advertisement: version, runtime, scenarios, artifacts."""
     from autocontext.openclaw.discovery import advertise_capabilities
 
     ad = advertise_capabilities(ctx)
-    return cast(dict[str, object], ad.model_dump())
+    return ad.model_dump()
 
 
-def skill_scenario_capabilities(ctx: MtsToolContext, scenario_name: str) -> dict[str, object]:
+def skill_scenario_capabilities(ctx: MtsToolContext, scenario_name: str) -> dict[str, Any]:
     """Return per-scenario capability info: evaluation mode, harness, playbook, etc."""
     from autocontext.openclaw.discovery import discover_scenario_capabilities
 
     caps = discover_scenario_capabilities(ctx, scenario_name)
-    return cast(dict[str, object], caps.model_dump())
+    return caps.model_dump()
 
 
-def skill_runtime_health(ctx: MtsToolContext) -> dict[str, object]:
+def skill_runtime_health(ctx: MtsToolContext) -> dict[str, Any]:
     """Return runtime health: executor mode, provider, harness mode, models."""
     from autocontext.openclaw.discovery import get_runtime_health
 
     health = get_runtime_health(ctx.settings)
-    return cast(dict[str, object], health.model_dump())
+    return health.model_dump()
 
 
-def skill_scenario_artifact_lookup(ctx: MtsToolContext, scenario_name: str) -> list[dict[str, object]]:
+def skill_scenario_artifact_lookup(ctx: MtsToolContext, scenario_name: str) -> list[dict[str, Any]]:
     """Return all artifacts associated with a scenario."""
     from autocontext.openclaw.discovery import scenario_artifact_lookup
 
     artifacts = scenario_artifact_lookup(ctx, scenario_name)
-    return [cast(dict[str, object], a.model_dump()) for a in artifacts]
+    return [a.model_dump() for a in artifacts]
 
 
 # -- ClawHub skill wrapper functions (AC-192) --
 
 
-def skill_manifest(ctx: MtsToolContext) -> dict[str, object]:
+def skill_manifest(ctx: MtsToolContext) -> dict[str, Any]:
     """Return the ClawHub skill manifest for this autocontext instance."""
     from autocontext.openclaw.skill import MtsSkillWrapper
 
     return MtsSkillWrapper(ctx).manifest().model_dump()
 
 
-def skill_discover_scenarios(ctx: MtsToolContext, query: str | None = None) -> list[dict[str, object]]:
+def skill_discover_scenarios(ctx: MtsToolContext, query: str | None = None) -> list[dict[str, Any]]:
     """Discover available scenarios, optionally filtered by query."""
     from autocontext.openclaw.skill import MtsSkillWrapper
 
@@ -1340,7 +1340,7 @@ def skill_discover_scenarios(ctx: MtsToolContext, query: str | None = None) -> l
     return [r.model_dump() for r in results]
 
 
-def skill_select_scenario(ctx: MtsToolContext, description: str) -> dict[str, object]:
+def skill_select_scenario(ctx: MtsToolContext, description: str) -> dict[str, Any]:
     """Recommend the best scenario for a problem description."""
     from autocontext.openclaw.skill import MtsSkillWrapper
 
@@ -1350,10 +1350,10 @@ def skill_select_scenario(ctx: MtsToolContext, description: str) -> dict[str, ob
 def skill_evaluate(
     ctx: MtsToolContext,
     scenario_name: str,
-    strategy: dict[str, object],
+    strategy: dict[str, Any],
     num_matches: int = 3,
     seed_base: int = 42,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Full validate + evaluate workflow."""
     from autocontext.openclaw.skill import MtsSkillWrapper
 
@@ -1364,7 +1364,7 @@ def skill_discover_artifacts(
     ctx: MtsToolContext,
     scenario: str | None = None,
     artifact_type: str | None = None,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """Find published artifacts with enriched metadata."""
     from autocontext.openclaw.skill import MtsSkillWrapper
 
@@ -1380,7 +1380,7 @@ def autocontext_create_monitor(
     condition_type: str,
     params_json: str = "{}",
     scope: str = "global",
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Create a new monitor condition."""
     from autocontext.monitor.engine import get_engine
     from autocontext.monitor.types import ConditionType, MonitorCondition, make_id
@@ -1402,7 +1402,7 @@ def autocontext_create_monitor(
 def autocontext_list_monitors(
     scope: str | None = None,
     active_only: bool = True,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """List monitor conditions."""
     from autocontext.monitor.engine import get_engine
 
@@ -1410,7 +1410,7 @@ def autocontext_list_monitors(
     return engine._sqlite.list_monitor_conditions(active_only=active_only, scope=scope)
 
 
-def autocontext_delete_monitor(condition_id: str) -> dict[str, object]:
+def autocontext_delete_monitor(condition_id: str) -> dict[str, Any]:
     """Deactivate a monitor condition."""
     from autocontext.monitor.engine import get_engine
 
@@ -1423,7 +1423,7 @@ def autocontext_list_monitor_alerts(
     condition_id: str | None = None,
     scope: str | None = None,
     limit: int = 100,
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """List monitor alerts."""
     from autocontext.monitor.engine import get_engine
 
@@ -1434,7 +1434,7 @@ def autocontext_list_monitor_alerts(
 def autocontext_wait_for_monitor(
     condition_id: str,
     timeout_seconds: float = 30.0,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Wait for a monitor condition to fire."""
     from autocontext.monitor.engine import get_engine
 

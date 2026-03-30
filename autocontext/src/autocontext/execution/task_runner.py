@@ -107,7 +107,7 @@ def _serialize_result(
             "dimension_scores": r.dimension_scores,
             "is_revision": r.is_revision,
         })
-    data: dict[str, object] = {
+    data: dict[str, Any] = {
         "rounds": rounds,
         "best_score": result.best_score,
         "best_round": result.best_round,
@@ -145,7 +145,7 @@ def _serialize_evolution_result(
     rubric_calibration: dict[str, Any] | None = None,
 ) -> str:
     """Serialize a multi-generation AgentTask evolution run to JSON."""
-    final_rounds: list[dict[str, object]] = []
+    final_rounds: list[dict[str, Any]] = []
     if generation_results:
         final_result = generation_results[-1]
         final_rounds = [

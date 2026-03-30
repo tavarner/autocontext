@@ -66,7 +66,7 @@ def _build_scenario_creator(app_settings: object) -> object | None:
         return None
 
 
-def _build_environments_msg(env_info: dict[str, object]) -> EnvironmentsMsg:
+def _build_environments_msg(env_info: dict[str, Any]) -> EnvironmentsMsg:
     """Convert the raw dict from RunManager.get_environment_info() into a typed model."""
     return EnvironmentsMsg(**env_info)  # type: ignore[arg-type]
 
@@ -148,7 +148,7 @@ def create_app(
         return {"status": "ok"}
 
     @application.get("/api/runs")
-    def list_runs() -> list[dict[str, object]]:
+    def list_runs() -> list[dict[str, Any]]:
         with store.connect() as conn:
             rows = conn.execute(
                 "SELECT run_id, scenario, target_generations, executor_mode, status, created_at "
@@ -157,7 +157,7 @@ def create_app(
         return [dict(row) for row in rows]
 
     @application.get("/api/runs/{run_id}/status")
-    def run_status(run_id: str) -> list[dict[str, object]]:
+    def run_status(run_id: str) -> list[dict[str, Any]]:
         with store.connect() as conn:
             rows = conn.execute(
                 "SELECT generation_index, mean_score, best_score, elo, wins, losses, gate_decision, status "
@@ -167,7 +167,7 @@ def create_app(
         return [dict(row) for row in rows]
 
     @application.get("/api/runs/{run_id}/replay/{generation}")
-    def replay(run_id: str, generation: int) -> dict[str, object]:
+    def replay(run_id: str, generation: int) -> dict[str, Any]:
         replay_path = _read_replay_file(run_id, generation)
         payload = read_json(replay_path)
         if not isinstance(payload, dict):
@@ -210,10 +210,10 @@ def create_app(
             env_info = run_manager.get_environment_info()
             await websocket.send_json(_build_environments_msg(env_info).model_dump())
 
-        send_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        send_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         event_loop = asyncio.get_event_loop()
 
-        def _on_event(event: str, payload: dict[str, object]) -> None:
+        def _on_event(event: str, payload: dict[str, Any]) -> None:
             msg = EventMsg(event=event, payload=payload)
             event_loop.call_soon_threadsafe(send_queue.put_nowait, msg.model_dump())
 
