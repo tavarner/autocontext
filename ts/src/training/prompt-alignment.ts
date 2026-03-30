@@ -78,7 +78,6 @@ function formatTrajectory(value: unknown): string {
     .filter(Boolean);
   return lines.join("\n");
 }
-
 // ---------------------------------------------------------------------------
 // Section detection
 // ---------------------------------------------------------------------------
