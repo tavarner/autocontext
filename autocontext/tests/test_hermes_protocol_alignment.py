@@ -115,16 +115,19 @@ class TestHermesConfigSettings:
 class TestHermesOverrideSemantics:
     """Verify env-based override behavior is documented accurately."""
 
-    def test_custom_endpoint_uses_main_provider(self) -> None:
-        """Hermes routes custom OpenAI-compatible endpoints through provider main."""
+    def test_custom_endpoint_skips_provider_flag(self) -> None:
+        """Hermes v0.5.0+: custom endpoints use env vars, not --provider main."""
         from autocontext.runtimes.hermes_cli import HermesCLIConfig, HermesCLIRuntime
 
         config = HermesCLIConfig(base_url="http://custom:8080/v1", api_key="token")
         runtime = HermesCLIRuntime(config)
         args = runtime._build_args("test")
-        assert "--provider" in args
-        assert "main" in args
-        assert "custom" not in args
+        # --provider main was removed in Hermes v0.5.0; custom endpoints
+        # are auto-detected from OPENAI_BASE_URL env var
+        assert "--provider" not in args
+        env = runtime._build_env()
+        assert env["OPENAI_BASE_URL"] == "http://custom:8080/v1"
+        assert env["OPENAI_API_KEY"] == "token"
 
     def test_base_url_passed_via_env_not_flag(self) -> None:
         """OPENAI_BASE_URL is an env var, not a CLI flag for Hermes."""
@@ -163,16 +166,18 @@ class TestHermesOverrideSemantics:
         assert "OPENAI_BASE_URL" not in env
         assert "OPENAI_API_KEY" not in env
 
-    def test_explicit_main_provider_keeps_custom_endpoint_env(self) -> None:
-        """Explicit provider main should preserve custom endpoint env vars."""
+    def test_no_provider_keeps_custom_endpoint_env(self) -> None:
+        """No explicit provider + custom endpoint → env vars set for auto-detect."""
         from autocontext.runtimes.hermes_cli import HermesCLIConfig, HermesCLIRuntime
 
         config = HermesCLIConfig(
-            provider="main",
             base_url="http://custom:8080/v1",
             api_key="token",
         )
         runtime = HermesCLIRuntime(config)
+        args = runtime._build_args("test")
         env = runtime._build_env()
+        # No --provider flag, Hermes auto-detects from env
+        assert "--provider" not in args
         assert env.get("OPENAI_BASE_URL") == "http://custom:8080/v1"
         assert env.get("OPENAI_API_KEY") == "token"
