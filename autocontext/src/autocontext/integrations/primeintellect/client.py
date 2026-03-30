@@ -157,8 +157,6 @@ class PrimeIntellectClient:
 import json
 import random
 
-logger = logging.getLogger(__name__)
-
 payload = json.loads(base64.b64decode("{encoded}").decode())
 scenario = payload["scenario_name"]
 strategy = payload["strategy"]

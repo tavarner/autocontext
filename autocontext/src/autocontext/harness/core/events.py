@@ -49,4 +49,7 @@ class EventStreamEmitter:
             try:
                 cb(event, payload)
             except Exception:
-                logger.debug("harness.core.events: suppressed Exception", exc_info=True)
+                try:
+                    logger.debug("harness.core.events: suppressed Exception", exc_info=True)
+                except Exception:
+                    pass
