@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from autocontext.harness.evaluation.runner import EvaluationRunner
 from autocontext.harness.evaluation.scenario_evaluator import ScenarioEvaluator
@@ -77,7 +77,7 @@ def stage_probe(
         )
 
     # Attempt refinement
-    probe_usage: dict[str, object] = {}
+    probe_usage: dict[str, Any] = {}
     try:
         raw_text, refinement_exec = agents.competitor.run(refinement_prompt, tool_context=ctx.tool_context)
         probe_usage = {

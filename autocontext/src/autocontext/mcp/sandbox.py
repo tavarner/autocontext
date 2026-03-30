@@ -6,6 +6,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from autocontext.config.settings import AppSettings
 from autocontext.loop.generation_runner import GenerationRunner
@@ -128,7 +129,7 @@ class SandboxManager:
             for f in tools_dir.glob("*.py"):
                 shutil.copy2(f, sb_tools / f.name)
 
-    def run_generation(self, sandbox_id: str, generations: int = 1) -> dict[str, object]:
+    def run_generation(self, sandbox_id: str, generations: int = 1) -> dict[str, Any]:
         """Run generation(s) in sandbox isolation."""
         sandbox = self._active.get(sandbox_id)
         if sandbox is None:
@@ -158,7 +159,7 @@ class SandboxManager:
             "current_elo": summary.current_elo,
         }
 
-    def get_status(self, sandbox_id: str) -> dict[str, object]:
+    def get_status(self, sandbox_id: str) -> dict[str, Any]:
         """Get sandbox status."""
         sandbox = self._active.get(sandbox_id)
         if sandbox is None:

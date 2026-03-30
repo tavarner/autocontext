@@ -113,7 +113,7 @@ class MonitorEngine:
             if alert is not None:
                 self._fire_alert(alert)
 
-    def _on_event(self, event: str, payload: dict[str, object]) -> None:
+    def _on_event(self, event: str, payload: dict[str, Any]) -> None:
         """Callback from EventStreamEmitter — evaluate all active conditions."""
         self._last_event_time = time.monotonic()
         self._heartbeat_fired_conditions.clear()
@@ -136,7 +136,7 @@ class MonitorEngine:
     def _evaluate_condition(
         self,
         event: str,
-        payload: dict[str, object],
+        payload: dict[str, Any],
         condition: MonitorCondition,
     ) -> MonitorAlert | None:
         """Dispatch to the appropriate evaluator based on condition type."""

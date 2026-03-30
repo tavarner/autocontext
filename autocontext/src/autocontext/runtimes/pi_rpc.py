@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from autocontext.runtimes.base import AgentOutput, AgentRuntime
 
@@ -64,7 +65,7 @@ class PiRPCRuntime(AgentRuntime):
         args.extend(self._config.extra_args)
         return args
 
-    def _build_prompt_command(self, prompt: str) -> dict[str, object]:
+    def _build_prompt_command(self, prompt: str) -> dict[str, Any]:
         """Build a Pi RPC prompt command.
 
         Pi's documented RPC protocol expects the user payload under ``message``.
@@ -76,7 +77,7 @@ class PiRPCRuntime(AgentRuntime):
         }
 
     def _nonzero_exit_output(self, exit_code: int, stderr: str, stdout: str = "") -> AgentOutput:
-        metadata: dict[str, object] = {
+        metadata: dict[str, Any] = {
             "error": "nonzero_exit",
             "exit_code": exit_code,
         }
@@ -172,7 +173,7 @@ class PiRPCRuntime(AgentRuntime):
                 # Collect assistant text from message_end or response events
                 if event_type == "response":
                     if event.get("success") is False:
-                        metadata: dict[str, object] = {
+                        metadata: dict[str, Any] = {
                             "error": "rpc_response_error",
                             "rpc_command": str(event.get("command", "")),
                             "exit_code": exit_code,

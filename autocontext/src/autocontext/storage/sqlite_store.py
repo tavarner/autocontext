@@ -297,7 +297,7 @@ class SQLiteStore:
             [(run_id, generation_index, role, content) for role, content in outputs],
         )
 
-    def get_agent_outputs_by_role(self, run_id: str, role: str) -> list[dict[str, object]]:
+    def get_agent_outputs_by_role(self, run_id: str, role: str) -> list[dict[str, Any]]:
         """Return agent_outputs rows for a given run and role, ordered by generation."""
         with self.connect() as conn:
             rows = conn.execute(

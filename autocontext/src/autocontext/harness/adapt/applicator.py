@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from autocontext.harness.adapt.types import AdaptationPolicy, AdaptationResult, AdaptationStatus
 from autocontext.harness.audit.types import AuditCategory, AuditEntry
@@ -53,7 +53,7 @@ class ConfigApplicator:
         Never mutates the input *settings*; uses ``model_copy(update={...})``.
         """
         results: list[AdaptationResult] = []
-        updates: dict[str, object] = {}
+        updates: dict[str, Any] = {}
         changes_applied = 0
 
         for rec in recommendations:

@@ -8,10 +8,11 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-EventCallback = Callable[[str, dict[str, object]], None]
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
 class EventStreamEmitter:
@@ -29,7 +30,7 @@ class EventStreamEmitter:
         with self._lock:
             self._subscribers.remove(callback)
 
-    def emit(self, event: str, payload: dict[str, object], channel: str = "generation") -> None:
+    def emit(self, event: str, payload: dict[str, Any], channel: str = "generation") -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._sequence += 1

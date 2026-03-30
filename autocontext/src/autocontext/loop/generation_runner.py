@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from autocontext import __version__ as package_fallback_version
 from autocontext.agents import AgentOrchestrator
@@ -538,11 +538,11 @@ class GenerationRunner:
         run_id: str,
         scenario_name: str,
         scenario: ScenarioInterface,
-        generation_rows: list[dict[str, object]],
-        role_metrics: list[dict[str, object]],
-        staged_validations: list[dict[str, object]],
-        consultations: list[dict[str, object]],
-        recovery_markers: list[dict[str, object]],
+        generation_rows: list[dict[str, Any]],
+        role_metrics: list[dict[str, Any]],
+        staged_validations: list[dict[str, Any]],
+        consultations: list[dict[str, Any]],
+        recovery_markers: list[dict[str, Any]],
     ) -> RunTrace:
         """Build a canonical per-run trace from persisted runtime artifacts."""
         family = detect_family(scenario)
@@ -551,10 +551,10 @@ class GenerationRunner:
             : row
             for row in generation_rows
         }
-        roles_by_generation: dict[int, list[dict[str, object]]] = defaultdict(list)
-        validations_by_generation: dict[int, list[dict[str, object]]] = defaultdict(list)
-        consultations_by_generation: dict[int, list[dict[str, object]]] = defaultdict(list)
-        recovery_by_generation: dict[int, list[dict[str, object]]] = defaultdict(list)
+        roles_by_generation: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        validations_by_generation: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        consultations_by_generation: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        recovery_by_generation: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
         for row in role_metrics:
             roles_by_generation[self._int_value(row.get("generation_index"))].append(row)
@@ -1088,7 +1088,7 @@ class GenerationRunner:
         if not self.artifacts.tools_dir(scenario_name).exists():
             seed = scenario.seed_tools()
             if seed:
-                seed_tool_list: list[dict[str, object]] = [
+                seed_tool_list: list[dict[str, Any]] = [
                     {"name": k, "code": v, "description": f"Seed tool: {k}"} for k, v in seed.items()
                 ]
                 self.artifacts.persist_tools(scenario_name, 0, seed_tool_list)

@@ -11,7 +11,9 @@ Usage: AUTOCONTEXT_PRESET=quick
 """
 from __future__ import annotations
 
-LONG_RUN_PRESET_SETTINGS: dict[str, object] = {
+from typing import Any
+
+LONG_RUN_PRESET_SETTINGS: dict[str, Any] = {
     "stagnation_reset_enabled": True,
     "dead_end_tracking_enabled": True,
     "curator_enabled": True,
@@ -22,7 +24,7 @@ LONG_RUN_PRESET_SETTINGS: dict[str, object] = {
     "cross_run_inheritance": True,
 }
 
-SHORT_RUN_PRESET_SETTINGS: dict[str, object] = {
+SHORT_RUN_PRESET_SETTINGS: dict[str, Any] = {
     "stagnation_reset_enabled": False,
     "dead_end_tracking_enabled": False,
     "curator_enabled": False,
@@ -30,7 +32,7 @@ SHORT_RUN_PRESET_SETTINGS: dict[str, object] = {
     "max_retries": 2,
 }
 
-PRESETS: dict[str, dict[str, object]] = {
+PRESETS: dict[str, dict[str, Any]] = {
     "quick": {
         "matches_per_generation": 2,
         "curator_enabled": False,
@@ -69,7 +71,7 @@ PRESETS: dict[str, dict[str, object]] = {
 VALID_PRESET_NAMES = frozenset(PRESETS.keys())
 
 
-def apply_preset(name: str) -> dict[str, object]:
+def apply_preset(name: str) -> dict[str, Any]:
     """Return overrides for a named preset.
 
     Args:

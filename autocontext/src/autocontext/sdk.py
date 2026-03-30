@@ -87,7 +87,7 @@ class AutoContext:
 
     # -- Strategy evaluation ------------------------------------------------
 
-    def validate(self, scenario: str, strategy: dict[str, object]) -> ValidateResult:
+    def validate(self, scenario: str, strategy: dict[str, Any]) -> ValidateResult:
         """Validate a strategy dict against scenario constraints.
 
         Returns a :class:`ValidateResult` with ``valid`` and ``reason`` fields.
@@ -103,7 +103,7 @@ class AutoContext:
     def evaluate(
         self,
         scenario: str,
-        strategy: dict[str, object],
+        strategy: dict[str, Any],
         matches: int = 3,
         seed_base: int = 42,
     ) -> EvaluateResult:
@@ -131,7 +131,7 @@ class AutoContext:
     def match(
         self,
         scenario: str,
-        strategy: dict[str, object],
+        strategy: dict[str, Any],
         seed: int = 42,
     ) -> MatchResult:
         """Execute a single match and return the result.
@@ -176,11 +176,11 @@ class AutoContext:
             for r in raw_list
         ]
 
-    def export_skill(self, scenario: str) -> dict[str, object]:
+    def export_skill(self, scenario: str) -> dict[str, Any]:
         """Export a portable skill package for a solved scenario."""
         return tools.export_skill(self._ctx, scenario)
 
-    def export_package(self, scenario: str) -> dict[str, object]:
+    def export_package(self, scenario: str) -> dict[str, Any]:
         """Export a versioned, portable strategy package."""
         return tools.export_package(self._ctx, scenario)
 
@@ -190,6 +190,6 @@ class AutoContext:
         self,
         scenario: str | None = None,
         artifact_type: str | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> list[dict[str, Any]]:
         """List published artifacts, optionally filtered by scenario or type."""
         return tools.list_artifacts(self._ctx, scenario=scenario, artifact_type=artifact_type)

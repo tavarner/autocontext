@@ -5,7 +5,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from autocontext.agents.types import LlmFn
 from autocontext.execution.rubric_coherence import check_rubric_coherence
@@ -29,7 +29,7 @@ class DisagreementMetrics:
     is_high_disagreement: bool = False
     sample_count: int = 1
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "score_std_dev": self.score_std_dev,
             "score_range": list(self.score_range),

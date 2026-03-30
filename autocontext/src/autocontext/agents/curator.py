@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from autocontext.agents.feedback_loops import AnalystRating
 from autocontext.agents.subagent_runtime import SubagentRuntime, SubagentTask
@@ -181,7 +182,7 @@ class KnowledgeCurator:
                 temperature=0.2,
             )
         )
-        payload: dict[str, object] = {}
+        payload: dict[str, Any] = {}
         try:
             decoded = json.loads(strip_json_fences(exec_result.content))
             if isinstance(decoded, dict):

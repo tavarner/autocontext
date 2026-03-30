@@ -5,6 +5,7 @@ import logging
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from autocontext.agents.types import LlmFn
 from autocontext.scenarios.agent_task import AgentTaskInterface
@@ -162,7 +163,7 @@ class AgentTaskCreator:
         scenario_file.write_text(source, encoding="utf-8")
 
         spec_file = scenario_dir / "agent_task_spec.json"
-        spec_data: dict[str, object] = {
+        spec_data: dict[str, Any] = {
             "task_prompt": spec.task_prompt,
             "judge_rubric": spec.judge_rubric,
             "output_format": spec.output_format,

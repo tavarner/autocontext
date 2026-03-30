@@ -694,15 +694,15 @@ def _coerce_dimension_score_map(raw_value: Any) -> dict[str, float]:
     }
 
 
-def _coerce_dimension_specs(raw_value: Any) -> list[dict[str, object]]:
+def _coerce_dimension_specs(raw_value: Any) -> list[dict[str, Any]]:
     """Return JSON-safe dimension specs."""
     if not isinstance(raw_value, list):
         return []
-    specs: list[dict[str, object]] = []
+    specs: list[dict[str, Any]] = []
     for item in raw_value:
         if not isinstance(item, dict):
             continue
-        clean: dict[str, object] = {
+        clean: dict[str, Any] = {
             key: value
             for key, value in item.items()
             if isinstance(key, str)
@@ -713,11 +713,11 @@ def _coerce_dimension_specs(raw_value: Any) -> list[dict[str, object]]:
     return specs
 
 
-def _coerce_dimension_regressions(raw_value: Any) -> list[dict[str, object]]:
+def _coerce_dimension_regressions(raw_value: Any) -> list[dict[str, Any]]:
     """Return JSON-safe dimension regression payloads."""
     if not isinstance(raw_value, list):
         return []
-    regressions: list[dict[str, object]] = []
+    regressions: list[dict[str, Any]] = []
     for item in raw_value:
         if not isinstance(item, dict):
             continue
@@ -742,7 +742,7 @@ def _coerce_dimension_regressions(raw_value: Any) -> list[dict[str, object]]:
     return regressions
 
 
-def _build_dimension_summary_payload(tournament: EvaluationSummary) -> dict[str, object] | None:
+def _build_dimension_summary_payload(tournament: EvaluationSummary) -> dict[str, Any] | None:
     """Extract a JSON-safe dimensional summary from a tournament."""
     dimension_means = _coerce_dimension_score_map(getattr(tournament, "dimension_means", {}))
     best_dimensions = _coerce_dimension_score_map(getattr(tournament, "best_dimensions", {}))
@@ -760,12 +760,12 @@ def _build_dimension_summary_payload(tournament: EvaluationSummary) -> dict[str,
     }
 
 
-def _build_self_play_summary_payload(tournament: EvaluationSummary) -> dict[str, object] | None:
+def _build_self_play_summary_payload(tournament: EvaluationSummary) -> dict[str, Any] | None:
     """Extract a JSON-safe self-play summary from a tournament."""
     raw_value = getattr(tournament, "self_play_summary", {})
     if not isinstance(raw_value, dict):
         return None
-    clean: dict[str, object] = {}
+    clean: dict[str, Any] = {}
     for key, value in raw_value.items():
         if not isinstance(key, str):
             continue
@@ -787,7 +787,7 @@ def _json_dumps_if_serializable(value: Any) -> str | None:
         return None
 
 
-def _build_replay_envelope_payload(execution_output: Any) -> dict[str, object]:
+def _build_replay_envelope_payload(execution_output: Any) -> dict[str, Any]:
     replay = getattr(execution_output, "replay", None)
     model_dump = getattr(replay, "model_dump", None)
     if not callable(model_dump):
@@ -1453,8 +1453,8 @@ def stage_knowledge_setup(
                 )
             # Apply tuning overrides from protocol
             if protocol.tuning_overrides:
-                # Cast to dict[str, object] for validate_tuning_overrides signature
-                raw_overrides: dict[str, object] = dict(protocol.tuning_overrides)
+                # Cast to dict[str, Any] for validate_tuning_overrides signature
+                raw_overrides: dict[str, Any] = dict(protocol.tuning_overrides)
                 validated = validate_tuning_overrides(raw_overrides)
                 _apply_tuning_to_settings(ctx, validated)
 
@@ -2476,7 +2476,7 @@ def stage_persistence(
     )
 
     # 4. Persist generation artifacts
-    replay_payload: dict[str, object] = {}
+    replay_payload: dict[str, Any] = {}
     if tournament.results:
         replay_payload = _build_replay_envelope_payload(
             tournament.results[0].metadata["execution_output"],

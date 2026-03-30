@@ -62,7 +62,7 @@ def validate_tuning_bounds(raw: dict[str, Any]) -> dict[str, float | int]:
 
 
 def compute_meta_parameter_stats(
-    trajectory_rows: list[dict[str, object]],
+    trajectory_rows: list[dict[str, Any]],
     rlm_max_turns: int = 25,
     matches_per_gen: int = 3,
 ) -> dict[str, float]:

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from autocontext.config.tuning_bounds import protocol_bounds
 
@@ -90,7 +91,7 @@ def parse_research_protocol(markdown: str) -> ResearchProtocol:
     return protocol
 
 
-def validate_tuning_overrides(raw: dict[str, object]) -> dict[str, float | int]:
+def validate_tuning_overrides(raw: dict[str, Any]) -> dict[str, float | int]:
     """Validate and filter tuning overrides against allowed keys and ranges."""
     result: dict[str, float | int] = {}
     for key, value in raw.items():
@@ -101,7 +102,7 @@ def validate_tuning_overrides(raw: dict[str, object]) -> dict[str, float | int]:
             if expected_type is int:
                 val = int(value)  # type: ignore[call-overload]
             else:
-                val = float(value)  # type: ignore[arg-type]
+                val = float(value)  # type: ignore[assignment]
         except (TypeError, ValueError):
             continue
         if min_val <= val <= max_val:

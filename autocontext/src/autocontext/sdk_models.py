@@ -6,6 +6,8 @@ insulating callers from internal dict shapes.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -32,7 +34,7 @@ class MatchResult(BaseModel):
     score: float = 0.0
     winner: str = ""
     summary: str = ""
-    metrics: dict[str, object] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
     replay: list[object] | None = None
     error: str | None = None
 

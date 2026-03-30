@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 from autocontext.harness.evaluation.types import EvaluationSummary
 
@@ -33,7 +34,7 @@ class FailureReport:
     previous_best: float
     current_best: float
     strategy_summary: str
-    dimension_regressions: list[dict[str, object]] = field(default_factory=list)
+    dimension_regressions: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_tournament(

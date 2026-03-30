@@ -94,7 +94,7 @@ class ArtifactStore:
         scenario_name: str,
         *,
         mutation_type: str,
-        payload: dict[str, object],
+        payload: dict[str, Any],
         generation: int = 0,
         run_id: str = "",
         description: str = "",
@@ -110,7 +110,7 @@ class ArtifactStore:
             ),
         )
 
-    def write_json(self, path: Path, payload: dict[str, object]) -> None:
+    def write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         write_json(path, payload)
 
@@ -138,7 +138,7 @@ class ArtifactStore:
             self._writer.shutdown()
             self._writer = None
 
-    def buffered_write_json(self, path: Path, payload: dict[str, object]) -> None:
+    def buffered_write_json(self, path: Path, payload: dict[str, Any]) -> None:
         """Write JSON via buffer if available, otherwise synchronous."""
         if self._writer is not None:
             self._writer.write_json(path, payload)
@@ -307,7 +307,7 @@ class ArtifactStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-    def write_progress(self, scenario_name: str, snapshot_dict: dict[str, object]) -> None:
+    def write_progress(self, scenario_name: str, snapshot_dict: dict[str, Any]) -> None:
         """Write progress snapshot JSON."""
         path = self.knowledge_root / scenario_name / "progress.json"
         self.write_json(path, snapshot_dict)
@@ -316,7 +316,7 @@ class ArtifactStore:
         """Read a compact replay summary of mutations since the last checkpoint."""
         return self.mutation_log.replay_summary(scenario_name, max_entries=max_entries)
 
-    def read_progress(self, scenario_name: str) -> dict[str, object] | None:
+    def read_progress(self, scenario_name: str) -> dict[str, Any] | None:
         """Read progress snapshot, or None if missing."""
         path = self.knowledge_root / scenario_name / "progress.json"
         if not path.exists():
@@ -508,7 +508,7 @@ class ArtifactStore:
         self,
         directory: Path,
         generation_index: int,
-        specs: list[dict[str, object]],
+        specs: list[dict[str, Any]],
         *,
         kind: str,
         header_template: str,
@@ -557,7 +557,7 @@ class ArtifactStore:
         return created
 
     def persist_harness(
-        self, scenario_name: str, generation_index: int, specs: list[dict[str, object]],
+        self, scenario_name: str, generation_index: int, specs: list[dict[str, Any]],
     ) -> list[str]:
         """AST-validate and write harness .py files, archiving old versions."""
         return self._persist_generated_modules(
@@ -658,7 +658,7 @@ class ArtifactStore:
             report = f"{report}\n\nStale tools to review for archival:\n{stale_lines}".strip()
         return report
 
-    def persist_tools(self, scenario_name: str, generation_index: int, tools: list[dict[str, object]]) -> list[str]:
+    def persist_tools(self, scenario_name: str, generation_index: int, tools: list[dict[str, Any]]) -> list[str]:
         return self._persist_generated_modules(
             self.tools_dir(scenario_name),
             generation_index,
@@ -690,8 +690,8 @@ class ArtifactStore:
         self,
         run_id: str,
         generation_index: int,
-        metrics: dict[str, object],
-        replay_payload: dict[str, object],
+        metrics: dict[str, Any],
+        replay_payload: dict[str, Any],
         analysis_md: str,
         coach_md: str,
         architect_md: str,
@@ -1065,7 +1065,7 @@ class ArtifactStore:
                 markdown_parts.append(to_markdown())
         return "\n\n".join(markdown_parts)
 
-    def _deserialize_weakness_report(self, data: dict[str, object]) -> object:
+    def _deserialize_weakness_report(self, data: dict[str, Any]) -> object:
         """Load either the legacy or trace-grounded weakness-report schema."""
         if "total_generations" in data:
             from autocontext.knowledge.weakness import WeaknessReport as LegacyWeaknessReport
@@ -1105,7 +1105,7 @@ class ArtifactStore:
     def _harness_version_path(self, scenario_name: str) -> Path:
         return self.harness_dir(scenario_name) / "harness_version.json"
 
-    def get_harness_version(self, scenario_name: str) -> dict[str, object]:
+    def get_harness_version(self, scenario_name: str) -> dict[str, Any]:
         """Read harness_version.json — tracks current version per function."""
         path = self._harness_version_path(scenario_name)
         if not path.exists():
@@ -1164,14 +1164,14 @@ class ArtifactStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-    def read_notebook(self, session_id: str) -> dict[str, object] | None:
+    def read_notebook(self, session_id: str) -> dict[str, Any] | None:
         """Read notebook JSON from runs/sessions/<session_id>/notebook.json."""
         path = self.runs_root / "sessions" / session_id / "notebook.json"
         if not path.exists():
             return None
         return read_json(path)  # type: ignore[no-any-return]
 
-    def write_notebook(self, session_id: str, notebook: dict[str, object]) -> None:
+    def write_notebook(self, session_id: str, notebook: dict[str, Any]) -> None:
         """Write notebook JSON to runs/sessions/<session_id>/notebook.json."""
         path = self.runs_root / "sessions" / session_id / "notebook.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1209,7 +1209,7 @@ class ArtifactStore:
             Path to the pi_session.json file.
         """
         gen_dir = self.generation_dir(run_id, generation)
-        trace_dict: dict[str, object] = trace.to_dict()
+        trace_dict: dict[str, Any] = trace.to_dict()
         prefix = f"pi_{role}" if role else "pi"
         session_path = gen_dir / f"{prefix}_session.json"
         self.write_json(session_path, trace_dict)
@@ -1219,7 +1219,7 @@ class ArtifactStore:
         output_path.write_text(raw_output, encoding="utf-8")
         return session_path
 
-    def read_pi_session(self, run_id: str, generation: int, *, role: str = "") -> dict[str, object] | None:
+    def read_pi_session(self, run_id: str, generation: int, *, role: str = "") -> dict[str, Any] | None:
         """Read a persisted Pi session trace, or None if missing."""
         prefix = f"pi_{role}" if role else "pi"
         session_path = self.generation_dir(run_id, generation) / f"{prefix}_session.json"

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from autocontext.analytics.regression_fixtures import FixtureStore, RegressionFixture
 from autocontext.execution.strategy_validator import StrategyValidator, ValidationResult
@@ -284,7 +284,7 @@ def _record_dead_end(
     artifacts: ArtifactStore,
     scenario_name: str,
     generation: int,
-    strategy: dict[str, object],
+    strategy: dict[str, Any],
     reason: str,
 ) -> None:
     """Record a dead-end entry from a failed pre-validation."""
