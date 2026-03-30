@@ -57,6 +57,11 @@ export interface PromotionDecision {
   reasoning: string;
 }
 
+export interface ShadowRunOpts {
+  incumbentScore: number;
+  heldOutScore: number;
+}
+
 // ---------------------------------------------------------------------------
 // ModelRegistry
 // ---------------------------------------------------------------------------
@@ -190,13 +195,20 @@ export class PromotionEngine {
    * Run shadow traffic for a candidate/shadow model.
    * Returns the shadow-run score for use in evaluate().
    */
-  async runShadow(artifactId: string, scenario: string): Promise<PromotionCheck | null> {
+  async runShadow(
+    artifactId: string,
+    scenario: string,
+    opts: ShadowRunOpts,
+  ): Promise<PromotionCheck | null> {
     if (!this.shadowExecutor) return null;
+    if (opts.incumbentScore <= 0) {
+      throw new Error("incumbentScore must be > 0 for shadow evaluation");
+    }
     const result = await this.shadowExecutor(artifactId, scenario);
     return {
       currentState: "shadow",
-      heldOutScore: result.score,
-      incumbentScore: 0, // caller must set
+      heldOutScore: opts.heldOutScore,
+      incumbentScore: opts.incumbentScore,
       shadowRunScore: result.score,
       parseFailureRate: result.parseFailureRate,
       validationFailureRate: result.validationFailureRate,
@@ -204,18 +216,35 @@ export class PromotionEngine {
   }
 
   evaluate(check: PromotionCheck): PromotionDecision {
-    const ratio = check.incumbentScore > 0
+    const hasIncumbentBaseline = check.incumbentScore > 0;
+    const heldOutRatio = hasIncumbentBaseline
       ? check.heldOutScore / check.incumbentScore
-      : 1;
+      : null;
+    const shadowRatio = hasIncumbentBaseline && check.shadowRunScore != null
+      ? check.shadowRunScore / check.incumbentScore
+      : null;
+    const comparisonRatio = shadowRatio ?? heldOutRatio;
+
+    if ((check.currentState === "candidate" || check.currentState === "shadow") && !hasIncumbentBaseline) {
+      return {
+        promote: false,
+        rollback: false,
+        targetState: check.currentState,
+        reasoning: "Incumbent score baseline is required before a candidate or shadow model can be promoted.",
+      };
+    }
 
     // Check for regressions that trigger rollback
     if (check.currentState === "active" || check.currentState === "shadow") {
-      if (ratio < this.thresholds.regressionThreshold || check.parseFailureRate > this.thresholds.maxParseFailureRate * 2) {
+      if (
+        (comparisonRatio != null && comparisonRatio < this.thresholds.regressionThreshold)
+        || check.parseFailureRate > this.thresholds.maxParseFailureRate * 2
+      ) {
         return {
           promote: false,
           rollback: true,
           targetState: "disabled",
-          reasoning: `Regression detected: held-out ratio ${ratio.toFixed(2)} (threshold ${this.thresholds.regressionThreshold}), ` +
+          reasoning: `Regression detected: comparison ratio ${(comparisonRatio ?? 0).toFixed(2)} (threshold ${this.thresholds.regressionThreshold}), ` +
             `parse failures ${(check.parseFailureRate * 100).toFixed(1)}%.`,
         };
       }
@@ -243,12 +272,12 @@ export class PromotionEngine {
 
     // Candidate → Shadow: held-out eval must pass
     if (check.currentState === "candidate") {
-      if (ratio >= this.thresholds.heldOutMinRatio) {
+      if ((heldOutRatio ?? 0) >= this.thresholds.heldOutMinRatio) {
         return {
           promote: true,
           rollback: false,
           targetState: "shadow",
-          reasoning: `Held-out score ${check.heldOutScore.toFixed(2)} is ${(ratio * 100).toFixed(1)}% of incumbent ${check.incumbentScore.toFixed(2)} (threshold ${(this.thresholds.heldOutMinRatio * 100).toFixed(0)}%).`,
+          reasoning: `Held-out score ${check.heldOutScore.toFixed(2)} is ${((heldOutRatio ?? 0) * 100).toFixed(1)}% of incumbent ${check.incumbentScore.toFixed(2)} (threshold ${(this.thresholds.heldOutMinRatio * 100).toFixed(0)}%).`,
         };
       }
       return {
@@ -261,11 +290,16 @@ export class PromotionEngine {
 
     // Shadow → Active: shadow-run score must be acceptable
     if (check.currentState === "shadow") {
-      const shadowRatio = check.shadowRunScore != null && check.incumbentScore > 0
-        ? check.shadowRunScore / check.incumbentScore
-        : ratio;
+      if (shadowRatio == null) {
+        return {
+          promote: false,
+          rollback: false,
+          targetState: "shadow",
+          reasoning: "Shadow-run score is required before a shadow model can be promoted.",
+        };
+      }
 
-      if (shadowRatio >= this.thresholds.shadowMinRatio && ratio >= this.thresholds.heldOutMinRatio) {
+      if (shadowRatio >= this.thresholds.shadowMinRatio && (heldOutRatio ?? 0) >= this.thresholds.heldOutMinRatio) {
         return {
           promote: true,
           rollback: false,

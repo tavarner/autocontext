@@ -10,14 +10,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  ACTIVATION_STATES,
   ModelRegistry,
   PromotionEngine,
-  type ModelRecord,
-  type ActivationState,
-  type PromotionCheck,
   type PromotionDecision,
-  ACTIVATION_STATES,
-} from "../src/training/promotion.js";
+} from "../src/index.js";
 
 let tmpDir: string;
 
@@ -188,6 +185,60 @@ describe("PromotionEngine", () => {
     expect(decision.rollback).toBe(true);
     expect(decision.targetState).toBe("disabled");
   });
+
+  it("triggers rollback when a shadow run regresses badly even if held-out looked good", () => {
+    const engine = new PromotionEngine();
+    const decision = engine.evaluate({
+      currentState: "shadow",
+      heldOutScore: 0.95,
+      incumbentScore: 1.0,
+      shadowRunScore: 0.20,
+      parseFailureRate: 0,
+      validationFailureRate: 0,
+    });
+
+    expect(decision.promote).toBe(false);
+    expect(decision.rollback).toBe(true);
+    expect(decision.targetState).toBe("disabled");
+  });
+
+  it("runShadow requires a real incumbent baseline and does not fabricate one", async () => {
+    const engine = new PromotionEngine({
+      shadowExecutor: async () => ({
+        score: 0.20,
+        parseFailureRate: 0,
+        validationFailureRate: 0,
+        samplesRun: 10,
+      }),
+    });
+
+    await expect(engine.runShadow("artifact-1", "grid_ctf", {
+      incumbentScore: 0,
+      heldOutScore: 0.95,
+    })).rejects.toThrow("incumbentScore");
+  });
+
+  it("runShadow returns a complete promotion check that evaluates safely", async () => {
+    const engine = new PromotionEngine({
+      shadowExecutor: async () => ({
+        score: 0.20,
+        parseFailureRate: 0,
+        validationFailureRate: 0,
+        samplesRun: 10,
+      }),
+    });
+
+    const check = await engine.runShadow("artifact-1", "grid_ctf", {
+      incumbentScore: 1.0,
+      heldOutScore: 0.95,
+    });
+    const decision = engine.evaluate(check!);
+
+    expect(check?.incumbentScore).toBe(1.0);
+    expect(check?.shadowRunScore).toBe(0.20);
+    expect(decision.promote).toBe(false);
+    expect(decision.rollback).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -211,5 +262,14 @@ describe("PromotionDecision shape", () => {
     expect(decision).toHaveProperty("rollback");
     expect(typeof decision.promote).toBe("boolean");
     expect(typeof decision.reasoning).toBe("string");
+  });
+});
+
+describe("public package surface", () => {
+  it("exports the promotion lifecycle APIs from the root entrypoint", async () => {
+    const pkg = await import("../src/index.js");
+    expect(pkg.ACTIVATION_STATES).toBeDefined();
+    expect(pkg.ModelRegistry).toBeDefined();
+    expect(pkg.PromotionEngine).toBeDefined();
   });
 });
