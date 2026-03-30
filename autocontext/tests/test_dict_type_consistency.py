@@ -9,12 +9,8 @@ Verifies that:
 from __future__ import annotations
 
 import ast
-import json
 import os
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "autocontext"
 
@@ -30,6 +26,53 @@ def _iter_python_files() -> list[Path]:
     return results
 
 
+def _annotation_texts(source: str, tree: ast.AST) -> list[str]:
+    """Collect source snippets for relevant type annotations in a module."""
+    annotations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign):
+            segment = ast.get_source_segment(source, node.annotation)
+            if segment:
+                annotations.append(segment)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.returns:
+                segment = ast.get_source_segment(source, node.returns)
+                if segment:
+                    annotations.append(segment)
+            all_args = (
+                list(node.args.posonlyargs)
+                + list(node.args.args)
+                + list(node.args.kwonlyargs)
+            )
+            if node.args.vararg is not None:
+                all_args.append(node.args.vararg)
+            if node.args.kwarg is not None:
+                all_args.append(node.args.kwarg)
+            for arg in all_args:
+                if arg.annotation is None:
+                    continue
+                segment = ast.get_source_segment(source, arg.annotation)
+                if segment:
+                    annotations.append(segment)
+    return annotations
+
+
+def _cast_target_texts(source: str, tree: ast.AST) -> list[str]:
+    """Collect the first argument passed to typing.cast calls."""
+    targets: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "cast":
+            continue
+        if not node.args:
+            continue
+        segment = ast.get_source_segment(source, node.args[0])
+        if segment:
+            targets.append(segment)
+    return targets
+
+
 class TestNoDictStrObjectInSource:
     """Enforce that dict[str, object] is not used in type annotations."""
 
@@ -43,10 +86,11 @@ class TestNoDictStrObjectInSource:
         violations: list[str] = []
         for path in _iter_python_files():
             content = path.read_text(encoding="utf-8")
-            if "dict[str, object]" in content:
+            tree = ast.parse(content)
+            annotations = _annotation_texts(content, tree)
+            count = sum(1 for annotation in annotations if annotation == "dict[str, object]")
+            if count:
                 rel = path.relative_to(SRC_ROOT.parent.parent)
-                # Count occurrences
-                count = content.count("dict[str, object]")
                 violations.append(f"{rel} ({count} occurrences)")
 
         assert violations == [], (
@@ -59,8 +103,10 @@ class TestNoDictStrObjectInSource:
         mixed: list[str] = []
         for path in _iter_python_files():
             content = path.read_text(encoding="utf-8")
-            has_object = "dict[str, object]" in content
-            has_any = "dict[str, Any]" in content
+            tree = ast.parse(content)
+            annotations = _annotation_texts(content, tree)
+            has_object = "dict[str, object]" in annotations
+            has_any = "dict[str, Any]" in annotations
             if has_object and has_any:
                 rel = path.relative_to(SRC_ROOT.parent.parent)
                 mixed.append(str(rel))
@@ -90,7 +136,7 @@ class TestMcpToolReturnTypesAreSerializable:
                         violations.append(f"{node.name}() -> {annotation_text}")
 
         assert violations == [], (
-            f"MCP tool functions using dict[str, object] return type:\n"
+            "MCP tool functions using dict[str, object] return type:\n"
             + "\n".join(f"  {v}" for v in violations)
         )
 
@@ -103,11 +149,13 @@ class TestCastCallsMinimized:
         violations: list[str] = []
         for path in _iter_python_files():
             content = path.read_text(encoding="utf-8")
-            if "cast(dict[str, object]" in content:
+            tree = ast.parse(content)
+            cast_targets = _cast_target_texts(content, tree)
+            if "dict[str, object]" in cast_targets:
                 rel = path.relative_to(SRC_ROOT.parent.parent)
                 violations.append(str(rel))
 
         assert violations == [], (
-            f"Found cast(dict[str, object], ...) in:\n"
+            "Found cast(dict[str, object], ...) in:\n"
             + "\n".join(f"  {v}" for v in violations)
         )
