@@ -292,6 +292,36 @@ export type {
   DistilledArtifactMetadata,
 } from "./training/model-strategy.js";
 
+// Training
+export {
+  TRAINING_MODES,
+  DEFAULT_RECOMMENDATIONS,
+  ModelStrategySelector,
+} from "./training/model-strategy.js";
+export type {
+  TrainingMode,
+  AdapterType,
+  TaskComplexity,
+  BudgetTier,
+  ModelStrategy,
+  SelectionInput,
+  DistillationConfig,
+  DistilledArtifactMetadata,
+} from "./training/model-strategy.js";
+export {
+  TrainingBackend,
+  MLXBackend,
+  CUDABackend,
+  BackendRegistry,
+  defaultBackendRegistry,
+  TrainingRunner,
+} from "./training/backends.js";
+export type {
+  TrainingConfig,
+  TrainingResult,
+  PublishedArtifact,
+} from "./training/backends.js";
+
 // MCP
 export { createMcpServer, startServer } from "./mcp/server.js";
 export type { MtsServerOpts } from "./mcp/server.js";

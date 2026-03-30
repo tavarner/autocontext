@@ -7,6 +7,7 @@
  * This makes CUDA a real training path, not just a registry entry.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TrainingMode } from "./model-strategy.js";
@@ -69,8 +70,7 @@ export class CUDABackend extends TrainingBackend {
     // CUDA availability requires torch with CUDA support
     // In TS context, we check for nvidia-smi as a proxy
     try {
-      const { execSync } = require("node:child_process");
-      execSync("nvidia-smi", { stdio: "ignore" });
+      execFileSync("nvidia-smi", [], { stdio: "ignore" });
       return true;
     } catch {
       return false;
@@ -196,6 +196,25 @@ export class TrainingRunner {
         };
       }
 
+      const backend = this.registry.get(config.backend);
+      if (!backend) {
+        return {
+          status: "failed",
+          backend: config.backend,
+          durationMs: performance.now() - start,
+          error: `Unknown training backend: ${config.backend}`,
+        };
+      }
+
+      if (!backend.isAvailable()) {
+        return {
+          status: "failed",
+          backend: config.backend,
+          durationMs: performance.now() - start,
+          error: `Training backend '${config.backend}' is not available on this machine`,
+        };
+      }
+
       // Read dataset to count records
       const datasetContent = readFileSync(config.datasetPath, "utf-8");
       const datasetSize = datasetContent.trim().split("\n").filter(Boolean).length;
@@ -207,10 +226,9 @@ export class TrainingRunner {
       }
 
       // Create checkpoint directory
-      const backend = this.registry.get(config.backend);
       const checkpointDir = join(
         config.outputDir,
-        backend?.defaultCheckpointDir(config.scenario) ?? join("models", config.scenario, config.backend),
+        backend.defaultCheckpointDir(config.scenario),
       );
       if (!existsSync(checkpointDir)) mkdirSync(checkpointDir, { recursive: true });
 

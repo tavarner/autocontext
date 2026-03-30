@@ -18,8 +18,8 @@ import {
   TrainingRunner,
   type TrainingConfig,
   type TrainingResult,
-  type PublishedArtifact,
-} from "../src/training/backends.js";
+} from "../src/index.js";
+import * as pkg from "../src/index.js";
 
 let tmpDir: string;
 
@@ -29,6 +29,23 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+class StubBackend extends TrainingBackend {
+  constructor(
+    readonly name: string,
+    private readonly available: boolean,
+  ) {
+    super();
+  }
+
+  isAvailable(): boolean {
+    return this.available;
+  }
+
+  defaultCheckpointDir(scenario: string): string {
+    return join("models", scenario, this.name);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Backend abstraction
@@ -101,13 +118,15 @@ describe("BackendRegistry", () => {
 
 describe("TrainingRunner", () => {
   it("creates a training run with config and backend", async () => {
-    const runner = new TrainingRunner();
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", true));
+    const runner = new TrainingRunner(registry);
     const config: TrainingConfig = {
       scenario: "grid_ctf",
       family: "game",
       datasetPath: join(tmpDir, "train.jsonl"),
       outputDir: join(tmpDir, "output"),
-      backend: "cuda",
+      backend: "stub",
       trainingMode: "from_scratch",
     };
 
@@ -117,19 +136,21 @@ describe("TrainingRunner", () => {
     const result = await runner.train(config);
 
     expect(result.status).toBe("completed");
-    expect(result.backend).toBe("cuda");
+    expect(result.backend).toBe("stub");
     expect(result.checkpointDir).toBeTruthy();
     expect(existsSync(result.checkpointDir!)).toBe(true);
   });
 
   it("publishes artifact with backend metadata", async () => {
-    const runner = new TrainingRunner();
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", true));
+    const runner = new TrainingRunner(registry);
     const config: TrainingConfig = {
       scenario: "code_review",
       family: "agent_task",
       datasetPath: join(tmpDir, "train.jsonl"),
       outputDir: join(tmpDir, "output"),
-      backend: "cuda",
+      backend: "stub",
       trainingMode: "adapter_finetune",
       baseModel: "Qwen/Qwen3-0.6B",
     };
@@ -140,7 +161,7 @@ describe("TrainingRunner", () => {
     const artifact = result.artifact!;
 
     expect(artifact).toBeDefined();
-    expect(artifact.backend).toBe("cuda");
+    expect(artifact.backend).toBe("stub");
     expect(artifact.trainingMode).toBe("adapter_finetune");
     expect(artifact.baseModel).toBe("Qwen/Qwen3-0.6B");
     expect(artifact.scenario).toBe("code_review");
@@ -150,13 +171,15 @@ describe("TrainingRunner", () => {
   });
 
   it("handles training failure gracefully", async () => {
-    const runner = new TrainingRunner();
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", true));
+    const runner = new TrainingRunner(registry);
     const config: TrainingConfig = {
       scenario: "test",
       family: "game",
       datasetPath: join(tmpDir, "nonexistent.jsonl"),
       outputDir: join(tmpDir, "output"),
-      backend: "cuda",
+      backend: "stub",
       trainingMode: "from_scratch",
     };
 
@@ -166,13 +189,15 @@ describe("TrainingRunner", () => {
   });
 
   it("saves training manifest alongside checkpoint", async () => {
-    const runner = new TrainingRunner();
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", true));
+    const runner = new TrainingRunner(registry);
     const config: TrainingConfig = {
       scenario: "test_manifest",
       family: "simulation",
       datasetPath: join(tmpDir, "train.jsonl"),
       outputDir: join(tmpDir, "output"),
-      backend: "mlx",
+      backend: "stub",
       trainingMode: "from_scratch",
     };
 
@@ -184,9 +209,47 @@ describe("TrainingRunner", () => {
 
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     expect(manifest.scenario).toBe("test_manifest");
-    expect(manifest.backend).toBe("mlx");
+    expect(manifest.backend).toBe("stub");
     expect(manifest.trainingMode).toBe("from_scratch");
     expect(manifest.datasetSize).toBeGreaterThan(0);
+  });
+
+  it("fails when the requested backend is unknown", async () => {
+    const runner = new TrainingRunner(new BackendRegistry());
+    const config: TrainingConfig = {
+      scenario: "unknown_backend",
+      family: "game",
+      datasetPath: join(tmpDir, "train.jsonl"),
+      outputDir: join(tmpDir, "output"),
+      backend: "bogus",
+      trainingMode: "from_scratch",
+    };
+
+    writeFileSync(config.datasetPath, '{"conversations":[{"from":"human","value":"hi"}]}\n', "utf-8");
+
+    const result = await runner.train(config);
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("Unknown training backend");
+  });
+
+  it("fails when the requested backend is unavailable", async () => {
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", false));
+    const runner = new TrainingRunner(registry);
+    const config: TrainingConfig = {
+      scenario: "unavailable_backend",
+      family: "game",
+      datasetPath: join(tmpDir, "train.jsonl"),
+      outputDir: join(tmpDir, "output"),
+      backend: "stub",
+      trainingMode: "from_scratch",
+    };
+
+    writeFileSync(config.datasetPath, '{"conversations":[{"from":"human","value":"hi"}]}\n', "utf-8");
+
+    const result = await runner.train(config);
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("not available");
   });
 });
 
@@ -196,7 +259,9 @@ describe("TrainingRunner", () => {
 
 describe("TrainingResult shape", () => {
   it("has all required fields", async () => {
-    const runner = new TrainingRunner();
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("stub", true));
+    const runner = new TrainingRunner(registry);
     writeFileSync(join(tmpDir, "train.jsonl"), '{"conversations":[]}\n', "utf-8");
 
     const result: TrainingResult = await runner.train({
@@ -204,7 +269,7 @@ describe("TrainingResult shape", () => {
       family: "game",
       datasetPath: join(tmpDir, "train.jsonl"),
       outputDir: join(tmpDir, "output"),
-      backend: "cuda",
+      backend: "stub",
       trainingMode: "from_scratch",
     });
 
@@ -213,5 +278,16 @@ describe("TrainingResult shape", () => {
     expect(result).toHaveProperty("checkpointDir");
     expect(result).toHaveProperty("artifact");
     expect(result).toHaveProperty("durationMs");
+  });
+});
+
+describe("public package surface", () => {
+  it("exports the training backend APIs from the root entrypoint", () => {
+    expect(pkg.TrainingBackend).toBeDefined();
+    expect(pkg.MLXBackend).toBeDefined();
+    expect(pkg.CUDABackend).toBeDefined();
+    expect(pkg.BackendRegistry).toBeDefined();
+    expect(pkg.defaultBackendRegistry).toBeDefined();
+    expect(pkg.TrainingRunner).toBeDefined();
   });
 });
