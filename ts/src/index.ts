@@ -311,6 +311,21 @@ export type {
   PublishedArtifact,
 } from "./training/backends.js";
 export {
+  ACTIVATION_STATES,
+  ModelRegistry,
+  PromotionEngine,
+} from "./training/promotion.js";
+export type {
+  ActivationState,
+  PromotionEvent,
+  ModelRecord,
+  PromotionCheck,
+  PromotionDecision,
+  PromotionThresholds,
+  ShadowExecutor,
+  ShadowRunOpts,
+} from "./training/promotion.js";
+export {
   PromptContract,
   RuntimePromptAdapter,
   TrainingPromptAdapter,

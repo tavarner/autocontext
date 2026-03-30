@@ -17,6 +17,7 @@ import {
   BackendRegistry,
   defaultBackendRegistry,
   TrainingRunner,
+  ModelRegistry,
   type TrainingConfig,
   type TrainingResult,
 } from "../src/index.js";
@@ -184,6 +185,8 @@ describe("TrainingRunner", () => {
     expect(artifact.family).toBe("agent_task");
     expect(artifact.artifactId).toBeTruthy();
     expect(artifact.trainedAt).toBeTruthy();
+    expect(artifact.activationState).toBe("candidate");
+    expect(Array.isArray(artifact.promotionHistory)).toBe(true);
   });
 
   it("handles training failure gracefully", async () => {
@@ -338,6 +341,66 @@ describe("TrainingRunner", () => {
     expect(result.status).toBe("failed");
     expect(result.error).toContain("known model registry");
   });
+
+  it("registers successful artifacts in the promotion lifecycle as candidates", async () => {
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("cuda", true));
+    const promotionRegistry = new ModelRegistry();
+    const runner = new TrainingRunner({ registry, promotionRegistry });
+    const config: TrainingConfig = {
+      scenario: "promotion_candidate",
+      family: "agent_task",
+      datasetPath: join(tmpDir, "train.jsonl"),
+      outputDir: join(tmpDir, "output"),
+      backend: "cuda",
+      trainingMode: "adapter_finetune",
+    };
+
+    writeFileSync(config.datasetPath, '{"conversations":[{"from":"human","value":"hi"}]}\n', "utf-8");
+
+    const result = await runner.train(config);
+    expect(result.status).toBe("completed");
+    expect(result.artifact?.activationState).toBe("candidate");
+    expect(runner.getModelRecord(result.artifact!.artifactId)?.activationState).toBe("candidate");
+
+    const promotionStatePath = join(result.checkpointDir!, "promotion_state.json");
+    expect(existsSync(promotionStatePath)).toBe(true);
+    const promotionState = JSON.parse(readFileSync(promotionStatePath, "utf-8"));
+    expect(promotionState.activationState).toBe("candidate");
+  });
+
+  it("uses the promotion engine when executor metrics include a held-out baseline comparison", async () => {
+    const registry = new BackendRegistry();
+    registry.register(new StubBackend("cuda", true));
+    const runner = new TrainingRunner({
+      registry,
+      executor: async () => ({
+        success: true,
+        metrics: {
+          heldOutScore: 0.95,
+          incumbentScore: 1.0,
+          parseFailureRate: 0,
+          validationFailureRate: 0,
+        },
+      }),
+    });
+    const config: TrainingConfig = {
+      scenario: "promotion_shadow",
+      family: "agent_task",
+      datasetPath: join(tmpDir, "train.jsonl"),
+      outputDir: join(tmpDir, "output"),
+      backend: "cuda",
+      trainingMode: "adapter_finetune",
+    };
+
+    writeFileSync(config.datasetPath, '{"conversations":[{"from":"human","value":"hi"}]}\n', "utf-8");
+
+    const result = await runner.train(config);
+    expect(result.status).toBe("completed");
+    expect(result.artifact?.activationState).toBe("shadow");
+    expect(result.artifact?.promotionHistory).toHaveLength(1);
+    expect(result.artifact?.promotionHistory[0]?.to).toBe("shadow");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -376,6 +439,8 @@ describe("public package surface", () => {
     expect(pkg.BackendRegistry).toBeDefined();
     expect(pkg.defaultBackendRegistry).toBeDefined();
     expect(pkg.TrainingRunner).toBeDefined();
+    expect(pkg.ModelRegistry).toBeDefined();
+    expect(pkg.PromotionEngine).toBeDefined();
   });
 });
 

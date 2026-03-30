@@ -11,6 +11,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ModelStrategySelector, type TrainingMode } from "./model-strategy.js";
+import {
+  ModelRegistry,
+  PromotionEngine,
+  type ActivationState,
+  type ModelRecord,
+  type PromotionEvent,
+} from "./promotion.js";
 
 // ---------------------------------------------------------------------------
 // Backend interface
@@ -149,6 +156,8 @@ export interface PublishedArtifact {
   heldOutSize: number;
   trainedAt: string;
   metrics?: Record<string, number>;
+  activationState: ActivationState;
+  promotionHistory: PromotionEvent[];
 }
 
 export interface TrainingResult {
@@ -164,10 +173,6 @@ export interface TrainingResult {
 // Training Runner
 // ---------------------------------------------------------------------------
 
-function generateArtifactId(): string {
-  return `model_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /**
  * Hook for real training execution. Implementations call PyTorch,
  * MLX, or other frameworks. Returns training metrics.
@@ -177,6 +182,17 @@ export type TrainingExecutor = (config: TrainingConfig, checkpointDir: string) =
   metrics?: Record<string, number>;
   error?: string;
 }>;
+
+function readMetric(metrics: Record<string, number> | undefined, ...keys: string[]): number | undefined {
+  if (!metrics) return undefined;
+  for (const key of keys) {
+    const value = metrics[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Default executor: validates dataset and writes checkpoint metadata.
@@ -208,14 +224,35 @@ const defaultExecutor: TrainingExecutor = async (config, checkpointDir) => {
 export class TrainingRunner {
   private registry: BackendRegistry;
   private executor: TrainingExecutor;
+  private promotionRegistry: ModelRegistry;
+  private promotionEngine: PromotionEngine;
 
-  constructor(opts?: { registry?: BackendRegistry; executor?: TrainingExecutor }) {
+  constructor(opts?: {
+    registry?: BackendRegistry;
+    executor?: TrainingExecutor;
+    promotionRegistry?: ModelRegistry;
+    promotionEngine?: PromotionEngine;
+  }) {
     this.registry = opts?.registry ?? defaultBackendRegistry();
     this.executor = opts?.executor ?? defaultExecutor;
+    this.promotionRegistry = opts?.promotionRegistry ?? new ModelRegistry();
+    this.promotionEngine = opts?.promotionEngine ?? new PromotionEngine();
   }
 
   usesSyntheticExecutor(): boolean {
     return this.executor === defaultExecutor;
+  }
+
+  getPromotionRegistry(): ModelRegistry {
+    return this.promotionRegistry;
+  }
+
+  getPromotionEngine(): PromotionEngine {
+    return this.promotionEngine;
+  }
+
+  getModelRecord(artifactId: string): ModelRecord | null {
+    return this.promotionRegistry.get(artifactId);
   }
 
   async train(config: TrainingConfig): Promise<TrainingResult> {
@@ -336,9 +373,55 @@ export class TrainingRunner {
         };
       }
 
+      const artifactId = this.promotionRegistry.register({
+        scenario: config.scenario,
+        family: config.family,
+        backend: config.backend,
+        checkpointDir,
+        activationState: "candidate",
+      });
+      const record = this.promotionRegistry.get(artifactId);
+      if (!record) {
+        return {
+          status: "failed",
+          backend: config.backend,
+          checkpointDir,
+          durationMs: performance.now() - start,
+          error: "Failed to register trained artifact in promotion lifecycle",
+        };
+      }
+
+      const heldOutScore = readMetric(execResult.metrics, "heldOutScore", "held_out_score", "score");
+      const incumbentScore = readMetric(execResult.metrics, "incumbentScore", "incumbent_score");
+      if (heldOutScore != null && incumbentScore != null && incumbentScore > 0) {
+        const decision = this.promotionEngine.evaluate({
+          currentState: "candidate",
+          heldOutScore,
+          incumbentScore,
+          parseFailureRate: readMetric(execResult.metrics, "parseFailureRate", "parse_failure_rate") ?? 0,
+          validationFailureRate: readMetric(execResult.metrics, "validationFailureRate", "validation_failure_rate") ?? 0,
+        });
+        if (decision.targetState !== "candidate") {
+          this.promotionRegistry.setState(artifactId, decision.targetState, {
+            reason: decision.reasoning,
+            evidence: execResult.metrics,
+          });
+        }
+      }
+      const persistedRecord = this.promotionRegistry.get(artifactId);
+      if (!persistedRecord) {
+        return {
+          status: "failed",
+          backend: config.backend,
+          checkpointDir,
+          durationMs: performance.now() - start,
+          error: "Promotion lifecycle record disappeared after evaluation",
+        };
+      }
+
       // Publish artifact
       const artifact: PublishedArtifact = {
-        artifactId: generateArtifactId(),
+        artifactId,
         scenario: config.scenario,
         family: config.family,
         backend: config.backend,
@@ -350,11 +433,18 @@ export class TrainingRunner {
         heldOutSize,
         trainedAt: new Date().toISOString(),
         metrics: execResult.metrics,
+        activationState: persistedRecord.activationState,
+        promotionHistory: [...persistedRecord.promotionHistory],
       };
 
       writeFileSync(
         join(checkpointDir, "artifact.json"),
         JSON.stringify(artifact, null, 2),
+        "utf-8",
+      );
+      writeFileSync(
+        join(checkpointDir, "promotion_state.json"),
+        JSON.stringify(persistedRecord, null, 2),
         "utf-8",
       );
 
