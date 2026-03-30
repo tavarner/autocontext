@@ -80,7 +80,6 @@ interface FamilyRecommendation {
 
 const DEFAULT_BASE_MODEL = "Qwen/Qwen3-0.6B";
 const DEFAULT_ADAPTER_TYPE: AdapterType = "lora";
-
 export const DEFAULT_RECOMMENDATIONS: Record<string, FamilyRecommendation> = {
   game: {
     trainingMode: "from_scratch",

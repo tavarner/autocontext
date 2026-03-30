@@ -280,7 +280,13 @@ export type {
   DistillationResult,
   DistillationPipelineConfig,
 } from "./traces/distillation-pipeline.js";
-export { ModelStrategySelector, TRAINING_MODES, DEFAULT_RECOMMENDATIONS } from "./training/model-strategy.js";
+
+// Training
+export {
+  TRAINING_MODES,
+  DEFAULT_RECOMMENDATIONS,
+  ModelStrategySelector,
+} from "./training/model-strategy.js";
 export type {
   TrainingMode,
   AdapterType,
@@ -291,6 +297,19 @@ export type {
   DistillationConfig,
   DistilledArtifactMetadata,
 } from "./training/model-strategy.js";
+export {
+  TrainingBackend,
+  MLXBackend,
+  CUDABackend,
+  BackendRegistry,
+  defaultBackendRegistry,
+  TrainingRunner,
+} from "./training/backends.js";
+export type {
+  TrainingConfig,
+  TrainingResult,
+  PublishedArtifact,
+} from "./training/backends.js";
 
 // MCP
 export { createMcpServer, startServer } from "./mcp/server.js";
