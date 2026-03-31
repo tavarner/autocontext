@@ -74,8 +74,8 @@ class TestApplyFreshnessDecay:
         )
 
         items = [
-            EvidenceFreshness("a", support_count=3, last_validated_gen=9, confidence=0.9, created_at_gen=1),
-            EvidenceFreshness("b", support_count=2, last_validated_gen=8, confidence=0.8, created_at_gen=2),
+            EvidenceFreshness(item_id="a", support_count=3, last_validated_gen=9, confidence=0.9, created_at_gen=1),
+            EvidenceFreshness(item_id="b", support_count=2, last_validated_gen=8, confidence=0.8, created_at_gen=2),
         ]
         policy = FreshnessPolicy(max_age_gens=5, min_confidence=0.5, min_support=1)
         active, stale = apply_freshness_decay(items, current_gen=10, policy=policy)
@@ -90,8 +90,8 @@ class TestApplyFreshnessDecay:
         )
 
         items = [
-            EvidenceFreshness("fresh", support_count=3, last_validated_gen=9, confidence=0.9, created_at_gen=1),
-            EvidenceFreshness("stale", support_count=1, last_validated_gen=2, confidence=0.4, created_at_gen=1),
+            EvidenceFreshness(item_id="fresh", support_count=3, last_validated_gen=9, confidence=0.9, created_at_gen=1),
+            EvidenceFreshness(item_id="stale", support_count=1, last_validated_gen=2, confidence=0.4, created_at_gen=1),
         ]
         policy = FreshnessPolicy(max_age_gens=5, min_confidence=0.5, min_support=1)
         active, stale = apply_freshness_decay(items, current_gen=10, policy=policy)
@@ -107,7 +107,7 @@ class TestApplyFreshnessDecay:
         )
 
         items = [
-            EvidenceFreshness("weak", support_count=0, last_validated_gen=9, confidence=0.3, created_at_gen=9),
+            EvidenceFreshness(item_id="weak", support_count=0, last_validated_gen=9, confidence=0.3, created_at_gen=9),
         ]
         policy = FreshnessPolicy(min_confidence=0.5, min_support=1)
         active, stale = apply_freshness_decay(items, current_gen=10, policy=policy)
@@ -123,7 +123,7 @@ class TestDetectStaleContext:
         )
 
         items = [
-            EvidenceFreshness("old", support_count=1, last_validated_gen=1, confidence=0.3, created_at_gen=1),
+            EvidenceFreshness(item_id="old", support_count=1, last_validated_gen=1, confidence=0.3, created_at_gen=1),
         ]
         warnings = detect_stale_context(items, current_gen=10, policy=FreshnessPolicy())
         assert len(warnings) > 0
@@ -137,7 +137,7 @@ class TestDetectStaleContext:
         )
 
         items = [
-            EvidenceFreshness("fresh", support_count=5, last_validated_gen=9, confidence=0.95, created_at_gen=1),
+            EvidenceFreshness(item_id="fresh", support_count=5, last_validated_gen=9, confidence=0.95, created_at_gen=1),
         ]
         warnings = detect_stale_context(items, current_gen=10, policy=FreshnessPolicy())
         assert len(warnings) == 0

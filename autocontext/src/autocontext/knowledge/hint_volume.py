@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 def _normalize_hint_text(text: str) -> str:
@@ -34,38 +35,24 @@ def split_hint_text(hints: str) -> list[str]:
     return parsed
 
 
-@dataclass(slots=True)
-class RankedHint:
+class RankedHint(BaseModel):
     """A hint with impact ranking metadata."""
 
     text: str
     rank: int
     generation_added: int
     impact_score: float  # 0.0-1.0, higher = more effective
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "text": self.text,
-            "rank": self.rank,
-            "generation_added": self.generation_added,
-            "impact_score": self.impact_score,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RankedHint:
-        return cls(
-            text=data.get("text", ""),
-            rank=data.get("rank", 0),
-            generation_added=data.get("generation_added", 0),
-            impact_score=data.get("impact_score", 0.0),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class HintVolumePolicy:
+class HintVolumePolicy(BaseModel):
     """Configuration for hint volume control."""
 
     max_hints: int = 7

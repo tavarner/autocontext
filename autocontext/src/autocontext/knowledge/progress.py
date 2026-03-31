@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
 from typing import Any
 
+from pydantic import BaseModel
 
-@dataclass(slots=True)
-class ProgressSnapshot:
+
+class ProgressSnapshot(BaseModel):
     generation: int
     best_score: float
     best_elo: float
@@ -22,11 +22,11 @@ class ProgressSnapshot:
     rating_uncertainty: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProgressSnapshot:
-        return cls(**data)
+        return cls.model_validate(data)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)

@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,7 @@ WEAKNESS_CATEGORIES = frozenset({
 })
 
 
-@dataclass(slots=True)
-class Weakness:
+class Weakness(BaseModel):
     """A single identified weakness with evidence."""
 
     category: str
@@ -36,56 +36,31 @@ class Weakness:
     frequency: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "category": self.category,
-            "severity": self.severity,
-            "affected_generations": self.affected_generations,
-            "description": self.description,
-            "evidence": self.evidence,
-            "frequency": self.frequency,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Weakness:
-        return cls(
-            category=str(data.get("category", "")),
-            severity=str(data.get("severity", "low")),
-            affected_generations=list(data.get("affected_generations", [])),
-            description=str(data.get("description", "")),
-            evidence=dict(data.get("evidence", {})),
-            frequency=int(data.get("frequency", 0)),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class WeaknessReport:
+class WeaknessReport(BaseModel):
     """Structured weakness report for a run."""
 
     run_id: str
     scenario: str
     total_generations: int
-    weaknesses: list[Weakness] = field(default_factory=list)
+    weaknesses: list[Weakness] = Field(default_factory=list)
 
     @property
     def high_severity_count(self) -> int:
         return sum(1 for w in self.weaknesses if w.severity == "high")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "run_id": self.run_id,
-            "scenario": self.scenario,
-            "total_generations": self.total_generations,
-            "weaknesses": [w.to_dict() for w in self.weaknesses],
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WeaknessReport:
-        return cls(
-            run_id=str(data.get("run_id", "")),
-            scenario=str(data.get("scenario", "")),
-            total_generations=int(data.get("total_generations", 0)),
-            weaknesses=[Weakness.from_dict(w) for w in data.get("weaknesses", [])],
-        )
+        return cls.model_validate(data)
 
     def to_markdown(self) -> str:
         lines = [

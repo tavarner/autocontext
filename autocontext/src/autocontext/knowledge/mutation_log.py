@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,7 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-@dataclass(slots=True)
-class MutationEntry:
+class MutationEntry(BaseModel):
     """A single mutation event in the context log."""
 
     mutation_type: str
@@ -41,34 +41,19 @@ class MutationEntry:
     run_id: str = ""
     description: str = ""
 
-    def __post_init__(self) -> None:
+    def model_post_init(self, __context: Any) -> None:
         if not self.timestamp:
             self.timestamp = _now_iso()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "mutation_type": self.mutation_type,
-            "generation": self.generation,
-            "payload": self.payload,
-            "timestamp": self.timestamp,
-            "run_id": self.run_id,
-            "description": self.description,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MutationEntry:
-        return cls(
-            mutation_type=str(data.get("mutation_type", "")),
-            generation=int(data.get("generation", 0)),
-            payload=data.get("payload", {}),
-            timestamp=str(data.get("timestamp", "")),
-            run_id=str(data.get("run_id", "")),
-            description=str(data.get("description", "")),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class Checkpoint:
+class Checkpoint(BaseModel):
     """A known-good state marker in the mutation log."""
 
     generation: int

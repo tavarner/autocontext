@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,20 @@ class TestNormalizedProgress:
         assert restored.raw_score == original.raw_score
         assert restored.normalized_score == original.normalized_score
         assert restored.pct_of_ceiling == original.pct_of_ceiling
+
+    def test_from_dict_coerces_invalid_numeric_fields_to_defaults(self) -> None:
+        restored = NormalizedProgress.from_dict({
+            "raw_score": "bad",
+            "normalized_score": "0.5",
+            "score_floor": "0",
+            "score_ceiling": "1",
+            "pct_of_ceiling": "50",
+        })
+        assert restored.raw_score == 0.0
+        assert restored.normalized_score == 0.5
+        assert restored.score_floor == 0.0
+        assert restored.score_ceiling == 1.0
+        assert restored.pct_of_ceiling == 50.0
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +501,50 @@ class TestArtifactStoreNormalizedMetrics:
         assert isinstance(restored, RunProgressReport)
         assert restored.run_id == "run_1"
         assert restored.progress.normalized_score == pytest.approx(0.8)
+
+    def test_read_progress_report_tolerates_malformed_numeric_fields(self, store: object) -> None:
+        from autocontext.storage.artifacts import ArtifactStore
+
+        assert isinstance(store, ArtifactStore)
+
+        progress_dir = store.knowledge_root / "grid_ctf" / "progress_reports"
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        (progress_dir / "run_bad.json").write_text(
+            json.dumps({
+                "run_id": "run_bad",
+                "scenario": "grid_ctf",
+                "total_generations": "oops",
+                "advances": "1",
+                "rollbacks": "0",
+                "retries": "0",
+                "progress": {
+                    "raw_score": "bad",
+                    "normalized_score": "0.5",
+                    "score_floor": "0",
+                    "score_ceiling": "1",
+                    "pct_of_ceiling": "50",
+                },
+                "cost": {
+                    "total_input_tokens": "10",
+                    "total_output_tokens": "5",
+                    "total_tokens": "15",
+                    "total_cost_usd": "bad",
+                    "tokens_per_advance": "15",
+                    "cost_per_advance": "0.1",
+                    "tokens_per_score_point": "0",
+                },
+                "annotations": {},
+            }),
+            encoding="utf-8",
+        )
+
+        restored = store.read_progress_report("grid_ctf", "run_bad")
+        assert restored is not None
+        assert isinstance(restored, RunProgressReport)
+        assert restored.total_generations == 0
+        assert restored.progress.raw_score == 0.0
+        assert restored.progress.normalized_score == pytest.approx(0.5)
+        assert restored.cost.total_cost_usd == 0.0
 
     def test_read_missing_progress_report(self, store: object) -> None:
         from autocontext.storage.artifacts import ArtifactStore

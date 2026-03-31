@@ -7,8 +7,9 @@ Purely for operator review — not used for backpressure or gating decisions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from autocontext.harness.core.types import RoleUsage
 from autocontext.harness.cost.calculator import CostCalculator
@@ -32,8 +33,7 @@ def _safe_int(val: Any, default: int = 0) -> int:  # noqa: ANN401
 # NormalizedProgress
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
-class NormalizedProgress:
+class NormalizedProgress(BaseModel):
     """A score mapped to a consistent [0, 1] reporting scale."""
 
     raw_score: float
@@ -43,13 +43,7 @@ class NormalizedProgress:
     pct_of_ceiling: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "raw_score": self.raw_score,
-            "normalized_score": self.normalized_score,
-            "score_floor": self.score_floor,
-            "score_ceiling": self.score_ceiling,
-            "pct_of_ceiling": self.pct_of_ceiling,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NormalizedProgress:
@@ -66,8 +60,7 @@ class NormalizedProgress:
 # CostEfficiency
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
-class CostEfficiency:
+class CostEfficiency(BaseModel):
     """Token and cost efficiency metrics for a run."""
 
     total_input_tokens: int = 0
@@ -79,15 +72,7 @@ class CostEfficiency:
     tokens_per_score_point: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
-            "total_tokens": self.total_tokens,
-            "total_cost_usd": self.total_cost_usd,
-            "tokens_per_advance": self.tokens_per_advance,
-            "cost_per_advance": self.cost_per_advance,
-            "tokens_per_score_point": self.tokens_per_score_point,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostEfficiency:
@@ -138,8 +123,7 @@ class ScenarioNormalizer:
 # RunProgressReport
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
-class RunProgressReport:
+class RunProgressReport(BaseModel):
     """Per-run normalized progress and cost-efficiency report."""
 
     run_id: str
@@ -150,20 +134,10 @@ class RunProgressReport:
     retries: int
     progress: NormalizedProgress
     cost: CostEfficiency
-    annotations: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "run_id": self.run_id,
-            "scenario": self.scenario,
-            "total_generations": self.total_generations,
-            "advances": self.advances,
-            "rollbacks": self.rollbacks,
-            "retries": self.retries,
-            "progress": self.progress.to_dict(),
-            "cost": self.cost.to_dict(),
-            "annotations": self.annotations,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RunProgressReport:

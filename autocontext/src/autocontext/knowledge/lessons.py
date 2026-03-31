@@ -10,17 +10,17 @@ import json
 import logging
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 _UNSET_GEN = -999_999
 
 
-@dataclass(slots=True)
-class ApplicabilityMeta:
+class ApplicabilityMeta(BaseModel):
     """Metadata tracking when and where a lesson was learned."""
 
     created_at: str
@@ -32,39 +32,19 @@ class ApplicabilityMeta:
     superseded_by: str = ""
     last_validated_gen: int = _UNSET_GEN
 
-    def __post_init__(self) -> None:
+    def model_post_init(self, __context: Any) -> None:
         if self.last_validated_gen == _UNSET_GEN:
             self.last_validated_gen = self.generation
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "created_at": self.created_at,
-            "generation": self.generation,
-            "best_score": self.best_score,
-            "schema_version": self.schema_version,
-            "upstream_sig": self.upstream_sig,
-            "operation_type": self.operation_type,
-            "superseded_by": self.superseded_by,
-            "last_validated_gen": self.last_validated_gen,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ApplicabilityMeta:
-        gen = int(data.get("generation", 0))
-        return cls(
-            created_at=str(data.get("created_at", "")),
-            generation=gen,
-            best_score=float(data.get("best_score", 0.0)),
-            schema_version=str(data.get("schema_version", "")),
-            upstream_sig=str(data.get("upstream_sig", "")),
-            operation_type=str(data.get("operation_type", "advance")),
-            superseded_by=str(data.get("superseded_by", "")),
-            last_validated_gen=int(data.get("last_validated_gen", gen)),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class Lesson:
+class Lesson(BaseModel):
     """A lesson with applicability metadata."""
 
     id: str
@@ -84,19 +64,11 @@ class Lesson:
         return not self.is_stale(current_generation, staleness_window) and not self.is_superseded()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "text": self.text,
-            "meta": self.meta.to_dict(),
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Lesson:
-        return cls(
-            id=str(data.get("id", "")),
-            text=str(data.get("text", "")),
-            meta=ApplicabilityMeta.from_dict(data.get("meta", {})),
-        )
+        return cls.model_validate(data)
 
 
 class LessonStore:
