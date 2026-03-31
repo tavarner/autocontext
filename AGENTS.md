@@ -76,3 +76,9 @@ If you change public commands, environment variables, package names, or agent-fa
 - TypeScript package guide: `ts/README.md`
 - Copy-paste examples: `examples/README.md`
 - External agent guide: `autocontext/docs/agent-integration.md`
+
+## Intentional Deletions
+
+- Before restoring deleted modules to make CI green, check whether `autocontext/src/` still imports them.
+- If only tests are failing, prefer rewriting or deleting the tests instead of restoring removed modules.
+- Treat importable module paths as compatibility surfaces until callers are rewired or the removal is explicitly accepted as breaking.
