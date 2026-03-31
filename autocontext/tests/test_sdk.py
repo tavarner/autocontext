@@ -67,7 +67,7 @@ class TestListScenarios:
 
     def test_returns_scenario_list(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.list_scenarios", return_value=[
+        with patch("autocontext.sdk.list_scenarios", return_value=[
             {"name": "grid_ctf", "rules_preview": "Capture the flag..."},
         ]) as mock_ls:
             result = client.list_scenarios()
@@ -81,7 +81,7 @@ class TestDescribeScenario:
 
     def test_returns_description_dict(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.describe_scenario", return_value={
+        with patch("autocontext.sdk.describe_scenario", return_value={
             "rules": "Some rules",
             "strategy_interface": "aggression, defense",
             "evaluation_criteria": "score",
@@ -101,7 +101,7 @@ class TestValidate:
 
     def test_valid_strategy_returns_typed_result(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "ok", "harness_passed": True, "harness_errors": [],
         }):
             result = client.validate("grid_ctf", {"aggression": 0.5})
@@ -111,7 +111,7 @@ class TestValidate:
 
     def test_invalid_strategy_returns_typed_result(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": False, "reason": "out of range", "harness_passed": False, "harness_errors": [],
         }):
             result = client.validate("grid_ctf", {"aggression": 5.0})
@@ -121,7 +121,7 @@ class TestValidate:
 
     def test_unknown_scenario_error_returns_invalid_result(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "error": "Unknown scenario 'grid_ctf'",
         }):
             result = client.validate("grid_ctf", {"aggression": 0.5})
@@ -134,9 +134,9 @@ class TestEvaluate:
 
     def test_returns_typed_evaluate_result(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "ok", "harness_passed": True, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.evaluate_strategy", return_value={
+        }), patch("autocontext.sdk.evaluate_strategy", return_value={
             "scenario": "grid_ctf",
             "matches": 3,
             "scores": [0.6, 0.7, 0.8],
@@ -151,9 +151,9 @@ class TestEvaluate:
 
     def test_evaluate_passes_matches_and_seed(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "", "harness_passed": True, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.evaluate_strategy", return_value={
+        }), patch("autocontext.sdk.evaluate_strategy", return_value={
             "scenario": "grid_ctf",
             "matches": 5,
             "scores": [0.5] * 5,
@@ -165,9 +165,9 @@ class TestEvaluate:
 
     def test_evaluate_error_propagates(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "", "harness_passed": True, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.evaluate_strategy", return_value={
+        }), patch("autocontext.sdk.evaluate_strategy", return_value={
             "error": "Agent task scenarios use judge evaluation",
         }):
             result = client.evaluate("some_task", {})
@@ -176,9 +176,9 @@ class TestEvaluate:
 
     def test_evaluate_invalid_strategy_stops_before_tournament(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": False, "reason": "out of range", "harness_passed": False, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.evaluate_strategy") as mock_eval:
+        }), patch("autocontext.sdk.evaluate_strategy") as mock_eval:
             result = client.evaluate("grid_ctf", {"aggression": 5.0})
         mock_eval.assert_not_called()
         assert result.error == "out of range"
@@ -189,9 +189,9 @@ class TestMatch:
 
     def test_returns_typed_match_result(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "", "harness_passed": True, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.run_match", return_value={
+        }), patch("autocontext.sdk.run_match", return_value={
             "score": 0.75,
             "winner": "challenger",
             "summary": "Challenger captured the flag",
@@ -207,9 +207,9 @@ class TestMatch:
 
     def test_match_passes_seed(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": True, "reason": "", "harness_passed": True, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.run_match", return_value={
+        }), patch("autocontext.sdk.run_match", return_value={
             "score": 0.5, "winner": "defender", "summary": "draw", "metrics": {}, "replay": [],
         }) as mock_rm:
             client.match("grid_ctf", {"aggression": 0.5}, seed=99)
@@ -217,9 +217,9 @@ class TestMatch:
 
     def test_match_invalid_strategy_stops_before_execution(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.validate_strategy_against_harness", return_value={
+        with patch("autocontext.sdk.validate_strategy_against_harness", return_value={
             "valid": False, "reason": "out of range", "harness_passed": False, "harness_errors": [],
-        }), patch("autocontext.sdk.tools.run_match") as mock_rm:
+        }), patch("autocontext.sdk.run_match") as mock_rm:
             result = client.match("grid_ctf", {"aggression": 5.0})
         mock_rm.assert_not_called()
         assert result.error == "out of range"
@@ -235,7 +235,7 @@ class TestSearch:
 
     def test_returns_typed_search_results(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.search_strategies", return_value=[
+        with patch("autocontext.sdk.search_strategies", return_value=[
             {
                 "scenario": "grid_ctf",
                 "display_name": "Grid Ctf",
@@ -254,13 +254,13 @@ class TestSearch:
 
     def test_search_passes_top_k(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.search_strategies", return_value=[]) as mock_ss:
+        with patch("autocontext.sdk.search_strategies", return_value=[]) as mock_ss:
             client.search("anything", top_k=10)
         mock_ss.assert_called_once_with(client._ctx, "anything", 10)
 
     def test_search_empty_results(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.search_strategies", return_value=[]):
+        with patch("autocontext.sdk.search_strategies", return_value=[]):
             results = client.search("nonexistent")
         assert results == []
 
@@ -270,7 +270,7 @@ class TestExport:
 
     def test_export_skill_returns_dict(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.export_skill", return_value={
+        with patch("autocontext.sdk.export_skill", return_value={
             "scenario_name": "grid_ctf",
             "playbook": "some playbook",
         }):
@@ -279,7 +279,7 @@ class TestExport:
 
     def test_export_package_returns_dict(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.export_package", return_value={
+        with patch("autocontext.sdk.export_package", return_value={
             "scenario": "grid_ctf",
             "version": "1.0.0",
         }):
@@ -297,7 +297,7 @@ class TestListArtifacts:
 
     def test_list_all_artifacts(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.list_artifacts", return_value=[
+        with patch("autocontext.sdk.list_artifacts", return_value=[
             {"id": "abc", "name": "test", "artifact_type": "harness", "scenario": "grid_ctf", "version": 1},
         ]) as mock_la:
             result = client.list_artifacts()
@@ -306,7 +306,7 @@ class TestListArtifacts:
 
     def test_list_artifacts_with_filters(self, tmp_path: Path) -> None:
         client = AutoContext(db_path=tmp_path / "autocontext.db", knowledge_root=tmp_path / "k")
-        with patch("autocontext.sdk.tools.list_artifacts", return_value=[]) as mock_la:
+        with patch("autocontext.sdk.list_artifacts", return_value=[]) as mock_la:
             client.list_artifacts(scenario="grid_ctf", artifact_type="policy")
         mock_la.assert_called_once_with(client._ctx, scenario="grid_ctf", artifact_type="policy")
 
