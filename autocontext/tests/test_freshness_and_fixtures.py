@@ -267,9 +267,42 @@ class TestFixtureStore:
         from autocontext.analytics.regression_fixtures import FixtureStore, RegressionFixture
 
         store = FixtureStore(tmp_path)
-        store.persist(RegressionFixture(fixture_id="f1", scenario="grid_ctf", description="d", seed=1, strategy={}, expected_min_score=0.5, source_evidence=[], confidence=0.8))
-        store.persist(RegressionFixture(fixture_id="f2", scenario="grid_ctf", description="d", seed=2, strategy={}, expected_min_score=0.5, source_evidence=[], confidence=0.8))
-        store.persist(RegressionFixture(fixture_id="f3", scenario="othello", description="d", seed=3, strategy={}, expected_min_score=0.5, source_evidence=[], confidence=0.8))
+        store.persist(
+            RegressionFixture(
+                fixture_id="f1",
+                scenario="grid_ctf",
+                description="d",
+                seed=1,
+                strategy={},
+                expected_min_score=0.5,
+                source_evidence=[],
+                confidence=0.8,
+            )
+        )
+        store.persist(
+            RegressionFixture(
+                fixture_id="f2",
+                scenario="grid_ctf",
+                description="d",
+                seed=2,
+                strategy={},
+                expected_min_score=0.5,
+                source_evidence=[],
+                confidence=0.8,
+            )
+        )
+        store.persist(
+            RegressionFixture(
+                fixture_id="f3",
+                scenario="othello",
+                description="d",
+                seed=3,
+                strategy={},
+                expected_min_score=0.5,
+                source_evidence=[],
+                confidence=0.8,
+            )
+        )
 
         grid_fixtures = store.list_for_scenario("grid_ctf")
         assert len(grid_fixtures) == 2
@@ -278,11 +311,33 @@ class TestFixtureStore:
         from autocontext.analytics.regression_fixtures import FixtureStore, RegressionFixture
 
         store = FixtureStore(tmp_path)
-        store.persist(RegressionFixture(fixture_id="old", scenario="grid_ctf", description="old", seed=1, strategy={}, expected_min_score=0.5, source_evidence=[], confidence=0.8))
+        store.persist(
+            RegressionFixture(
+                fixture_id="old",
+                scenario="grid_ctf",
+                description="old",
+                seed=1,
+                strategy={},
+                expected_min_score=0.5,
+                source_evidence=[],
+                confidence=0.8,
+            )
+        )
 
         store.replace_for_scenario(
             "grid_ctf",
-            [RegressionFixture(fixture_id="new", scenario="grid_ctf", description="new", seed=2, strategy={}, expected_min_score=0.5, source_evidence=[], confidence=0.9)],
+            [
+                RegressionFixture(
+                    fixture_id="new",
+                    scenario="grid_ctf",
+                    description="new",
+                    seed=2,
+                    strategy={},
+                    expected_min_score=0.5,
+                    source_evidence=[],
+                    confidence=0.9,
+                )
+            ],
         )
 
         fixtures = store.list_for_scenario("grid_ctf")
