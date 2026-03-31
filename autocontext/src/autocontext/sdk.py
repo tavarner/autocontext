@@ -21,8 +21,9 @@ from typing import Any
 
 from autocontext.config import AppSettings, load_settings
 from autocontext.config.settings import validate_harness_mode
-from autocontext.mcp import tools
-from autocontext.mcp.tools import MtsToolContext
+from autocontext.mcp.artifact_tools import evaluate_strategy, list_artifacts, validate_strategy_against_harness
+from autocontext.mcp.knowledge_tools import export_package, export_skill, search_strategies
+from autocontext.mcp.tools import MtsToolContext, describe_scenario, list_scenarios, run_match
 from autocontext.sdk_models import EvaluateResult, MatchResult, SearchResult, ValidateResult
 
 
@@ -79,11 +80,11 @@ class AutoContext:
 
     def list_scenarios(self) -> list[dict[str, str]]:
         """Return available scenarios with name and rules preview."""
-        return tools.list_scenarios()
+        return list_scenarios()
 
     def describe_scenario(self, name: str) -> dict[str, str]:
         """Return full scenario description: rules, strategy interface, evaluation criteria."""
-        return tools.describe_scenario(name)
+        return describe_scenario(name)
 
     # -- Strategy evaluation ------------------------------------------------
 
@@ -92,7 +93,7 @@ class AutoContext:
 
         Returns a :class:`ValidateResult` with ``valid`` and ``reason`` fields.
         """
-        raw: dict[str, Any] = tools.validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
+        raw: dict[str, Any] = validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
         if "error" in raw:
             return ValidateResult(valid=False, reason=str(raw["error"]))
         return ValidateResult(
@@ -112,13 +113,13 @@ class AutoContext:
         Returns an :class:`EvaluateResult`.  If the scenario is an agent task
         (which uses judge evaluation), the ``error`` field is populated instead.
         """
-        validation: dict[str, Any] = tools.validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
+        validation: dict[str, Any] = validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
         if "error" in validation:
             return EvaluateResult(error=str(validation["error"]))
         if not bool(validation.get("valid", False)):
             return EvaluateResult(error=str(validation.get("reason", "validation failed")))
 
-        raw: dict[str, Any] = tools.evaluate_strategy(scenario, strategy, num_matches=matches, seed_base=seed_base)
+        raw: dict[str, Any] = evaluate_strategy(scenario, strategy, num_matches=matches, seed_base=seed_base)
         if "error" in raw:
             return EvaluateResult(error=str(raw["error"]))
         return EvaluateResult(
@@ -138,13 +139,13 @@ class AutoContext:
 
         Returns a :class:`MatchResult`.
         """
-        validation: dict[str, Any] = tools.validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
+        validation: dict[str, Any] = validate_strategy_against_harness(scenario, strategy, ctx=self._ctx)
         if "error" in validation:
             return MatchResult(error=str(validation["error"]))
         if not bool(validation.get("valid", False)):
             return MatchResult(error=str(validation.get("reason", "validation failed")))
 
-        raw: dict[str, Any] = tools.run_match(scenario, strategy, seed=seed)
+        raw: dict[str, Any] = run_match(scenario, strategy, seed=seed)
         if "error" in raw:
             return MatchResult(error=str(raw["error"]))
         return MatchResult(
@@ -162,7 +163,7 @@ class AutoContext:
 
         Returns a list of :class:`SearchResult` ranked by relevance.
         """
-        raw_list: list[dict[str, Any]] = tools.search_strategies(self._ctx, query, top_k)
+        raw_list: list[dict[str, Any]] = search_strategies(self._ctx, query, top_k)
         return [
             SearchResult(
                 scenario_name=str(r.get("scenario", "")),
@@ -178,11 +179,11 @@ class AutoContext:
 
     def export_skill(self, scenario: str) -> dict[str, Any]:
         """Export a portable skill package for a solved scenario."""
-        return tools.export_skill(self._ctx, scenario)
+        return export_skill(self._ctx, scenario)
 
     def export_package(self, scenario: str) -> dict[str, Any]:
         """Export a versioned, portable strategy package."""
-        return tools.export_package(self._ctx, scenario)
+        return export_package(self._ctx, scenario)
 
     # -- Artifacts ----------------------------------------------------------
 
@@ -192,4 +193,4 @@ class AutoContext:
         artifact_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """List published artifacts, optionally filtered by scenario or type."""
-        return tools.list_artifacts(self._ctx, scenario=scenario, artifact_type=artifact_type)
+        return list_artifacts(self._ctx, scenario=scenario, artifact_type=artifact_type)
