@@ -11,7 +11,6 @@ flexible input types. Internal helpers and __init__ methods are excluded.
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
@@ -84,7 +83,7 @@ class TestPublicAPIUsesSequenceForReadOnlyListParams:
                             violations.append(f"{node.name}({arg.arg}: {ann_text}) → use Sequence")
 
         assert violations == [], (
-            f"Read-only list params should use Sequence:\n"
+            "Read-only list params should use Sequence:\n"
             + "\n".join(f"  {v}" for v in violations)
         )
 

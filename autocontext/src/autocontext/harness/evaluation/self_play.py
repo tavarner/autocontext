@@ -130,7 +130,11 @@ def load_self_play_pool(
 ) -> SelfPlayPool:
     """Build a self-play pool from previously advanced strategies in the run."""
     pool = SelfPlayPool(config)
-    if not config.enabled or not isinstance(strategy_history, list):
+    if (
+        not config.enabled
+        or not isinstance(strategy_history, Sequence)
+        or isinstance(strategy_history, (str, bytes, bytearray))
+    ):
         return pool
 
     candidates: list[SelfPlayOpponent] = []
