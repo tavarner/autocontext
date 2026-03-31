@@ -47,7 +47,13 @@ class NormalizedProgress(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NormalizedProgress:
-        return cls.model_validate(data)
+        return cls(
+            raw_score=_safe_float(data.get("raw_score")),
+            normalized_score=_safe_float(data.get("normalized_score")),
+            score_floor=_safe_float(data.get("score_floor")),
+            score_ceiling=_safe_float(data.get("score_ceiling", 1.0), 1.0),
+            pct_of_ceiling=_safe_float(data.get("pct_of_ceiling")),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +76,15 @@ class CostEfficiency(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostEfficiency:
-        return cls.model_validate(data)
+        return cls(
+            total_input_tokens=_safe_int(data.get("total_input_tokens")),
+            total_output_tokens=_safe_int(data.get("total_output_tokens")),
+            total_tokens=_safe_int(data.get("total_tokens")),
+            total_cost_usd=_safe_float(data.get("total_cost_usd")),
+            tokens_per_advance=_safe_int(data.get("tokens_per_advance")),
+            cost_per_advance=_safe_float(data.get("cost_per_advance")),
+            tokens_per_score_point=_safe_int(data.get("tokens_per_score_point")),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +141,17 @@ class RunProgressReport(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RunProgressReport:
-        return cls.model_validate(data)
+        return cls(
+            run_id=str(data.get("run_id", "")),
+            scenario=str(data.get("scenario", "")),
+            total_generations=_safe_int(data.get("total_generations")),
+            advances=_safe_int(data.get("advances")),
+            rollbacks=_safe_int(data.get("rollbacks")),
+            retries=_safe_int(data.get("retries")),
+            progress=NormalizedProgress.from_dict(data.get("progress", {})),
+            cost=CostEfficiency.from_dict(data.get("cost", {})),
+            annotations=dict(data.get("annotations", {})),
+        )
 
     def to_markdown(self) -> str:
         lines = [
