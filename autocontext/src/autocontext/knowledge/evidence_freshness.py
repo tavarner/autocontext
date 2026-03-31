@@ -13,12 +13,12 @@ Key types:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, Field
 
-@dataclass(slots=True)
-class EvidenceFreshness:
+
+class EvidenceFreshness(BaseModel):
     """Freshness metadata for a hint, lesson, or context item."""
 
     item_id: str
@@ -26,35 +26,20 @@ class EvidenceFreshness:
     last_validated_gen: int
     confidence: float
     created_at_gen: int
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def age(self, current_gen: int) -> int:
         return current_gen - self.last_validated_gen
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "item_id": self.item_id,
-            "support_count": self.support_count,
-            "last_validated_gen": self.last_validated_gen,
-            "confidence": self.confidence,
-            "created_at_gen": self.created_at_gen,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EvidenceFreshness:
-        return cls(
-            item_id=data["item_id"],
-            support_count=data.get("support_count", 0),
-            last_validated_gen=data.get("last_validated_gen", 0),
-            confidence=data.get("confidence", 0.0),
-            created_at_gen=data.get("created_at_gen", 0),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class FreshnessPolicy:
+class FreshnessPolicy(BaseModel):
     """Configurable decay thresholds."""
 
     max_age_gens: int = 10

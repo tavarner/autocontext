@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+
+from pydantic import BaseModel, Field
 
 from autocontext.analytics.facets import RunFacet
 from autocontext.analytics.store import FacetStore
@@ -38,8 +39,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-@dataclass(slots=True)
-class ResearchSession:
+class ResearchSession(BaseModel):
     """Session notebook extended with ownership, status, and sharing."""
 
     session_id: str
@@ -58,50 +58,14 @@ class ResearchSession:
     follow_ups: list[str]
     shared: bool
     external_link: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "scenario_name": self.scenario_name,
-            "owner": self.owner,
-            "status": self.status,
-            "lease_expires_at": self.lease_expires_at,
-            "last_heartbeat_at": self.last_heartbeat_at,
-            "current_objective": self.current_objective,
-            "current_hypotheses": self.current_hypotheses,
-            "best_run_id": self.best_run_id,
-            "best_generation": self.best_generation,
-            "best_score": self.best_score,
-            "unresolved_questions": self.unresolved_questions,
-            "operator_observations": self.operator_observations,
-            "follow_ups": self.follow_ups,
-            "shared": self.shared,
-            "external_link": self.external_link,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResearchSession:
-        return cls(
-            session_id=data["session_id"],
-            scenario_name=data.get("scenario_name", ""),
-            owner=data.get("owner", ""),
-            status=data.get("status", "active"),
-            lease_expires_at=data.get("lease_expires_at", ""),
-            last_heartbeat_at=data.get("last_heartbeat_at", ""),
-            current_objective=data.get("current_objective", ""),
-            current_hypotheses=data.get("current_hypotheses", []),
-            best_run_id=data.get("best_run_id"),
-            best_generation=data.get("best_generation"),
-            best_score=data.get("best_score"),
-            unresolved_questions=data.get("unresolved_questions", []),
-            operator_observations=data.get("operator_observations", []),
-            follow_ups=data.get("follow_ups", []),
-            shared=data.get("shared", False),
-            external_link=data.get("external_link", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
     @classmethod
     def from_notebook(
@@ -130,8 +94,7 @@ class ResearchSession:
         )
 
 
-@dataclass(slots=True)
-class SharedPackage:
+class SharedPackage(BaseModel):
     """Strategy package with provenance and evidence metadata."""
 
     package_id: str
@@ -155,64 +118,17 @@ class SharedPackage:
     adoption_notes: str
     promotion_level: str  # experimental, recommended, stable
     created_at: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "package_id": self.package_id,
-            "scenario_name": self.scenario_name,
-            "scenario_family": self.scenario_family,
-            "source_run_id": self.source_run_id,
-            "source_generation": self.source_generation,
-            "title": self.title,
-            "description": self.description,
-            "strategy": self.strategy,
-            "provider_summary": self.provider_summary,
-            "executor_summary": self.executor_summary,
-            "best_score": self.best_score,
-            "best_elo": self.best_elo,
-            "normalized_progress": self.normalized_progress,
-            "weakness_summary": self.weakness_summary,
-            "result_summary": self.result_summary,
-            "notebook_hypotheses": self.notebook_hypotheses,
-            "linked_artifacts": self.linked_artifacts,
-            "compatibility_tags": self.compatibility_tags,
-            "adoption_notes": self.adoption_notes,
-            "promotion_level": self.promotion_level,
-            "created_at": self.created_at,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SharedPackage:
-        return cls(
-            package_id=data["package_id"],
-            scenario_name=data.get("scenario_name", ""),
-            scenario_family=data.get("scenario_family", ""),
-            source_run_id=data.get("source_run_id", ""),
-            source_generation=data.get("source_generation", 0),
-            title=data.get("title", ""),
-            description=data.get("description", ""),
-            strategy=data.get("strategy", {}),
-            provider_summary=data.get("provider_summary", ""),
-            executor_summary=data.get("executor_summary", ""),
-            best_score=data.get("best_score", 0.0),
-            best_elo=data.get("best_elo", 0.0),
-            normalized_progress=data.get("normalized_progress", ""),
-            weakness_summary=data.get("weakness_summary", ""),
-            result_summary=data.get("result_summary", ""),
-            notebook_hypotheses=data.get("notebook_hypotheses", []),
-            linked_artifacts=data.get("linked_artifacts", []),
-            compatibility_tags=data.get("compatibility_tags", []),
-            adoption_notes=data.get("adoption_notes", ""),
-            promotion_level=data.get("promotion_level", "experimental"),
-            created_at=data.get("created_at", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class ResearchResult:
+class ResearchResult(BaseModel):
     """Materialized evidence-backed result summary."""
 
     result_id: str
@@ -231,54 +147,17 @@ class ResearchResult:
     delight_signals: list[str]
     created_at: str
     tags: list[str]
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "result_id": self.result_id,
-            "scenario_name": self.scenario_name,
-            "run_id": self.run_id,
-            "package_id": self.package_id,
-            "title": self.title,
-            "summary": self.summary,
-            "best_score": self.best_score,
-            "best_elo": self.best_elo,
-            "normalized_progress": self.normalized_progress,
-            "cost_summary": self.cost_summary,
-            "weakness_summary": self.weakness_summary,
-            "consultation_summary": self.consultation_summary,
-            "friction_signals": self.friction_signals,
-            "delight_signals": self.delight_signals,
-            "created_at": self.created_at,
-            "tags": self.tags,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResearchResult:
-        return cls(
-            result_id=data["result_id"],
-            scenario_name=data.get("scenario_name", ""),
-            run_id=data.get("run_id", ""),
-            package_id=data.get("package_id"),
-            title=data.get("title", ""),
-            summary=data.get("summary", ""),
-            best_score=data.get("best_score", 0.0),
-            best_elo=data.get("best_elo", 0.0),
-            normalized_progress=data.get("normalized_progress", ""),
-            cost_summary=data.get("cost_summary", ""),
-            weakness_summary=data.get("weakness_summary", ""),
-            consultation_summary=data.get("consultation_summary", ""),
-            friction_signals=data.get("friction_signals", []),
-            delight_signals=data.get("delight_signals", []),
-            created_at=data.get("created_at", ""),
-            tags=data.get("tags", []),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class PromotionEvent:
+class PromotionEvent(BaseModel):
     """Records a promotion or adoption action."""
 
     event_id: str
@@ -288,32 +167,14 @@ class PromotionEvent:
     actor: str
     label: str | None
     created_at: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "event_id": self.event_id,
-            "package_id": self.package_id,
-            "source_run_id": self.source_run_id,
-            "action": self.action,
-            "actor": self.actor,
-            "label": self.label,
-            "created_at": self.created_at,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PromotionEvent:
-        return cls(
-            event_id=data["event_id"],
-            package_id=data.get("package_id", ""),
-            source_run_id=data.get("source_run_id", ""),
-            action=data.get("action", ""),
-            actor=data.get("actor", ""),
-            label=data.get("label"),
-            created_at=data.get("created_at", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
 def materialize_result(
