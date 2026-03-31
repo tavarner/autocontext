@@ -47,7 +47,7 @@ class TestModuleSizeLimits:
                     violations.append(f"{rel}: {lines} lines (limit {limit})")
 
         assert violations == [], (
-            f"Modules exceeding size limits:\n" + "\n".join(f"  {v}" for v in violations)
+            "Modules exceeding size limits:\n" + "\n".join(f"  {v}" for v in violations)
         )
 
     def test_stages_helpers_exist(self) -> None:
