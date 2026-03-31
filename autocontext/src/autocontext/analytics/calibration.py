@@ -8,10 +8,11 @@ scores, contradictory rubric satisfaction) are prioritized for review.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from autocontext.analytics.facets import RunFacet
 from autocontext.util.json_io import read_json, write_json
@@ -20,143 +21,70 @@ from autocontext.util.json_io import read_json, write_json
 _PERFECT_THRESHOLD = 0.95
 
 
-@dataclass(slots=True)
-class CalibrationSample:
+class CalibrationSample(BaseModel):
     """A run selected for human calibration review."""
 
     sample_id: str
     run_id: str
     scenario: str
-    scenario_family: str
-    agent_provider: str
-    generation_index: int
-    risk_score: float
-    risk_reasons: list[str]
-    best_score: float
-    score_delta: float
-    playbook_mutation_size: int
-    created_at: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    scenario_family: str = ""
+    agent_provider: str = ""
+    generation_index: int = 0
+    risk_score: float = 0.0
+    risk_reasons: list[str] = Field(default_factory=list)
+    best_score: float = 0.0
+    score_delta: float = 0.0
+    playbook_mutation_size: int = 0
+    created_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "sample_id": self.sample_id,
-            "run_id": self.run_id,
-            "scenario": self.scenario,
-            "scenario_family": self.scenario_family,
-            "agent_provider": self.agent_provider,
-            "generation_index": self.generation_index,
-            "risk_score": self.risk_score,
-            "risk_reasons": self.risk_reasons,
-            "best_score": self.best_score,
-            "score_delta": self.score_delta,
-            "playbook_mutation_size": self.playbook_mutation_size,
-            "created_at": self.created_at,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CalibrationSample:
-        return cls(
-            sample_id=data["sample_id"],
-            run_id=data["run_id"],
-            scenario=data.get("scenario", ""),
-            scenario_family=data.get("scenario_family", ""),
-            agent_provider=data.get("agent_provider", ""),
-            generation_index=data.get("generation_index", 0),
-            risk_score=data.get("risk_score", 0.0),
-            risk_reasons=data.get("risk_reasons", []),
-            best_score=data.get("best_score", 0.0),
-            score_delta=data.get("score_delta", 0.0),
-            playbook_mutation_size=data.get("playbook_mutation_size", 0),
-            created_at=data.get("created_at", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class CalibrationOutcome:
+class CalibrationOutcome(BaseModel):
     """Human calibration decision for a sample."""
 
     outcome_id: str
     sample_id: str
-    decision: str  # approve, reject, needs_adjustment
-    reviewer: str
-    notes: str
-    rubric_quality: str  # good, degraded, overfit, unstable
-    playbook_quality: str  # good, degraded, bloated, drifted
-    recommended_action: str  # none, rollback_rubric, rollback_playbook, investigate
-    created_at: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    decision: str = ""  # approve, reject, needs_adjustment
+    reviewer: str = ""
+    notes: str = ""
+    rubric_quality: str = ""  # good, degraded, overfit, unstable
+    playbook_quality: str = ""  # good, degraded, bloated, drifted
+    recommended_action: str = "none"  # none, rollback_rubric, rollback_playbook, investigate
+    created_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "outcome_id": self.outcome_id,
-            "sample_id": self.sample_id,
-            "decision": self.decision,
-            "reviewer": self.reviewer,
-            "notes": self.notes,
-            "rubric_quality": self.rubric_quality,
-            "playbook_quality": self.playbook_quality,
-            "recommended_action": self.recommended_action,
-            "created_at": self.created_at,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CalibrationOutcome:
-        return cls(
-            outcome_id=data["outcome_id"],
-            sample_id=data["sample_id"],
-            decision=data.get("decision", ""),
-            reviewer=data.get("reviewer", ""),
-            notes=data.get("notes", ""),
-            rubric_quality=data.get("rubric_quality", ""),
-            playbook_quality=data.get("playbook_quality", ""),
-            recommended_action=data.get("recommended_action", "none"),
-            created_at=data.get("created_at", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
-@dataclass(slots=True)
-class CalibrationRound:
+class CalibrationRound(BaseModel):
     """A periodic calibration round with samples and outcomes."""
 
     round_id: str
     created_at: str
-    samples: list[CalibrationSample]
-    outcomes: list[CalibrationOutcome]
-    status: str  # pending, in_progress, completed
-    summary: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    samples: list[CalibrationSample] = Field(default_factory=list)
+    outcomes: list[CalibrationOutcome] = Field(default_factory=list)
+    status: str = "pending"  # pending, in_progress, completed
+    summary: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "round_id": self.round_id,
-            "created_at": self.created_at,
-            "samples": [s.to_dict() for s in self.samples],
-            "outcomes": [o.to_dict() for o in self.outcomes],
-            "status": self.status,
-            "summary": self.summary,
-            "metadata": self.metadata,
-        }
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CalibrationRound:
-        return cls(
-            round_id=data["round_id"],
-            created_at=data["created_at"],
-            samples=[
-                CalibrationSample.from_dict(s) for s in data.get("samples", [])
-            ],
-            outcomes=[
-                CalibrationOutcome.from_dict(o) for o in data.get("outcomes", [])
-            ],
-            status=data.get("status", "pending"),
-            summary=data.get("summary", ""),
-            metadata=data.get("metadata", {}),
-        )
+        return cls.model_validate(data)
 
 
 class SpotCheckSampler:
