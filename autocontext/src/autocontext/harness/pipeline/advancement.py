@@ -49,7 +49,9 @@ class AdvancementMetrics(BaseModel):
         return round(self.best_score - self.previous_best, 6)
 
     def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
+        data = self.model_dump()
+        data["delta"] = self.delta
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AdvancementMetrics:
