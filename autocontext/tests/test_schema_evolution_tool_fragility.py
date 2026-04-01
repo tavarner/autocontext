@@ -1243,7 +1243,6 @@ class TestSchemaEvolutionCreator:
         def fake_llm(system: str, user: str) -> str:
             return f"{SCHEMA_EVOLUTION_SPEC_START}\n{json.dumps(fake_spec)}\n{SCHEMA_EVOLUTION_SPEC_END}"
 
-        from autocontext.scenarios.custom.creator_registry import create_for_family
         creator = create_for_family("schema_evolution", fake_llm, tmp_path)
         scenario = creator.create("test schema evo", name="test_schema_evo_scenario")
 

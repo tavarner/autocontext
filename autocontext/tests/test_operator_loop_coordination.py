@@ -875,7 +875,6 @@ class TestOperatorLoopCreator:
                 f"{OPERATOR_LOOP_SPEC_END}"
             )
 
-        from autocontext.scenarios.custom.creator_registry import create_for_family
         creator = create_for_family("operator_loop", fake_llm, tmp_path)
         scenario = creator.create("test", name="test_op_creator")
         assert isinstance(scenario, OperatorLoopInterface)

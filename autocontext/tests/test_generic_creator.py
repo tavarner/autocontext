@@ -1,18 +1,9 @@
-"""Tests for the generic scenario creator (AC-471).
-
-Verifies that GenericScenarioCreator replaces per-family creator classes
-with a single parameterized implementation.
-"""
+"""Tests for the generic scenario creator and legacy compatibility shims."""
 
 from __future__ import annotations
 
-import ast
-import os
+import importlib
 from pathlib import Path
-
-import pytest
-
-SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "autocontext"
 
 
 class TestGenericCreatorExists:
@@ -29,42 +20,49 @@ class TestGenericCreatorExists:
         assert hasattr(GenericScenarioCreator, "create")
 
 
-class TestPerFamilyCreatorsRemoved:
-    """Per-family creator files should be replaced by the generic creator."""
+class TestPerFamilyCreatorCompatibility:
+    """Legacy per-family creator modules should remain importable."""
 
-    FAMILY_CREATORS = [
-        "artifact_editing_creator.py",
-        "coordination_creator.py",
-        "investigation_creator.py",
-        "negotiation_creator.py",
-        "operator_loop_creator.py",
-        "schema_evolution_creator.py",
-        "simulation_creator.py",
-        "tool_fragility_creator.py",
-        "workflow_creator.py",
+    COMPAT_CREATORS = [
+        ("artifact_editing_creator", "ArtifactEditingCreator"),
+        ("coordination_creator", "CoordinationCreator"),
+        ("investigation_creator", "InvestigationCreator"),
+        ("negotiation_creator", "NegotiationCreator"),
+        ("operator_loop_creator", "OperatorLoopCreator"),
+        ("schema_evolution_creator", "SchemaEvolutionCreator"),
+        ("simulation_creator", "SimulationCreator"),
+        ("tool_fragility_creator", "ToolFragilityCreator"),
+        ("workflow_creator", "WorkflowCreator"),
     ]
 
-    def test_per_family_creators_removed(self) -> None:
-        custom_dir = SRC_ROOT / "scenarios" / "custom"
-        remaining = [
-            f for f in self.FAMILY_CREATORS
-            if (custom_dir / f).exists()
-        ]
-        assert remaining == [], (
-            f"Per-family creator files should be replaced by GenericScenarioCreator:\n"
-            + "\n".join(f"  {f}" for f in remaining)
+    def test_creator_modules_remain_importable(self) -> None:
+        for module_name, class_name in self.COMPAT_CREATORS:
+            module = importlib.import_module(
+                f"autocontext.scenarios.custom.{module_name}"
+            )
+            assert getattr(module, class_name) is not None
+
+    def test_creator_classes_keep_constructor_shape(self, tmp_path: Path) -> None:
+        def fake_llm(system: str, user: str) -> str:
+            return ""
+
+        for module_name, class_name in self.COMPAT_CREATORS:
+            module = importlib.import_module(
+                f"autocontext.scenarios.custom.{module_name}"
+            )
+            creator_cls = getattr(module, class_name)
+            creator = creator_cls(fake_llm, tmp_path)
+            assert hasattr(creator, "create")
+
+    def test_compatibility_helpers_remain_available(self) -> None:
+        from autocontext.scenarios.custom.operator_loop_creator import (
+            validate_operator_loop_spec,
+        )
+        from autocontext.scenarios.custom.simulation_creator import (
+            should_use_simulation_family,
+            validate_simulation_spec,
         )
 
-
-class TestGenericCreatorReducesFiles:
-    """The custom scenarios directory should have fewer files after genericization."""
-
-    def test_custom_dir_file_count_reduced(self) -> None:
-        custom_dir = SRC_ROOT / "scenarios" / "custom"
-        py_files = [f for f in custom_dir.glob("*.py") if f.name != "__init__.py"]
-        # Before: 54 files. After removing 9 creators: 45.
-        # Target: under 46 files.
-        assert len(py_files) <= 46, (
-            f"scenarios/custom/ has {len(py_files)} .py files (target: ≤46). "
-            f"Replace per-family creators with GenericScenarioCreator."
-        )
+        assert callable(should_use_simulation_family)
+        assert callable(validate_simulation_spec)
+        assert callable(validate_operator_loop_spec)

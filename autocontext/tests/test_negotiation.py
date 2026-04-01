@@ -730,7 +730,6 @@ class TestNegotiationCreator:
                 f"{NEGOTIATION_SPEC_END}"
             )
 
-        from autocontext.scenarios.custom.creator_registry import create_for_family
         creator = create_for_family("negotiation", fake_llm, tmp_path)
         scenario = creator.create("test negotiation", name="test_neg_creator")
         assert isinstance(scenario, NegotiationInterface)
