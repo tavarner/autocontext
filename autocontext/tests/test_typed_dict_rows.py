@@ -7,7 +7,6 @@ instead of untyped dict[str, Any].
 from __future__ import annotations
 
 from pathlib import Path
-from typing import get_type_hints
 
 import pytest
 
