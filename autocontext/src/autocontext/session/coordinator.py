@@ -44,6 +44,7 @@ class CoordinatorEventType(StrEnum):
 
 
 _ACTIVE_STATUSES = frozenset({WorkerStatus.PENDING, WorkerStatus.RUNNING})
+_RETRYABLE_STATUSES = frozenset({WorkerStatus.FAILED, WorkerStatus.REDIRECTED})
 
 
 class CoordinatorEvent(BaseModel):
@@ -87,19 +88,23 @@ class Worker(BaseModel):
         return cls(task=task, role=role, parent_worker_id=parent_worker_id)
 
     def start(self) -> None:
+        self._require_status({WorkerStatus.PENDING}, action="start worker")
         self.status = WorkerStatus.RUNNING
 
     def complete(self, result: str) -> None:
+        self._require_status({WorkerStatus.RUNNING}, action="complete worker")
         self.status = WorkerStatus.COMPLETED
         self.result = result
         self.completed_at = _now()
 
     def fail(self, error: str = "") -> None:
+        self._require_status({WorkerStatus.RUNNING}, action="fail worker")
         self.status = WorkerStatus.FAILED
         self.error = error
         self.completed_at = _now()
 
     def redirect(self, new_task: str = "", reason: str = "") -> None:
+        self._require_status({WorkerStatus.RUNNING}, action="redirect worker")
         self.status = WorkerStatus.REDIRECTED
         self.redirect_reason = reason
         self.completed_at = _now()
@@ -107,6 +112,15 @@ class Worker(BaseModel):
     @property
     def is_active(self) -> bool:
         return self.status in _ACTIVE_STATUSES
+
+    def _require_status(
+        self,
+        allowed: set[WorkerStatus] | frozenset[WorkerStatus],
+        action: str,
+    ) -> None:
+        if self.status not in allowed:
+            msg = f"Cannot {action} from status={self.status}"
+            raise ValueError(msg)
 
 
 # ---- Aggregate Root ----
@@ -181,6 +195,12 @@ class Coordinator(BaseModel):
     def retry(self, worker_id: str, new_task: str = "") -> Worker:
         """Create a continuation worker linked to a failed/redirected one."""
         parent = self._get_worker(worker_id)
+        if parent.status not in _RETRYABLE_STATUSES:
+            msg = (
+                "Cannot retry worker unless it is failed or redirected "
+                f"(status={parent.status})"
+            )
+            raise ValueError(msg)
         task = new_task or parent.task
         return self.delegate(task=task, role=parent.role, parent_worker_id=parent.worker_id)
 

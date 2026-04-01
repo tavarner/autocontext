@@ -4,11 +4,6 @@ DDD: Coordinator owns the plan, delegates to Workers, collects results,
 and steers follow-up. Workers have explicit lifecycle and lineage.
 """
 
-from __future__ import annotations
-
-import pytest
-
-
 class TestWorker:
     """Worker entity tracks one delegated unit of work."""
 
@@ -56,6 +51,17 @@ class TestWorker:
         w1 = Worker.create(task="t1", role="r1")
         w2 = Worker.create(task="t2", role="r1", parent_worker_id=w1.worker_id)
         assert w2.parent_worker_id == w1.worker_id
+
+    def test_worker_cannot_complete_before_running(self) -> None:
+        from autocontext.session.coordinator import Worker
+
+        w = Worker.create(task="t1", role="r1")
+        try:
+            w.complete(result="done")
+        except ValueError as exc:
+            assert "complete worker" in str(exc)
+        else:
+            raise AssertionError("expected pending worker completion to fail")
 
 
 class TestCoordinator:
@@ -144,6 +150,19 @@ class TestCoordinator:
         coord.stop_worker(w.worker_id, reason="wrong direction")
         assert w.status == WorkerStatus.REDIRECTED
 
+    def test_stop_worker_rejects_non_running_worker(self) -> None:
+        from autocontext.session.coordinator import Coordinator
+
+        coord = Coordinator.create(session_id="s1", goal="test")
+        w = coord.delegate(task="t1", role="r1")
+
+        try:
+            coord.stop_worker(w.worker_id, reason="wrong direction")
+        except ValueError as exc:
+            assert "redirect worker" in str(exc)
+        else:
+            raise AssertionError("expected stop on pending worker to fail")
+
     def test_retry_creates_continuation(self) -> None:
         from autocontext.session.coordinator import Coordinator
 
@@ -156,6 +175,21 @@ class TestCoordinator:
         assert w2.parent_worker_id == w1.worker_id
         assert w2.task == "t1 retry"
         assert len(coord.workers) == 2
+
+    def test_retry_rejects_completed_worker(self) -> None:
+        from autocontext.session.coordinator import Coordinator
+
+        coord = Coordinator.create(session_id="s1", goal="test")
+        w1 = coord.delegate(task="t1", role="r1")
+        w1.start()
+        w1.complete(result="done")
+
+        try:
+            coord.retry(w1.worker_id)
+        except ValueError as exc:
+            assert "failed or redirected" in str(exc)
+        else:
+            raise AssertionError("expected retry on completed worker to fail")
 
 
 class TestCoordinatorEvents:
