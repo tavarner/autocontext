@@ -30,8 +30,7 @@ class BiasReport(BaseModel):
     results: list[BiasProbeResult] = Field(default_factory=list)
     any_bias_detected: bool = False
 
-    @computed_field
-    @property
+    @computed_field(return_type=list[str])
     def bias_types_detected(self) -> list[str]:
         """Return probe types where bias was detected."""
         return [r.probe_type for r in self.results if r.detected]
