@@ -53,6 +53,12 @@ def _make_spec(**overrides: object) -> ScenarioSpec:
 
 
 class TestScenarioSpecSerialization:
+    def test_scoring_component_defaults_are_real_containers(self) -> None:
+        component = ScoringComponent(name="effectiveness", description="Overall effectiveness")
+
+        assert component.formula_terms == {}
+        assert component.noise_range == (-0.05, 0.05)
+
     def test_round_trip(self) -> None:
         spec = _make_spec()
         data = spec.to_dict()
@@ -122,6 +128,16 @@ class TestValidateSpec:
         ], final_score_weights={"bad": 1.0})
         errors = validate_spec(spec)
         assert any("nonexistent" in e for e in errors)
+
+    def test_default_scoring_component_does_not_crash_validation(self) -> None:
+        spec = _make_spec(
+            scoring_components=[ScoringComponent(name="baseline", description="baseline")],
+            final_score_weights={"baseline": 1.0},
+        )
+
+        errors = validate_spec(spec)
+
+        assert errors == []
 
     def test_weights_dont_sum_to_one(self) -> None:
         spec = _make_spec(final_score_weights={"effectiveness": 0.3, "efficiency": 0.3})

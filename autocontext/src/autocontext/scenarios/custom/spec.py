@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ class EnvironmentVariable:
 class ScoringComponent:
     name: str
     description: str
-    formula_terms: dict[str, float] = Field(default_factory=dict)
+    formula_terms: dict[str, float] = field(default_factory=dict)
     noise_range: tuple[float, float] = (-0.05, 0.05)
 
 
