@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 from autocontext.providers.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class BiasProbeResult:
+class BiasProbeResult(BaseModel):
     """Result of a single bias probe."""
 
     probe_type: str  # "position" | "style" | "length"
@@ -19,21 +19,15 @@ class BiasProbeResult:
     details: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "probe_type": self.probe_type,
-            "detected": self.detected,
-            "magnitude": self.magnitude,
-            "details": self.details,
-        }
+        return self.model_dump()
 
 
-@dataclass(slots=True)
-class BiasReport:
+class BiasReport(BaseModel):
     """Aggregated bias probe results."""
 
     probes_run: int = 0
     probes_failed: int = 0
-    results: list[BiasProbeResult] = field(default_factory=list)
+    results: list[BiasProbeResult] = Field(default_factory=list)
     any_bias_detected: bool = False
 
     @property
@@ -42,13 +36,7 @@ class BiasReport:
         return [r.probe_type for r in self.results if r.detected]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "probes_run": self.probes_run,
-            "probes_failed": self.probes_failed,
-            "results": [result.to_dict() for result in self.results],
-            "any_bias_detected": self.any_bias_detected,
-            "bias_types_detected": self.bias_types_detected,
-        }
+        return self.model_dump()
 
 
 def run_position_bias_probe(

@@ -5,8 +5,10 @@ import logging
 import math
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from autocontext.agents.types import LlmFn
 from autocontext.execution.rubric_coherence import check_rubric_coherence
@@ -19,26 +21,18 @@ logger = logging.getLogger(__name__)
 ParseMethod = Literal["raw_json", "code_block", "markers", "plaintext", "none"]
 
 
-@dataclass(slots=True)
-class DisagreementMetrics:
+class DisagreementMetrics(BaseModel):
     """Evaluator disagreement statistics from multi-sample judge evaluation."""
 
     score_std_dev: float = 0.0
     score_range: tuple[float, float] = (0.0, 0.0)
-    sample_scores: list[float] = field(default_factory=list)
-    dimension_std_devs: dict[str, float] = field(default_factory=dict)
+    sample_scores: list[float] = Field(default_factory=list)
+    dimension_std_devs: dict[str, float] = Field(default_factory=dict)
     is_high_disagreement: bool = False
     sample_count: int = 1
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "score_std_dev": self.score_std_dev,
-            "score_range": list(self.score_range),
-            "sample_scores": self.sample_scores,
-            "dimension_std_devs": self.dimension_std_devs,
-            "is_high_disagreement": self.is_high_disagreement,
-            "sample_count": self.sample_count,
-        }
+        return self.model_dump()
 
 
 @dataclass(slots=True)
@@ -47,8 +41,8 @@ class JudgeResult:
 
     score: float
     reasoning: str
-    dimension_scores: dict[str, float] = field(default_factory=dict)
-    raw_responses: list[str] = field(default_factory=list)
+    dimension_scores: dict[str, float] = Field(default_factory=dict)
+    raw_responses: list[str] = Field(default_factory=list)
     parse_method: ParseMethod = "none"
     internal_retries: int = 0
     dimensions_were_generated: bool = False
