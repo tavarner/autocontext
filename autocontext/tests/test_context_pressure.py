@@ -73,6 +73,24 @@ class TestContextPressure:
         )
         assert pressure.level == PressureLevel.WARNING
 
+    def test_utilization_snapshot_stays_consistent_with_threshold_level(self) -> None:
+        from autocontext.session.context_pressure import (
+            CompactionPolicy,
+            ContextPressure,
+            PressureLevel,
+        )
+
+        policy = CompactionPolicy()
+        pressure = ContextPressure.measure(
+            used_tokens=84_996,
+            effective_window=100_000,
+            policy=policy,
+        )
+
+        assert pressure.level == PressureLevel.WARNING
+        assert pressure.utilization == pytest.approx(0.84996)
+        assert pressure.utilization < policy.compact_threshold
+
 
 class TestEffectiveWindow:
     """Effective window = raw window - output headroom - overhead."""
@@ -111,6 +129,16 @@ class TestCompactionPolicy:
         assert "goal" in policy.protected_classes
         # Stale narrative should be compressible
         assert "narrative_history" in policy.compressible_classes
+
+    def test_invalid_threshold_order_rejected(self) -> None:
+        from autocontext.session.context_pressure import CompactionPolicy
+
+        with pytest.raises(ValueError, match="warning_threshold < compact_threshold"):
+            CompactionPolicy(
+                warning_threshold=0.9,
+                compact_threshold=0.7,
+                blocking_threshold=0.8,
+            )
 
 
 class TestCompactionResult:

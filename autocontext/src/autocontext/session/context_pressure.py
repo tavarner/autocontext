@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---- Value Objects ----
 
@@ -38,9 +38,9 @@ class CompactionPolicy(BaseModel):
     - blocking_threshold: hard block until compaction succeeds
     """
 
-    warning_threshold: float = 0.70
-    compact_threshold: float = 0.85
-    blocking_threshold: float = 0.95
+    warning_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    compact_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    blocking_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
 
     # Content classes for preservation decisions
     protected_classes: frozenset[str] = frozenset({
@@ -62,6 +62,18 @@ class CompactionPolicy(BaseModel):
     min_compressible_tokens: int = 2_000
     min_meaningful_turns: int = 3
     max_preserved_tokens: int = 50_000
+
+    @model_validator(mode="after")
+    def _validate_threshold_order(self) -> CompactionPolicy:
+        if not (
+            self.warning_threshold < self.compact_threshold < self.blocking_threshold
+        ):
+            msg = (
+                "Compaction thresholds must satisfy "
+                "warning_threshold < compact_threshold < blocking_threshold"
+            )
+            raise ValueError(msg)
+        return self
 
     model_config = {"frozen": True}
 
@@ -105,7 +117,7 @@ class ContextPressure(BaseModel):
         return cls(
             used_tokens=used_tokens,
             effective_window=effective_window,
-            utilization=round(util, 4),
+            utilization=util,
             level=level,
         )
 
