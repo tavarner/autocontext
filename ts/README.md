@@ -231,7 +231,7 @@ const improved = await loop.run({ initialOutput: "We can help with that billing 
 
 ## TS / Python Scope
 
-The TypeScript package includes the operator-facing 0.3.0 surfaces:
+The TypeScript package includes the current 0.3.x operator-facing surfaces:
 
 - `simulate`
 - `investigate`
@@ -253,7 +253,7 @@ These workflows require infrastructure not available in the npm package:
 - `trigger-distillation` — Training pipeline
 - Monitor conditions — Monitoring engine
 
-`train` is exposed in the TS CLI as a validation plus executor-hook surface, but the npm package does not bundle a real MLX/CUDA trainer. For end-to-end local training, use the Python package (`pip install autoctx`) or inject a real `TrainingRunner` executor from code.
+`train` is exposed in the TS CLI as a validation plus executor-hook surface, but the npm package does not bundle a real MLX/CUDA trainer. For end-to-end local training, use the Python package (`pip install autocontext`) or inject a real `TrainingRunner` executor from code.
 
 ## Development
 

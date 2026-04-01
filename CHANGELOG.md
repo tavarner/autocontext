@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-04-01
+
+### Changed
+
+- Python package publishing now uses the canonical PyPI name `autocontext` instead of `autoctx`.
+- Public install docs now reflect the package split accurately: PyPI is `autocontext`, while npm remains `autoctx`.
+- Python and TypeScript package metadata are bumped to `0.3.1`.
+
 ## [Unreleased]
 
 ### Changed
