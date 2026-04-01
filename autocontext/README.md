@@ -4,6 +4,14 @@ autocontext is the Python control-plane package for running scenarios, carrying 
 
 The intended use is to hand the harness a real task in plain language, let it solve or simulate the problem mostly hands-off, and then inspect the resulting traces, reports, playbooks, datasets, and optional distilled model.
 
+## Install
+
+```bash
+pip install autocontext
+```
+
+The PyPI package name is now `autocontext`. The CLI entrypoint remains `autoctx`.
+
 ## Working Directory
 
 Run the commands in this README from the `autocontext/` directory. The Python package, CLI entrypoint, tests, and migrations all live here.

@@ -140,11 +140,14 @@ Use the repo-level `.env.example` as the reference for available `AUTOCONTEXT_*`
 
 The repo publishes two installable packages with different scopes:
 
-- Python package: `pip install autoctx`
+- Python package: `pip install autocontext`
 - TypeScript package: `npm install autoctx`
 
-Important: the npm package for this project is `autoctx`.
-`autocontext` on npm is a different package.
+Important:
+- The Python package on PyPI is now `autocontext`.
+- The CLI entrypoint remains `autoctx`.
+- The npm package for this project is still `autoctx`.
+- `autocontext` on npm is a different package.
 
 The Python package exposes the full `autoctx` control-plane CLI for scenario execution, API serving, exports, training, and operator workflows. The TypeScript package exposes the `autoctx` CLI and library surface for simulations, investigations, analysis, mission control, MCP serving, and Node integrations.
 
@@ -212,6 +215,6 @@ MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenCl
 ## Project Signals
 
 [![npm downloads](https://img.shields.io/npm/dm/autoctx?logo=npm&label=npm%20downloads)](https://www.npmjs.com/package/autoctx)
-[![PyPI downloads](https://img.shields.io/pypi/dm/autoctx?logo=pypi&label=PyPI%20downloads)](https://pypi.org/project/autoctx/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/autocontext?logo=pypi&label=PyPI%20downloads)](https://pypi.org/project/autocontext/)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=greyhaven-ai/autocontext&type=Date)](https://www.star-history.com/#greyhaven-ai/autocontext&Date)

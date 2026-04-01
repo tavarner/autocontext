@@ -41,7 +41,7 @@ PyPI does not provide a simple project-specific downloads dashboard in its main 
 
 Practical options:
 
-- Package page: <https://pypi.org/project/autoctx/>
+- Package page: <https://pypi.org/project/autocontext/>
 - For official download analysis, use PyPI's BigQuery dataset
 
 PyPI's `/stats/` API is global PyPI-wide data, not per-project package downloads.
