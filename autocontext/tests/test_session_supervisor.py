@@ -89,6 +89,23 @@ class TestSupervisedEntry:
         entry.mark_completed()
         assert not entry.is_alive
 
+    @pytest.mark.parametrize("terminal_action", ["mark_completed", "mark_failed"])
+    def test_terminal_entries_cannot_reenter_active_states(
+        self,
+        terminal_action: str,
+    ) -> None:
+        from autocontext.session.supervisor import SupervisedEntry
+
+        entry = SupervisedEntry.create(session_id="s1", goal="test")
+        entry.mark_running()
+        getattr(entry, terminal_action)()
+
+        with pytest.raises(ValueError, match="mark entry running"):
+            entry.mark_running()
+
+        with pytest.raises(ValueError, match="request stop"):
+            entry.request_stop()
+
 
 class TestSupervisor:
     """Supervisor manages the registry of supervised entries."""
@@ -123,6 +140,17 @@ class TestSupervisor:
 
         sup.stop("s1")
         assert entry.state == SupervisorState.STOPPING
+
+    def test_stop_terminal_session_raises(self) -> None:
+        from autocontext.session.supervisor import Supervisor
+
+        sup = Supervisor()
+        entry = sup.launch(session_id="s1", goal="test", workspace="/tmp")
+        entry.mark_running()
+        entry.mark_completed()
+
+        with pytest.raises(ValueError, match="request stop"):
+            sup.stop("s1")
 
     def test_stop_nonexistent_raises(self) -> None:
         from autocontext.session.supervisor import Supervisor

@@ -78,30 +78,73 @@ class SupervisedEntry(BaseModel):
     # -- Lifecycle transitions --
 
     def mark_running(self) -> None:
+        self._require_state(
+            {
+                SupervisorState.LAUNCHING,
+                SupervisorState.WAITING,
+            },
+            action="mark entry running",
+        )
         self.state = SupervisorState.RUNNING
         self.blocked_reason = ""
         self._touch()
 
     def mark_waiting(self, reason: str = "") -> None:
+        self._require_state(
+            {
+                SupervisorState.LAUNCHING,
+                SupervisorState.RUNNING,
+            },
+            action="mark entry waiting",
+        )
         self.state = SupervisorState.WAITING
         self.blocked_reason = reason
         self._touch()
 
     def mark_completed(self) -> None:
+        self._require_state(
+            {
+                SupervisorState.LAUNCHING,
+                SupervisorState.RUNNING,
+                SupervisorState.WAITING,
+                SupervisorState.STOPPING,
+            },
+            action="mark entry completed",
+        )
         self.state = SupervisorState.COMPLETED
+        self.blocked_reason = ""
         self._touch()
 
     def mark_failed(self, error: str = "") -> None:
+        self._require_state(
+            _ALIVE_STATES,
+            action="mark entry failed",
+        )
         self.state = SupervisorState.FAILED
+        self.blocked_reason = ""
         self.error = error
         self._touch()
 
     def request_stop(self) -> None:
+        self._require_state(
+            {
+                SupervisorState.LAUNCHING,
+                SupervisorState.RUNNING,
+                SupervisorState.WAITING,
+            },
+            action="request stop for entry",
+        )
         self.state = SupervisorState.STOPPING
+        self.blocked_reason = ""
         self._touch()
 
     def mark_stopped(self) -> None:
+        self._require_state(
+            {SupervisorState.STOPPING},
+            action="mark entry stopped",
+        )
         self.state = SupervisorState.STOPPED
+        self.blocked_reason = ""
         self._touch()
 
     def heartbeat(self) -> None:
@@ -114,6 +157,15 @@ class SupervisedEntry(BaseModel):
         return self.state in _ALIVE_STATES
 
     # -- Internal --
+
+    def _require_state(
+        self,
+        allowed: frozenset[SupervisorState] | set[SupervisorState],
+        action: str,
+    ) -> None:
+        if self.state not in allowed:
+            msg = f"Cannot {action} from state={self.state}"
+            raise ValueError(msg)
 
     def _touch(self) -> None:
         self.last_activity_at = _now()
