@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
+def _normalize_frontmatter_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
 def _parse_frontmatter(text: str) -> dict[str, str]:
     """Parse YAML-like frontmatter from SKILL.md (key: value lines)."""
     match = _FRONTMATTER_RE.match(text)
@@ -29,7 +36,7 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
         line = line.strip()
         if ":" in line:
             key, _, value = line.partition(":")
-            result[key.strip()] = value.strip()
+            result[key.strip()] = _normalize_frontmatter_value(value)
     return result
 
 

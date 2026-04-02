@@ -4,11 +4,7 @@ DDD: SkillRegistry discovers, validates, deduplicates, and lazily loads
 runtime skills from configured roots.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
-
-import pytest
 
 
 def _write_skill(root: Path, name: str, body: str = "", description: str = "A skill") -> Path:
@@ -57,6 +53,29 @@ class TestSkillManifest:
         # Should return a manifest with defaults, not crash
         assert result is not None
         assert result.name == "bad-skill"  # falls back to dir name
+
+    def test_quoted_frontmatter_values_are_normalized(self, tmp_path: Path) -> None:
+        from autocontext.session.skill_registry import SkillManifest
+
+        skill_dir = tmp_path / "quoted-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: "quoted-skill"
+description: "Quoted description"
+---
+
+# quoted-skill
+
+Instructions.
+""",
+            encoding="utf-8",
+        )
+
+        manifest = SkillManifest.from_skill_dir(skill_dir)
+        assert manifest is not None
+        assert manifest.name == "quoted-skill"
+        assert manifest.description == "Quoted description"
 
 
 class TestSkillEntry:
