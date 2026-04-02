@@ -41,6 +41,15 @@ class TestConsolidationTrigger:
         trigger = ConsolidationTrigger(min_completed_turns=100)
         assert trigger.should_run(completed_turns=1, completed_sessions=0, force=True)
 
+    def test_negative_thresholds_rejected(self) -> None:
+        from autocontext.session.memory_consolidation import ConsolidationTrigger
+
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            ConsolidationTrigger(min_completed_turns=-1)
+
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            ConsolidationTrigger(min_completed_sessions=-1)
+
 
 class TestConsolidationResult:
     """Structured audit of what was reviewed and promoted."""
@@ -109,6 +118,22 @@ class TestConsolidationLock:
         with pytest.raises(RuntimeError, match="already running"):
             lock.acquire_or_raise()
         lock.release()
+
+    def test_non_owner_release_does_not_clear_active_lock(self, tmp_path: Path) -> None:
+        from autocontext.session.memory_consolidation import ConsolidationLock
+
+        path = tmp_path / "consolidation.lock"
+        owner = ConsolidationLock(path)
+        non_owner = ConsolidationLock(path)
+        contender = ConsolidationLock(path)
+
+        assert owner.acquire()
+        non_owner.release()
+        assert not contender.acquire()
+
+        owner.release()
+        assert contender.acquire()
+        contender.release()
 
 
 class TestMemoryConsolidator:

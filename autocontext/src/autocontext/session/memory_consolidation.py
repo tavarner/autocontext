@@ -28,8 +28,8 @@ class ConsolidationTrigger(BaseModel):
     or when force=True.
     """
 
-    min_completed_turns: int = 10
-    min_completed_sessions: int = 1
+    min_completed_turns: int = Field(default=10, ge=0)
+    min_completed_sessions: int = Field(default=1, ge=0)
 
     def should_run(
         self,
@@ -90,9 +90,13 @@ class ConsolidationLock:
 
     def acquire(self) -> bool:
         """Try to acquire the lock. Returns False if already held."""
-        if self._path.exists():
+        if self._held:
             return False
-        self._path.write_text("locked", encoding="utf-8")
+        try:
+            with self._path.open("x", encoding="utf-8") as handle:
+                handle.write("locked")
+        except FileExistsError:
+            return False
         self._held = True
         return True
 
@@ -104,8 +108,12 @@ class ConsolidationLock:
 
     def release(self) -> None:
         """Release the lock."""
-        if self._path.exists():
+        if not self._held:
+            return
+        try:
             self._path.unlink()
+        except FileNotFoundError:
+            pass
         self._held = False
 
     def __enter__(self) -> ConsolidationLock:
