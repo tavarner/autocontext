@@ -7,13 +7,21 @@ import { join, basename } from "node:path";
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
+function normalizeFrontmatterValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed[0] === trimmed[trimmed.length - 1] && ["'", "\""].includes(trimmed[0])) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 function parseFrontmatter(text: string): Record<string, string> {
   const match = text.match(FRONTMATTER_RE);
   if (!match) return {};
   const result: Record<string, string> = {};
   for (const line of match[1].split("\n")) {
     const idx = line.indexOf(":");
-    if (idx > 0) result[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    if (idx > 0) result[line.slice(0, idx).trim()] = normalizeFrontmatterValue(line.slice(idx + 1));
   }
   return result;
 }

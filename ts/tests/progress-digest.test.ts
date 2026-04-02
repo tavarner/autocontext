@@ -22,7 +22,22 @@ describe("ProgressDigest", () => {
     const digest = ProgressDigest.fromCoordinator(coord);
     expect(digest.activeCount).toBe(1);
     expect(digest.completedCount).toBe(1);
+    expect(digest.failedCount).toBe(0);
+    expect(digest.redirectedCount).toBe(0);
     expect(digest.summary.length).toBeLessThanOrEqual(300);
+  });
+
+  it("keeps redirected workers visible in the summary", () => {
+    const coord = Coordinator.create("s1", "Build API");
+    const worker = coord.delegate("Research auth", "researcher");
+    worker.start();
+    coord.stopWorker(worker.workerId, "dead end");
+
+    const digest = ProgressDigest.fromCoordinator(coord);
+    expect(digest.redirectedCount).toBe(1);
+    expect(digest.summary.toLowerCase()).toContain("redirected");
+    expect(digest.workerDigests).toHaveLength(1);
+    expect(digest.workerDigests[0].status).toBe("redirected");
   });
 
   it("from session without coordinator", () => {

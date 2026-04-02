@@ -20,6 +20,11 @@ describe("ConsolidationTrigger", () => {
     const t = new ConsolidationTrigger({ minCompletedTurns: 100 });
     expect(t.shouldRun({ completedTurns: 1, completedSessions: 0, force: true })).toBe(true);
   });
+
+  it("rejects negative minimums", () => {
+    expect(() => new ConsolidationTrigger({ minCompletedTurns: -1 })).toThrow("minCompletedTurns");
+    expect(() => new ConsolidationTrigger({ minCompletedSessions: -1 })).toThrow("minCompletedSessions");
+  });
 });
 
 describe("ConsolidationResult", () => {

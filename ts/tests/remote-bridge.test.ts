@@ -34,6 +34,12 @@ describe("ApprovalRequest", () => {
     r.timeout();
     expect(r.status).toBe("timed_out");
   });
+
+  it("decision is terminal", () => {
+    const r = ApprovalRequest.create("deploy");
+    r.approve("bob");
+    expect(() => r.deny("bob", "changed")).toThrow("status=approved");
+  });
 });
 
 describe("RemoteBridge", () => {
@@ -58,6 +64,13 @@ describe("RemoteBridge", () => {
     bridge.connect("alice", SessionRole.VIEWER);
     const req = bridge.requestApproval("deploy");
     expect(() => bridge.respond(req.requestId, true, "alice")).toThrow("viewer");
+  });
+
+  it("unconnected operator cannot respond", () => {
+    const bridge = new RemoteBridge("m1");
+    bridge.connect("alice", SessionRole.VIEWER);
+    const req = bridge.requestApproval("deploy");
+    expect(() => bridge.respond(req.requestId, true, "mallory")).toThrow("not connected");
   });
 
   it("disconnect removes session", () => {

@@ -9,11 +9,21 @@ export class ConsolidationTrigger {
   constructor(opts?: { minCompletedTurns?: number; minCompletedSessions?: number }) {
     this.minCompletedTurns = opts?.minCompletedTurns ?? 10;
     this.minCompletedSessions = opts?.minCompletedSessions ?? 1;
+    this.validateMinimums();
   }
 
   shouldRun(opts: { completedTurns: number; completedSessions: number; force?: boolean }): boolean {
     if (opts.force) return true;
     return opts.completedTurns >= this.minCompletedTurns || opts.completedSessions >= this.minCompletedSessions;
+  }
+
+  private validateMinimums(): void {
+    if (this.minCompletedTurns < 0) {
+      throw new Error("minCompletedTurns must be >= 0");
+    }
+    if (this.minCompletedSessions < 0) {
+      throw new Error("minCompletedSessions must be >= 0");
+    }
   }
 }
 

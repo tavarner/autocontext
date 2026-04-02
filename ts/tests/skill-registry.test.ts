@@ -26,6 +26,20 @@ describe("SkillManifest", () => {
     mkdirSync(join(root, "empty"), { recursive: true });
     expect(SkillManifest.fromSkillDir(join(root, "empty"))).toBeNull();
   });
+
+  it("normalizes quoted frontmatter values", () => {
+    const root = mkdtempSync(join(tmpdir(), "skill-"));
+    const dir = join(root, "quoted");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      "---\nname: \"gh-fix-ci\"\ndescription: \"Fix CI\"\n---\n\n# quoted\n\nInstructions.\n",
+    );
+
+    const manifest = SkillManifest.fromSkillDir(dir);
+    expect(manifest?.name).toBe("gh-fix-ci");
+    expect(manifest?.description).toBe("Fix CI");
+  });
 });
 
 describe("SkillEntry", () => {

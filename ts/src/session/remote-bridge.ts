@@ -42,9 +42,29 @@ export class ApprovalRequest {
 
   static create(action: string): ApprovalRequest { return new ApprovalRequest(action); }
 
-  approve(by: string): void { this.status = "approved"; this.decidedBy = by; }
-  deny(by: string, reason: string = ""): void { this.status = "denied"; this.decidedBy = by; this.denialReason = reason; }
-  timeout(): void { this.status = "timed_out"; }
+  approve(by: string): void {
+    this.requirePending("approve request");
+    this.status = "approved";
+    this.decidedBy = by;
+  }
+
+  deny(by: string, reason: string = ""): void {
+    this.requirePending("deny request");
+    this.status = "denied";
+    this.decidedBy = by;
+    this.denialReason = reason;
+  }
+
+  timeout(): void {
+    this.requirePending("time out request");
+    this.status = "timed_out";
+  }
+
+  private requirePending(action: string): void {
+    if (this.status !== "pending") {
+      throw new Error(`Cannot ${action} once status=${this.status}`);
+    }
+  }
 }
 
 export class RemoteBridge {
@@ -76,7 +96,10 @@ export class RemoteBridge {
 
   respond(requestId: string, approved: boolean, by: string, reason?: string): void {
     const session = [...this.sessions.values()].find((s) => s.operator === by);
-    if (session?.role === SessionRole.VIEWER) {
+    if (!session) {
+      throw new Error(`Operator '${by}' is not connected and cannot respond`);
+    }
+    if (session.role !== SessionRole.CONTROLLER) {
       throw new Error(`Operator '${by}' is a viewer and cannot respond`);
     }
     const req = this.approvals.get(requestId);
