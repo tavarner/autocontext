@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-04-02
+
+### Changed
+
+- Completed the TypeScript session-runtime parity pass across lifecycle management, coordinator state transitions, supervision, context pressure, remote approvals, progress digests, memory consolidation, and skill registry behavior.
+- Hardened the TypeScript operator control plane so terminal session and worker states stay terminal, remote approvals require connected controllers, and redirected work remains visible in progress summaries.
+- Python and TypeScript package metadata are bumped to `0.3.2`.
+
 ## [0.3.1] - 2026-04-01
 
 ### Changed
@@ -9,12 +17,6 @@ All notable changes to this project will be documented in this file.
 - Python package publishing now uses the canonical PyPI name `autocontext` instead of `autoctx`.
 - Public install docs now reflect the package split accurately: PyPI is `autocontext`, while npm remains `autoctx`.
 - Python and TypeScript package metadata are bumped to `0.3.1`.
-
-## [Unreleased]
-
-### Changed
-
-- Removed the legacy Python import shim at `autocontext.backpressure`; internal code already imports directly from `autocontext.harness.pipeline.*`, and downstream callers should do the same.
 
 ## [0.3.0] - 2026-03-29
 
