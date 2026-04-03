@@ -209,12 +209,29 @@ export function createProvider(opts: CreateProviderOpts): LLMProvider {
     return new RuntimeBridgeProvider(runtime as any, opts.model ?? "pi-rpc-default");
   }
 
+  // OpenAI-compatible providers with per-service defaults
+  const OPENAI_COMPATIBLE_DEFAULTS: Record<string, { baseUrl: string; envVar: string }> = {
+    gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", envVar: "GEMINI_API_KEY" },
+    mistral: { baseUrl: "https://api.mistral.ai/v1", envVar: "MISTRAL_API_KEY" },
+    groq: { baseUrl: "https://api.groq.com/openai/v1", envVar: "GROQ_API_KEY" },
+    openrouter: { baseUrl: "https://openrouter.ai/api/v1", envVar: "OPENROUTER_API_KEY" },
+    "azure-openai": { baseUrl: opts.baseUrl ?? "", envVar: "AZURE_OPENAI_API_KEY" },
+  };
+  const compat = OPENAI_COMPATIBLE_DEFAULTS[type];
+  if (compat) {
+    return createOpenAICompatibleProvider({
+      apiKey: opts.apiKey ?? process.env[compat.envVar] ?? "",
+      baseUrl: opts.baseUrl ?? compat.baseUrl,
+      model: opts.model,
+    });
+  }
+
   if (type === "deterministic") {
     return new DeterministicProvider();
   }
 
   throw new ProviderError(
-    `Unknown provider type: ${JSON.stringify(type)}. Supported: anthropic, openai, openai-compatible, ollama, vllm, hermes, pi, pi-rpc, deterministic`,
+    `Unknown provider type: ${JSON.stringify(type)}. Supported: anthropic, openai, openai-compatible, ollama, vllm, hermes, gemini, mistral, groq, openrouter, azure-openai, pi, pi-rpc, deterministic`,
   );
 }
 

@@ -14,7 +14,7 @@ Need the canonical product/runtime vocabulary first? Start with [docs/concept-mo
 - **Knowledge system**: versioned playbooks, score trajectories, session reports, dead-end tracking
 - **Interactive server**: HTTP API, WebSocket control plane, bundled Ink TUI
 - **MCP control plane**: 40+ tools covering scenarios, runs, knowledge, evaluation, feedback, solve, sandbox, and export
-- **Provider routing**: Anthropic, OpenAI-compatible, Ollama, vLLM, Hermes, Pi, Pi-RPC, deterministic
+- **Provider routing**: Anthropic, OpenAI-compatible, Gemini, Mistral, Groq, OpenRouter, Azure OpenAI, Ollama, vLLM, Hermes, Pi, Pi-RPC, deterministic
 - **Evaluation**: one-shot judging, multi-round improvement loops, REPL-loop sessions
 - **Package management**: strategy package export/import, training data export
 - **Training hook surface**: dataset validation and executor-backed `train` entry point
