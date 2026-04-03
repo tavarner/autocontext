@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from autocontext.storage.bootstrap_schema import bootstrap_core_schema, default_migrations_dir
 from autocontext.storage.row_types import GenerationMetricsRow, RunRow
 
 if TYPE_CHECKING:
@@ -27,7 +28,20 @@ class SQLiteStore:
         conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};")
         return conn
 
+    def ensure_core_tables(self) -> None:
+        """Create the current core schema when migration files are unavailable."""
+        migrations_dir = default_migrations_dir()
+        if migrations_dir.exists() and any(migrations_dir.glob("*.sql")):
+            self.migrate(migrations_dir)
+            return
+        with self.connect() as conn:
+            bootstrap_core_schema(conn)
+
     def migrate(self, migrations_dir: Path) -> None:
+        if not migrations_dir.exists() or not any(migrations_dir.glob("*.sql")):
+            with self.connect() as conn:
+                bootstrap_core_schema(conn)
+            return
         with self.connect() as conn:
             conn.execute(
                 """
