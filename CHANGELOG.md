@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-04-04
+
+### Changed
+
+- Added action-label and living-docs surfaces to the operator workflow, including reviewer-driven cleanup on the action-label taxonomy and living-docs maintenance path.
+- Landed the TypeScript/Python parity tranche for session store and the full research package, keeping the rebased cross-surface runtime behavior aligned on current `main`.
+- Folded in the `pi-autocontext` polish follow-up so the published Pi package line reflects the renamed extension and its best-practices cleanup.
+- Python and TypeScript package metadata are bumped to `0.3.4`.
+
 ## [0.3.3] - 2026-04-03
 
 ### Changed
