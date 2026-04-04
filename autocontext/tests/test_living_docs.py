@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 def _write_doc(root: Path, name: str, *, opted_in: bool = True, content: str = "") -> Path:
     path = root / name
