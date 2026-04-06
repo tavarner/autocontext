@@ -7,24 +7,33 @@ executes trajectories/sweeps, and returns structured findings.
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import json
 import logging
 import re
 import sys
-import types
 import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from autocontext.agents.types import LlmFn
+from autocontext.simulation.helpers import (
+    aggregate_contract_signal_counts,
+    apply_behavioral_contract,
+    find_scenario_class,
+    infer_family,
+)
 from autocontext.util.json_io import read_json, write_json
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from autocontext.scenarios.operator_loop import OperatorLoopInterface
+
+
+# Backward-compatible alias for existing tests and callers that still import
+# the abstract-class filter helper from this module.
+_find_scenario_class = find_scenario_class
 
 
 def _generate_id() -> str:
@@ -34,44 +43,6 @@ def _generate_id() -> str:
 def _derive_name(description: str) -> str:
     words = re.sub(r"[^a-z0-9\s]", "", description.lower()).split()
     return "_".join(w for w in words if len(w) > 2)[:4] or "simulation"
-
-
-def _find_scenario_class(mod: types.ModuleType) -> type | None:
-    """Find first concrete (non-abstract) scenario class in a module.
-
-    Checks SimulationInterface first, then OperatorLoopInterface.
-    Skips abstract classes to avoid AC-520.
-    """
-    from autocontext.scenarios.simulation import SimulationInterface
-
-    for attr_name in dir(mod):
-        attr = getattr(mod, attr_name)
-        if (
-            isinstance(attr, type)
-            and issubclass(attr, SimulationInterface)
-            and attr is not SimulationInterface
-            and not inspect.isabstract(attr)
-        ):
-            return attr
-
-    # Try operator_loop interface
-    try:
-        from autocontext.scenarios.operator_loop import OperatorLoopInterface
-    except ImportError:
-        return None
-
-    for attr_name in dir(mod):
-        attr = getattr(mod, attr_name)
-        if (
-            isinstance(attr, type)
-            and issubclass(attr, OperatorLoopInterface)
-            and attr is not OperatorLoopInterface
-            and not inspect.isabstract(attr)
-        ):
-            return attr
-
-    return None
-
 
 class SimulationEngine:
     """Plain-language simulation engine with sweep/replay/compare."""
@@ -99,7 +70,7 @@ class SimulationEngine:
         resolved_variables = variables or {}
 
         try:
-            family = self._infer_family(description)
+            family = infer_family(description)
             spec = self._apply_variables(self._build_spec(description, family), resolved_variables)
 
             source = self._generate_source(spec, name, family)
@@ -126,11 +97,18 @@ class SimulationEngine:
             assumptions = self._build_assumptions(spec, family)
             warnings = self._build_warnings(family)
 
+            status, missing_signals = apply_behavioral_contract(
+                description=description,
+                family=family,
+                summary=summary,
+                warnings=warnings,
+            )
+
             report = {
                 "id": sim_id,
                 "name": name,
                 "family": family,
-                "status": "completed",
+                "status": status,
                 "description": description,
                 "assumptions": assumptions,
                 "variables": resolved_variables,
@@ -147,19 +125,26 @@ class SimulationEngine:
                 },
                 "warnings": warnings,
             }
+            if missing_signals:
+                report["missing_signals"] = missing_signals
             write_json(scenario_dir / "report.json", report)
             return report
 
         except Exception as exc:
             logger.debug("simulation.engine: caught Exception", exc_info=True)
             return {
-                "id": sim_id, "name": name, "family": "simulation",
-                "status": "failed", "description": description,
-                "assumptions": [], "variables": variables or {},
+                "id": sim_id,
+                "name": name,
+                "family": "simulation",
+                "status": "failed",
+                "description": description,
+                "assumptions": [],
+                "variables": variables or {},
                 "sweep": None,
                 "summary": {"score": 0, "reasoning": str(exc), "dimension_scores": {}},
                 "artifacts": {"scenario_dir": "", "report_path": ""},
-                "warnings": [], "error": str(exc),
+                "warnings": [],
+                "error": str(exc),
             }
 
     # ------------------------------------------------------------------
@@ -207,6 +192,13 @@ class SimulationEngine:
             result = self._aggregate_runs(reruns)
             sweep_result = None
 
+        warnings = self._build_warnings(family)
+        status, missing_signals = apply_behavioral_contract(
+            description=original.get("description", ""),
+            family=family,
+            summary=result,
+            warnings=warnings,
+        )
         replay_report = {
             **original,
             "id": _generate_id(),
@@ -216,13 +208,18 @@ class SimulationEngine:
             "replay_of": id,
             "original_score": original_score,
             "score_delta": round(result["score"] - original_score, 4),
-            "status": "completed",
+            "status": status,
             "execution": {
                 "runs": runs,
                 "max_steps": replay_max_steps,
                 "sweep": execution["sweep"],
             },
+            "warnings": warnings,
         }
+        replay_report.pop("missing_signals", None)
+        replay_report.pop("error", None)
+        if missing_signals:
+            replay_report["missing_signals"] = missing_signals
 
         replay_path = sim_dir / f"replay_{replay_report['id']}.json"
         write_json(replay_path, replay_report)
@@ -275,9 +272,7 @@ class SimulationEngine:
             dimension_deltas[key] = {"left": lv, "right": rv, "delta": round(rv - lv, 4)}
 
         likely_drivers = [
-            key
-            for key, value in variable_deltas.items()
-            if not self._values_equal(value.get("left"), value.get("right"))
+            key for key, value in variable_deltas.items() if not self._values_equal(value.get("left"), value.get("right"))
         ]
         likely_drivers += [k for k, v in dimension_deltas.items() if abs(v["delta"]) > 0.05 and k not in likely_drivers]
 
@@ -302,12 +297,6 @@ class SimulationEngine:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-
-    def _infer_family(self, description: str) -> str:
-        lower = description.lower()
-        if re.search(r"escalat|operator|human.in.the.loop|clarification", lower):
-            return "operator_loop"
-        return "simulation"
 
     def _build_spec(self, description: str, family: str) -> dict[str, Any]:
         system = (
@@ -342,6 +331,7 @@ class SimulationEngine:
             from autocontext.scenarios.custom.operator_loop_codegen import generate_operator_loop_class
             from autocontext.scenarios.custom.operator_loop_spec import OperatorLoopSpec
             from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel
+
             ol_spec = OperatorLoopSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
@@ -356,6 +346,7 @@ class SimulationEngine:
         else:
             from autocontext.scenarios.custom.simulation_codegen import generate_simulation_class
             from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel, SimulationSpec
+
             sim_spec = SimulationSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
@@ -380,6 +371,7 @@ class SimulationEngine:
         write_json(sim_dir / "spec.json", {"name": name, "family": family, **spec})
         (sim_dir / "scenario.py").write_text(source, encoding="utf-8")
         from autocontext.scenarios.families import get_family_marker
+
         (sim_dir / "scenario_type.txt").write_text(get_family_marker(family), encoding="utf-8")
         return sim_dir
 
@@ -392,7 +384,7 @@ class SimulationEngine:
         sys.modules[mod_name] = mod
 
         # Find the scenario class (skip abstract classes — AC-520)
-        cls = _find_scenario_class(mod)
+        cls = find_scenario_class(mod)
         if cls is None:
             return {"score": 0, "reasoning": "No scenario class found", "dimension_scores": {}}
 
@@ -407,6 +399,7 @@ class SimulationEngine:
         records: list[dict[str, Any]] = []
 
         from autocontext.scenarios.simulation import Action, ActionRecord, ActionResult, ActionTrace
+
         step_num = 0
         for _ in range(limit):
             if instance.is_terminal(state):
@@ -418,24 +411,28 @@ class SimulationEngine:
             state_before = dict(state)
             result, state = instance.execute_action(state, action)
             step_num += 1
-            records.append({
-                "step": step_num,
-                "action": action.name,
-                "success": result.success,
-                "state_before": state_before,
-                "state_after": dict(state),
-            })
-
-        trace = ActionTrace(records=[
-            ActionRecord(
-                step=r["step"],
-                action=Action(name=r["action"], parameters={}),
-                result=ActionResult(success=r["success"], output="", state_changes={}),
-                state_before=r["state_before"],
-                state_after=r["state_after"],
+            records.append(
+                {
+                    "step": step_num,
+                    "action": action.name,
+                    "success": result.success,
+                    "state_before": state_before,
+                    "state_after": dict(state),
+                }
             )
-            for r in records
-        ])
+
+        trace = ActionTrace(
+            records=[
+                ActionRecord(
+                    step=r["step"],
+                    action=Action(name=r["action"], parameters={}),
+                    result=ActionResult(success=r["success"], output="", state_changes={}),
+                    state_before=r["state_before"],
+                    state_after=r["state_after"],
+                )
+                for r in records
+            ]
+        )
         eval_result = instance.evaluate_trace(trace, state)
         return {
             "score": round(eval_result.score, 4),
@@ -455,6 +452,8 @@ class SimulationEngine:
         limit = max_steps or getattr(instance, "max_steps", lambda: 20)()
         records: list[dict[str, Any]] = []
         step_num = 0
+        escalation_count = 0
+        clarification_count = 0
 
         for _ in range(limit):
             if instance.is_terminal(state):
@@ -479,6 +478,8 @@ class SimulationEngine:
 
             if action_to_run is None and blocked_action is not None:
                 state = self._operator_loop_intervene(instance, state, blocked_action, blocked_reason)
+                escalation_count += 1
+                clarification_count += 1
                 continue
 
             if action_to_run is None:
@@ -487,29 +488,35 @@ class SimulationEngine:
             state_before = dict(state)
             result, state = instance.execute_action(state, action_to_run)
             step_num += 1
-            records.append({
-                "step": step_num,
-                "action": action_to_run.name,
-                "success": result.success,
-                "state_before": state_before,
-                "state_after": dict(state),
-            })
-
-        trace = ActionTrace(records=[
-            ActionRecord(
-                step=r["step"],
-                action=Action(name=r["action"], parameters={}),
-                result=ActionResult(success=r["success"], output="", state_changes={}),
-                state_before=r["state_before"],
-                state_after=r["state_after"],
+            records.append(
+                {
+                    "step": step_num,
+                    "action": action_to_run.name,
+                    "success": result.success,
+                    "state_before": state_before,
+                    "state_after": dict(state),
+                }
             )
-            for r in records
-        ])
+
+        trace = ActionTrace(
+            records=[
+                ActionRecord(
+                    step=r["step"],
+                    action=Action(name=r["action"], parameters={}),
+                    result=ActionResult(success=r["success"], output="", state_changes={}),
+                    state_before=r["state_before"],
+                    state_after=r["state_after"],
+                )
+                for r in records
+            ]
+        )
         eval_result = instance.evaluate_trace(trace, state)
         return {
             "score": round(eval_result.score, 4),
             "reasoning": eval_result.reasoning,
             "dimension_scores": eval_result.dimension_scores,
+            "escalation_count": escalation_count,
+            "clarification_count": clarification_count,
         }
 
     def _operator_loop_intervene(
@@ -570,13 +577,15 @@ class SimulationEngine:
         avg = round(sum(r["score"] for r in results) / len(results), 4)
         best = max(results, key=lambda r: r["score"])
         worst = min(results, key=lambda r: r["score"])
-        return {
+        aggregate = {
             "score": avg,
             "reasoning": f"Average across {len(results)} runs",
             "dimension_scores": results[0].get("dimension_scores", {}),
             "best_case": {"score": best["score"], "variables": {}},
             "worst_case": {"score": worst["score"], "variables": {}},
         }
+        aggregate.update(aggregate_contract_signal_counts(results))
+        return aggregate
 
     def _aggregate_sweep(self, sweep: dict[str, Any]) -> dict[str, Any]:
         results = sweep.get("results", [])
@@ -585,13 +594,15 @@ class SimulationEngine:
         avg = round(sum(r["score"] for r in results) / len(results), 4)
         best = max(results, key=lambda r: r["score"])
         worst = min(results, key=lambda r: r["score"])
-        return {
+        aggregate = {
             "score": avg,
             "reasoning": f"Sweep: {len(results)} runs",
             "dimension_scores": results[0].get("dimension_scores", {}),
             "best_case": {"score": best["score"], "variables": best.get("variables", {})},
             "worst_case": {"score": worst["score"], "variables": worst.get("variables", {})},
         }
+        aggregate.update(aggregate_contract_signal_counts(results))
+        return aggregate
 
     def _build_assumptions(self, spec: dict[str, Any], family: str) -> list[str]:
         assumptions = [f"Modeled as {family} with {len(spec.get('actions', []))} actions"]
