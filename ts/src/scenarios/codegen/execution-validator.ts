@@ -8,7 +8,7 @@
  * Catches logic errors that pass syntax validation but crash at runtime.
  */
 
-import type { ScenarioFamilyName } from "../families.js";
+import { SIMULATION_LIKE_FAMILIES } from "../families.js";
 
 export interface ExecutionValidationResult {
   /** Whether the generated code passed all execution checks. */
@@ -20,15 +20,6 @@ export interface ExecutionValidationResult {
   /** Duration of the validation run in milliseconds. */
   durationMs: number;
 }
-
-/**
- * Required methods per family for execution validation.
- * Methods listed here will be called during validation.
- */
-const SIMULATION_LIKE_FAMILIES = new Set([
-  "simulation", "investigation", "workflow", "negotiation",
-  "schema_evolution", "tool_fragility", "operator_loop", "coordination",
-]);
 
 /**
  * Validate generated scenario code by actually executing it.
@@ -52,24 +43,44 @@ export async function validateGeneratedScenario(
     const moduleObj = { exports: {} as Record<string, unknown> };
     const fn = new Function("module", "exports", source);
     fn(moduleObj, moduleObj.exports);
-    scenario = (moduleObj.exports as { scenario?: Record<string, unknown> }).scenario as
-      Record<string, (...args: unknown[]) => unknown> ??
-      moduleObj.exports as Record<string, (...args: unknown[]) => unknown>;
+    scenario =
+      ((moduleObj.exports as { scenario?: Record<string, unknown> })
+        .scenario as Record<string, (...args: unknown[]) => unknown>) ??
+      (moduleObj.exports as Record<string, (...args: unknown[]) => unknown>);
     if (!scenario || typeof scenario !== "object") {
       errors.push("generated code does not export a scenario object");
-      return { valid: false, errors, executedMethods, durationMs: performance.now() - start };
+      return {
+        valid: false,
+        errors,
+        executedMethods,
+        durationMs: performance.now() - start,
+      };
     }
   } catch (err) {
-    errors.push(`failed to load generated code: ${err instanceof Error ? err.message : String(err)}`);
-    return { valid: false, errors, executedMethods, durationMs: performance.now() - start };
+    errors.push(
+      `failed to load generated code: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return {
+      valid: false,
+      errors,
+      executedMethods,
+      durationMs: performance.now() - start,
+    };
   }
 
   // Step 2: Check required methods exist
   const requiredMethods = getRequiredMethods(family);
-  const missing = requiredMethods.filter((m) => typeof scenario[m] !== "function");
+  const missing = requiredMethods.filter(
+    (m) => typeof scenario[m] !== "function",
+  );
   if (missing.length > 0) {
     errors.push(`missing required methods: ${missing.join(", ")}`);
-    return { valid: false, errors, executedMethods, durationMs: performance.now() - start };
+    return {
+      valid: false,
+      errors,
+      executedMethods,
+      durationMs: performance.now() - start,
+    };
   }
 
   // Step 3: Execute initialState
@@ -78,18 +89,32 @@ export async function validateGeneratedScenario(
     const result = scenario.initialState(42);
     if (result == null || typeof result !== "object" || Array.isArray(result)) {
       errors.push("initialState must return an object, got: " + typeof result);
-      return { valid: false, errors, executedMethods, durationMs: performance.now() - start };
+      return {
+        valid: false,
+        errors,
+        executedMethods,
+        durationMs: performance.now() - start,
+      };
     }
     state = result as Record<string, unknown>;
     executedMethods.push("initialState");
   } catch (err) {
-    errors.push(`initialState crashed: ${err instanceof Error ? err.message : String(err)}`);
-    return { valid: false, errors, executedMethods, durationMs: performance.now() - start };
+    errors.push(
+      `initialState crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return {
+      valid: false,
+      errors,
+      executedMethods,
+      durationMs: performance.now() - start,
+    };
   }
 
   // Step 4: Family-specific validation
   if (family === "agent_task") {
     await validateAgentTask(scenario, state, errors, executedMethods);
+  } else if (family === "operator_loop") {
+    validateOperatorLoop(scenario, state, errors, executedMethods);
   } else if (SIMULATION_LIKE_FAMILIES.has(family) || family === "game") {
     validateSimulationLike(scenario, state, errors, executedMethods);
   } else if (family === "artifact_editing") {
@@ -110,18 +135,95 @@ export async function validateGeneratedScenario(
 
 function getRequiredMethods(family: string): string[] {
   if (family === "agent_task") {
-    return ["getTaskPrompt", "getRubric", "describeTask", "initialState", "evaluateOutput"];
+    return [
+      "getTaskPrompt",
+      "getRubric",
+      "describeTask",
+      "initialState",
+      "evaluateOutput",
+    ];
   }
   if (family === "artifact_editing") {
-    return ["describeTask", "getRubric", "initialArtifacts", "getEditPrompt", "validateArtifact", "initialState"];
+    return [
+      "describeTask",
+      "getRubric",
+      "initialArtifacts",
+      "getEditPrompt",
+      "validateArtifact",
+      "initialState",
+    ];
+  }
+  if (family === "operator_loop") {
+    return [
+      "describeScenario",
+      "describeEnvironment",
+      "initialState",
+      "getAvailableActions",
+      "executeAction",
+      "isTerminal",
+      "getResult",
+      "getRubric",
+      "requestClarification",
+      "escalate",
+    ];
   }
   if (SIMULATION_LIKE_FAMILIES.has(family)) {
     return [
-      "describeScenario", "describeEnvironment", "initialState",
-      "getAvailableActions", "executeAction", "isTerminal", "getResult", "getRubric",
+      "describeScenario",
+      "describeEnvironment",
+      "initialState",
+      "getAvailableActions",
+      "executeAction",
+      "isTerminal",
+      "getResult",
+      "getRubric",
     ];
   }
   return ["initialState"];
+}
+
+function validateOperatorLoop(
+  scenario: Record<string, (...args: unknown[]) => unknown>,
+  state: Record<string, unknown>,
+  errors: string[],
+  executedMethods: string[],
+): void {
+  validateSimulationLike(scenario, state, errors, executedMethods);
+
+  // requestClarification
+  try {
+    const clarified = scenario.requestClarification(state, {
+      question: "What additional information is required?",
+      urgency: "medium",
+    });
+    if (clarified == null || typeof clarified !== "object") {
+      errors.push("requestClarification must return an object state");
+    } else {
+      executedMethods.push("requestClarification");
+    }
+  } catch (err) {
+    errors.push(
+      `requestClarification crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // escalate
+  try {
+    const escalated = scenario.escalate(state, {
+      reason: "Validation checkpoint",
+      severity: "high",
+      wasNecessary: true,
+    });
+    if (escalated == null || typeof escalated !== "object") {
+      errors.push("escalate must return an object state");
+    } else {
+      executedMethods.push("escalate");
+    }
+  } catch (err) {
+    errors.push(
+      `escalate crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 async function validateAgentTask(
@@ -139,7 +241,9 @@ async function validateAgentTask(
       executedMethods.push("describeTask");
     }
   } catch (err) {
-    errors.push(`describeTask crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `describeTask crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getTaskPrompt
@@ -151,7 +255,9 @@ async function validateAgentTask(
       executedMethods.push("getTaskPrompt");
     }
   } catch (err) {
-    errors.push(`getTaskPrompt crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getTaskPrompt crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getRubric
@@ -163,12 +269,16 @@ async function validateAgentTask(
       executedMethods.push("getRubric");
     }
   } catch (err) {
-    errors.push(`getRubric crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getRubric crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // evaluateOutput
   try {
-    const evalResult = await Promise.resolve(scenario.evaluateOutput("test output", state));
+    const evalResult = await Promise.resolve(
+      scenario.evaluateOutput("test output", state),
+    );
     if (evalResult == null || typeof evalResult !== "object") {
       errors.push("evaluateOutput must return an object");
     } else {
@@ -179,7 +289,9 @@ async function validateAgentTask(
       executedMethods.push("evaluateOutput");
     }
   } catch (err) {
-    errors.push(`evaluateOutput crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `evaluateOutput crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -198,7 +310,9 @@ function validateSimulationLike(
       executedMethods.push("describeScenario");
     }
   } catch (err) {
-    errors.push(`describeScenario crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `describeScenario crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // describeEnvironment
@@ -210,7 +324,9 @@ function validateSimulationLike(
       executedMethods.push("describeEnvironment");
     }
   } catch (err) {
-    errors.push(`describeEnvironment crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `describeEnvironment crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getRubric
@@ -222,7 +338,9 @@ function validateSimulationLike(
       executedMethods.push("getRubric");
     }
   } catch (err) {
-    errors.push(`getRubric crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getRubric crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getAvailableActions
@@ -233,19 +351,31 @@ function validateSimulationLike(
       errors.push("getAvailableActions must return an array");
     } else {
       actions = result as Array<{ name: string }>;
+      if (actions.length === 0) {
+        errors.push(
+          "getAvailableActions must return at least one action for initial state",
+        );
+      }
       executedMethods.push("getAvailableActions");
     }
   } catch (err) {
-    errors.push(`getAvailableActions crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getAvailableActions crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // executeAction (if there are actions available)
   let postActionState = state;
   if (actions.length > 0) {
     try {
-      const actionResult = scenario.executeAction(state, { name: actions[0].name, parameters: {} });
+      const actionResult = scenario.executeAction(state, {
+        name: actions[0].name,
+        parameters: {},
+      });
       if (actionResult == null || typeof actionResult !== "object") {
-        errors.push("executeAction must return an object with result and state");
+        errors.push(
+          "executeAction must return an object with result and state",
+        );
       } else {
         const r = actionResult as Record<string, unknown>;
         if (r.state && typeof r.state === "object") {
@@ -254,7 +384,9 @@ function validateSimulationLike(
         executedMethods.push("executeAction");
       }
     } catch (err) {
-      errors.push(`executeAction crashed: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(
+        `executeAction crashed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -267,7 +399,9 @@ function validateSimulationLike(
       executedMethods.push("isTerminal");
     }
   } catch (err) {
-    errors.push(`isTerminal crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `isTerminal crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getResult
@@ -283,7 +417,9 @@ function validateSimulationLike(
       executedMethods.push("getResult");
     }
   } catch (err) {
-    errors.push(`getResult crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getResult crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -302,7 +438,9 @@ function validateArtifactEditing(
       executedMethods.push("describeTask");
     }
   } catch (err) {
-    errors.push(`describeTask crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `describeTask crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // initialArtifacts
@@ -313,10 +451,15 @@ function validateArtifactEditing(
       errors.push("initialArtifacts must return an array");
     } else {
       artifacts = result as Array<Record<string, unknown>>;
+      if (artifacts.length === 0) {
+        errors.push("initialArtifacts must return at least one artifact");
+      }
       executedMethods.push("initialArtifacts");
     }
   } catch (err) {
-    errors.push(`initialArtifacts crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `initialArtifacts crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getRubric
@@ -328,7 +471,9 @@ function validateArtifactEditing(
       executedMethods.push("getRubric");
     }
   } catch (err) {
-    errors.push(`getRubric crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getRubric crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // getEditPrompt
@@ -340,12 +485,18 @@ function validateArtifactEditing(
       executedMethods.push("getEditPrompt");
     }
   } catch (err) {
-    errors.push(`getEditPrompt crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `getEditPrompt crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // validateArtifact
   try {
-    const artifact = artifacts[0] ?? { name: "__validation__", content: "", format: "text" };
+    const artifact = artifacts[0] ?? {
+      name: "__validation__",
+      content: "",
+      format: "text",
+    };
     const validation = scenario.validateArtifact(artifact);
     if (validation == null || typeof validation !== "object") {
       errors.push("validateArtifact must return an object");
@@ -353,6 +504,8 @@ function validateArtifactEditing(
       executedMethods.push("validateArtifact");
     }
   } catch (err) {
-    errors.push(`validateArtifact crashed: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(
+      `validateArtifact crashed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
