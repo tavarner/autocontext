@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.5] - 2026-04-06
+
+### Changed
+
+- Stabilized the post-`0.3.4` simulation path so operator-loop scenarios preserve behavioral-contract signals across multi-run, sweep, and replay flows instead of silently dropping them.
+- Hardened plain-language simulation execution around explicit family detection, operator-loop contract enforcement, and shared CLI engine-result handling so incomplete runs surface consistently across Python and TypeScript surfaces.
+- Tightened the simulation-engine implementation without regressing the repo module-size guardrail, including the compatibility shim needed by existing abstract-class filtering tests.
+- Python and TypeScript package metadata are bumped to `0.3.5`.
+
 ## [0.3.4] - 2026-04-04
 
 ### Changed
