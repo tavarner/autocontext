@@ -36,6 +36,12 @@ def _derive_name(description: str) -> str:
     return "_".join(w for w in words if len(w) > 2)[:4] or "simulation"
 
 
+_OPERATOR_LOOP_FAMILY_TRIGGERS = re.compile(
+    r"escalat|operator|human.in.the.loop|clarif|ambiguous|"
+    r"incomplete.input|ask.*question|missing.information|gather.more.info"
+)
+
+
 def _find_scenario_class(mod: types.ModuleType) -> type | None:
     """Find first concrete (non-abstract) scenario class in a module.
 
@@ -126,19 +132,12 @@ class SimulationEngine:
             assumptions = self._build_assumptions(spec, family)
             warnings = self._build_warnings(family)
 
-            # AC-527: Evaluate behavioral contract before marking completed.
-            from autocontext.scenarios.family_contracts import get_family_contract
-
-            contract = get_family_contract(family)
-            contract_result = contract.evaluate(description, summary) if contract else None
-            status = "completed"
-            missing_signals: list[str] = []
-            if contract_result and not contract_result.satisfied:
-                status = "incomplete"
-                missing_signals = contract_result.missing_signals
-                if contract_result.score_ceiling is not None:
-                    summary["score"] = min(summary.get("score", 0), contract_result.score_ceiling)
-                warnings.append(contract_result.reason)
+            status, missing_signals = self._apply_behavioral_contract(
+                description=description,
+                family=family,
+                summary=summary,
+                warnings=warnings,
+            )
 
             report = {
                 "id": sim_id,
@@ -228,6 +227,13 @@ class SimulationEngine:
             result = self._aggregate_runs(reruns)
             sweep_result = None
 
+        warnings = self._build_warnings(family)
+        status, missing_signals = self._apply_behavioral_contract(
+            description=original.get("description", ""),
+            family=family,
+            summary=result,
+            warnings=warnings,
+        )
         replay_report = {
             **original,
             "id": _generate_id(),
@@ -237,13 +243,18 @@ class SimulationEngine:
             "replay_of": id,
             "original_score": original_score,
             "score_delta": round(result["score"] - original_score, 4),
-            "status": "completed",
+            "status": status,
             "execution": {
                 "runs": runs,
                 "max_steps": replay_max_steps,
                 "sweep": execution["sweep"],
             },
+            "warnings": warnings,
         }
+        replay_report.pop("missing_signals", None)
+        replay_report.pop("error", None)
+        if missing_signals:
+            replay_report["missing_signals"] = missing_signals
 
         replay_path = sim_dir / f"replay_{replay_report['id']}.json"
         write_json(replay_path, replay_report)
@@ -324,7 +335,7 @@ class SimulationEngine:
 
     def _infer_family(self, description: str) -> str:
         lower = description.lower()
-        if re.search(r"escalat|operator|human.in.the.loop|clarification", lower):
+        if _OPERATOR_LOOP_FAMILY_TRIGGERS.search(lower):
             return "operator_loop"
         return "simulation"
 
@@ -607,13 +618,15 @@ class SimulationEngine:
         avg = round(sum(r["score"] for r in results) / len(results), 4)
         best = max(results, key=lambda r: r["score"])
         worst = min(results, key=lambda r: r["score"])
-        return {
+        aggregate = {
             "score": avg,
             "reasoning": f"Average across {len(results)} runs",
             "dimension_scores": results[0].get("dimension_scores", {}),
             "best_case": {"score": best["score"], "variables": {}},
             "worst_case": {"score": worst["score"], "variables": {}},
         }
+        aggregate.update(self._aggregate_contract_signal_counts(results))
+        return aggregate
 
     def _aggregate_sweep(self, sweep: dict[str, Any]) -> dict[str, Any]:
         results = sweep.get("results", [])
@@ -622,13 +635,47 @@ class SimulationEngine:
         avg = round(sum(r["score"] for r in results) / len(results), 4)
         best = max(results, key=lambda r: r["score"])
         worst = min(results, key=lambda r: r["score"])
-        return {
+        aggregate = {
             "score": avg,
             "reasoning": f"Sweep: {len(results)} runs",
             "dimension_scores": results[0].get("dimension_scores", {}),
             "best_case": {"score": best["score"], "variables": best.get("variables", {})},
             "worst_case": {"score": worst["score"], "variables": worst.get("variables", {})},
         }
+        aggregate.update(self._aggregate_contract_signal_counts(results))
+        return aggregate
+
+    def _aggregate_contract_signal_counts(self, results: list[dict[str, Any]]) -> dict[str, int]:
+        aggregate: dict[str, int] = {}
+        for key in ("escalation_count", "clarification_count"):
+            counts = [value for value in (result.get(key) for result in results) if isinstance(value, int | float)]
+            if counts:
+                aggregate[key] = int(sum(counts))
+        return aggregate
+
+    def _apply_behavioral_contract(
+        self,
+        *,
+        description: str,
+        family: str,
+        summary: dict[str, Any],
+        warnings: list[str],
+    ) -> tuple[str, list[str]]:
+        from autocontext.scenarios.family_contracts import get_family_contract
+
+        contract = get_family_contract(family)
+        if contract is None:
+            return "completed", []
+
+        contract_result = contract.evaluate(description, summary)
+        warnings.extend(contract_result.warnings)
+        if contract_result.satisfied:
+            return "completed", []
+
+        if contract_result.score_ceiling is not None:
+            summary["score"] = min(summary.get("score", 0), contract_result.score_ceiling)
+        warnings.append(contract_result.reason)
+        return "incomplete", contract_result.missing_signals
 
     def _build_assumptions(self, spec: dict[str, Any], family: str) -> list[str]:
         assumptions = [f"Modeled as {family} with {len(spec.get('actions', []))} actions"]
