@@ -83,7 +83,7 @@ class ScenarioCreator:
         scenario_file.write_text(source, encoding="utf-8")
         spec.save(scenario_dir)
 
-        scenario_class = load_custom_scenario(custom_dir, spec.name, ScenarioInterface)
+        scenario_class = load_custom_scenario(custom_dir, spec.name, ScenarioInterface, force_reload=True)
 
         exec_errors = validate_by_execution(scenario_class, spec, seeds=3)
         if exec_errors:

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from autocontext.runtimes.base import AgentOutput, AgentRuntime
 from autocontext.runtimes.pi_artifacts import PiExecutionTrace
+from autocontext.runtimes.pi_defaults import PI_DEFAULT_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class PiCLIConfig:
 
     pi_command: str = "pi"
     model: str = ""
-    timeout: float = 120.0
+    timeout: float = PI_DEFAULT_TIMEOUT_SECONDS
     json_output: bool = True
     workspace: str = ""
     extra_args: list[str] = field(default_factory=list)

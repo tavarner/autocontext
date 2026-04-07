@@ -130,6 +130,45 @@ class TestSimulationEngine:
         assert len(set(scores)) > 1
         assert len(set(reasons)) > 1
 
+    def test_tolerates_postconditions_in_llm_generated_actions(self, tmp_knowledge: Path) -> None:
+        from autocontext.simulation.engine import SimulationEngine
+
+        spec_json = json.dumps({
+            "description": "Postconditions simulation",
+            "environment_description": "Test env",
+            "initial_state_description": "Start state",
+            "success_criteria": [{"condition": "complete", "description": "complete all steps"}],
+            "failure_modes": [{"condition": "timeout", "description": "run timed out"}],
+            "max_steps": 10,
+            "actions": [
+                {
+                    "name": "step_a",
+                    "description": "First",
+                    "parameters": {},
+                    "preconditions": [],
+                    "postconditions": ["a_done"],
+                    "steps": [{"action": "observe", "condition": "always"}],
+                },
+                {
+                    "name": "step_b",
+                    "description": "Second",
+                    "parameters": {},
+                    "preconditions": ["step_a"],
+                    "effects": ["b_done"],
+                },
+            ],
+        })
+
+        engine = SimulationEngine(llm_fn=_mock_llm_fn(spec_json), knowledge_root=tmp_knowledge)
+        result = engine.run(description="Simulation with postconditions")
+
+        assert result["status"] == "completed"
+        scenario_dir = Path(result["artifacts"]["scenario_dir"])
+        persisted = json.loads((scenario_dir / "spec.json").read_text())
+        assert persisted["actions"][0]["effects"] == ["a_done"]
+        assert persisted["success_criteria"] == ["complete all steps"]
+        assert persisted["failure_modes"] == ["run timed out"]
+
 
 # ---------------------------------------------------------------------------
 # Replay

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Changes in this section are on the branch/repo after `0.3.3` and are not part of the last published release until the next version is cut.
+
+### Fixed
+
+- Python `autoctx simulate` now resolves live generation through the configured `AUTOCONTEXT_AGENT_PROVIDER` runtime surface instead of incorrectly depending on the judge-provider path, which restores Pi and other agent-runtime-backed simulation flows.
+- Python simulation spec normalization now tolerates LLM-friendly action/spec shapes such as `postconditions`, nested criteria objects, and extra action-planning metadata without failing code generation.
+- Regenerating a custom scenario with the same name in one process now force-reloads the generated module so `solve` and creator validation do not reuse stale scenario classes from `sys.modules`.
+- Pi-backed live flows now default to a 300 second timeout, reducing spurious failures in longer `solve` runs.
+- Public docs now describe `operator-in-the-loop` as a runnable family and no longer contradict the executable tests.
+
 ## [0.3.3] - 2026-04-03
 
 ### Changed

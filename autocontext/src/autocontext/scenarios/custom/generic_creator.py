@@ -102,7 +102,7 @@ class GenericScenarioCreator:
         )
 
         # 6. Load and register
-        cls = load_custom_scenario(custom_dir, name, self.interface_class)
+        cls = load_custom_scenario(custom_dir, name, self.interface_class, force_reload=True)
         from autocontext.scenarios import SCENARIO_REGISTRY
 
         SCENARIO_REGISTRY[name] = cls

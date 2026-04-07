@@ -102,11 +102,11 @@ class TestPiEnvVarRoundTrip:
         """Documented: AUTOCONTEXT_AGENT_PROVIDER=pi + PI_COMMAND + PI_TIMEOUT."""
         monkeypatch.setenv("AUTOCONTEXT_AGENT_PROVIDER", "pi")
         monkeypatch.setenv("AUTOCONTEXT_PI_COMMAND", "pi")
-        monkeypatch.setenv("AUTOCONTEXT_PI_TIMEOUT", "120")
+        monkeypatch.setenv("AUTOCONTEXT_PI_TIMEOUT", "300")
         settings = load_settings()
         assert settings.agent_provider == "pi"
         assert settings.pi_command == "pi"
-        assert settings.pi_timeout == 120.0
+        assert settings.pi_timeout == 300.0
 
         with patch("autocontext.runtimes.pi_cli.PiCLIRuntime") as MockRuntime:
             MockRuntime.return_value = MagicMock()

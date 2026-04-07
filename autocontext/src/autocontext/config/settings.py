@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from autocontext.config.presets import apply_preset
+from autocontext.runtimes.pi_defaults import PI_DEFAULT_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -503,7 +504,7 @@ class AppSettings(BaseModel):
     claude_session_persistence: bool = Field(default=False, description="Persist Claude CLI sessions across turns")
     # Pi CLI runtime (AC-223)
     pi_command: str = Field(default="pi", description="Path to Pi CLI binary")
-    pi_timeout: float = Field(default=120.0, ge=1.0, description="Pi execution timeout")
+    pi_timeout: float = Field(default=PI_DEFAULT_TIMEOUT_SECONDS, ge=1.0, description="Pi execution timeout")
     pi_workspace: str = Field(default="", description="Pi workspace directory")
     pi_model: str = Field(default="", description="Pi model override")
     # Codex CLI runtime (AC-317)
