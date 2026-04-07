@@ -74,6 +74,7 @@ class GenerationContext:
 
     # Environment snapshot prompt section (AC-503)
     environment_snapshot: str = ""
+    evidence_manifest: str = ""
 
     # Consultation result (AC-212)
     consultation_result: Any | None = None

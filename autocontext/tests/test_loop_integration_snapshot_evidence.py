@@ -116,7 +116,7 @@ class TestStagePreflight:
         events = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             artifacts = self._make_artifacts(tmp, ctx.scenario_name)
-            result = stage_preflight(ctx, events=events, artifacts=artifacts)
+            stage_preflight(ctx, events=events, artifacts=artifacts)
             snapshot_path = Path(tmp) / ctx.scenario_name / "environment_snapshot.json"
             assert snapshot_path.exists()
             data = json.loads(snapshot_path.read_text())
@@ -130,7 +130,7 @@ class TestStagePreflight:
         events = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             artifacts = self._make_artifacts(tmp, ctx.scenario_name)
-            result = stage_preflight(ctx, events=events, artifacts=artifacts)
+            stage_preflight(ctx, events=events, artifacts=artifacts)
             snapshot_path = Path(tmp) / ctx.scenario_name / "environment_snapshot.json"
             assert not snapshot_path.exists()
 
@@ -141,7 +141,7 @@ class TestStagePreflight:
         events = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             artifacts = self._make_artifacts(tmp, ctx.scenario_name)
-            result = stage_preflight(ctx, events=events, artifacts=artifacts)
+            stage_preflight(ctx, events=events, artifacts=artifacts)
             snapshot_path = Path(tmp) / ctx.scenario_name / "environment_snapshot.json"
             assert not snapshot_path.exists()
 

@@ -69,11 +69,12 @@ class ScanResult:
     findings: list[ScanFinding]
     scanned_path: str
     scanner_available: bool
+    scan_error: str | None = None
 
     @property
     def is_clean(self) -> bool:
-        """Clean if no findings OR scanner wasn't available (graceful degradation)."""
-        return len(self.findings) == 0
+        """Clean if no findings were reported and the scan did not fail."""
+        return len(self.findings) == 0 and self.scan_error is None
 
     @property
     def finding_count(self) -> int:
@@ -90,6 +91,7 @@ class ScanResult:
             "finding_count": self.finding_count,
             "scanner_available": self.scanner_available,
             "scanned_path": self.scanned_path,
+            "scan_error": self.scan_error,
             "findings": [f.to_dict() for f in self.findings],
             "flagged_files": sorted(self.flagged_files),
         }
@@ -133,11 +135,17 @@ class SecretScanner:
                 timeout=self._timeout,
             )
         except subprocess.TimeoutExpired:
-            logger.warning("trufflehog scan timed out after %ds", self._timeout)
-            return ScanResult(findings=[], scanned_path=directory, scanner_available=True)
+            error = f"trufflehog scan timed out after {self._timeout}s"
+            logger.warning(error)
+            return ScanResult(findings=[], scanned_path=directory, scanner_available=True, scan_error=error)
         except OSError as exc:
             logger.warning("trufflehog scan failed: %s", exc)
-            return ScanResult(findings=[], scanned_path=directory, scanner_available=False)
+            return ScanResult(
+                findings=[],
+                scanned_path=directory,
+                scanner_available=False,
+                scan_error=str(exc),
+            )
 
         findings: list[ScanFinding] = []
         for line in result.stdout.strip().splitlines():
@@ -155,5 +163,14 @@ class SecretScanner:
                 len(findings),
                 directory,
             )
+            return ScanResult(findings=findings, scanned_path=directory, scanner_available=True)
 
-        return ScanResult(findings=findings, scanned_path=directory, scanner_available=True)
+        if result.returncode != 0:
+            detail = result.stderr.strip().splitlines()[0] if result.stderr.strip() else ""
+            error = f"trufflehog exited with code {result.returncode}"
+            if detail:
+                error = f"{error}: {detail}"
+            logger.warning("trufflehog scan failed for %s: %s", directory, error)
+            return ScanResult(findings=[], scanned_path=directory, scanner_available=True, scan_error=error)
+
+        return ScanResult(findings=[], scanned_path=directory, scanner_available=True)

@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
+
 from autocontext.security.scanner import (
     ScanFinding,
     ScanResult,
@@ -117,6 +119,25 @@ class TestSecretScanner:
             result = scanner.scan(tmp)
             assert result.is_clean
 
+    def test_nonzero_exit_without_findings_returns_scan_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("autocontext.security.scanner.is_trufflehog_available", lambda: True)
+        monkeypatch.setattr(
+            "autocontext.security.scanner.subprocess.run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=args[0],
+                returncode=2,
+                stdout="",
+                stderr="fatal scan error",
+            ),
+        )
+
+        scanner = SecretScanner()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = scanner.scan(tmp)
+            assert not result.is_clean
+            assert result.scan_error is not None
+            assert "code 2" in result.scan_error
+
     @pytest.mark.skipif(not shutil.which("trufflehog"), reason="trufflehog not installed")
     def test_scan_detects_fake_secret(self) -> None:
         """Plant a realistic-looking API key and verify trufflehog catches it."""
@@ -203,3 +224,34 @@ class TestEvidenceWorkspaceIntegration:
             assert scan_report.exists()
             data = json.loads(scan_report.read_text())
             assert "is_clean" in data
+
+    def test_scan_failure_excludes_all_workspace_artifacts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from autocontext.evidence.materializer import materialize_workspace
+
+        def _failing_scan(self: SecretScanner, directory: str) -> ScanResult:
+            return ScanResult(
+                findings=[],
+                scanned_path=directory,
+                scanner_available=True,
+                scan_error="trufflehog exited with code 2",
+            )
+
+        monkeypatch.setattr(SecretScanner, "scan", _failing_scan)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "runs" / "run_001"
+            run_dir.mkdir(parents=True)
+            (run_dir / "events.ndjson").write_text('{"event":"start"}\n', encoding="utf-8")
+
+            ws_dir = root / "workspace"
+            ws = materialize_workspace(
+                knowledge_root=root / "knowledge",
+                runs_root=root / "runs",
+                source_run_ids=["run_001"],
+                workspace_dir=ws_dir,
+                scan_for_secrets=True,
+            )
+
+            assert ws.artifacts == []
+            assert not any(path.suffix == ".ndjson" for path in ws_dir.iterdir())

@@ -129,6 +129,16 @@ def _apply_secret_scan(
     if result.is_clean:
         return artifacts, total_size
 
+    if result.scan_error is not None:
+        logger.warning("secret scan failed for %s: %s — excluding all artifacts", workspace_dir, result.scan_error)
+        for artifact in artifacts:
+            artifact_path = workspace_dir / artifact.path
+            try:
+                artifact_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return [], 0
+
     # Remove flagged artifacts from the manifest and delete files
     flagged_basenames = {Path(f).name for f in result.flagged_files}
     clean: list[EvidenceArtifact] = []
