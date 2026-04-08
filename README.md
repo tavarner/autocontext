@@ -12,7 +12,7 @@ autocontext runs LLM agents through structured scenarios, evaluates their output
 ## What's New
 
 - All 11 scenario families executable in both Python and TypeScript
-- TypeScript campaign API and MCP surfaces shipped for multi-mission coordination
+- TypeScript campaign CLI, API, and MCP surfaces shipped for multi-mission coordination
 - Provider expansion: Gemini, Mistral, Groq, OpenRouter, and Azure OpenAI
 - Evidence and privacy hardening with TruffleHog integration and redaction
 - Session-runtime parity across Python and TypeScript surfaces
@@ -49,7 +49,7 @@ The product model centers on a few stable ideas:
 - `Scenario`: a reusable environment or evaluation context with stable rules and scoring
 - `Task`: a prompt-centric unit of work that can be evaluated directly or embedded elsewhere
 - `Mission`: a long-running goal advanced step by step until a verifier says it is done
-- `Campaign`: a planned grouping of missions under long-term goals; today it has partial TypeScript API/MCP support but is not yet a top-level CLI workflow or Python package surface
+- `Campaign`: a planned grouping of missions under long-term goals; today it has partial TypeScript CLI/API/MCP support but is not yet a Python package surface
 - `Run`: a concrete execution instance of a scenario or task
 - `Verifier`: the runtime check that decides whether a mission, step, or output is acceptable
 - `Knowledge`: validated lessons that should carry forward across runs
@@ -75,10 +75,11 @@ Strategies are then evaluated through scenario execution, staged validation, and
 | `investigate` | Evidence-driven diagnosis with hypotheses and confidence scoring                    |
 | `analyze`     | Inspect or compare runs, simulations, investigations, or missions after the fact    |
 | `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria |
+| `campaign`    | Coordinate multiple missions with budget tracking, dependencies, and progress aggregation |
 | `train`       | Distill stable exported data into a cheaper local runtime                           |
 | `replay`      | Inspect what happened before deciding what knowledge should persist                 |
 
-`campaign` now has partial TypeScript API/MCP support for multi-mission coordination, but it is not yet a top-level CLI workflow in either package.
+`campaign` now ships as a TypeScript CLI/API/MCP workflow for multi-mission coordination. The Python package still does not expose a campaign control-plane surface.
 
 ## Choose An Entry Point
 

@@ -14,7 +14,7 @@ The repo already has strong runtime primitives, but the vocabulary is not yet un
 - `Task` means at least three different things today: an agent-task spec, a queued evaluation job, and a generic prompt.
 - `Scenario` is sometimes a simulation environment and sometimes the saved wrapper around an agent task.
 - `Mission` exists as a real TypeScript control-plane concept, but not yet as a shared repo-wide one.
-- `Campaign` now has partial TypeScript API/MCP support, but it is not yet a shared CLI workflow or Python package surface.
+- `Campaign` now has partial TypeScript CLI/API/MCP support, but it is not yet a Python package surface.
 - `solve`, `sandbox`, `replay`, `playbook`, and `artifacts` are often presented like peer concepts even though they are better understood as operations or runtime outputs.
 
 ## Canonical Layers
@@ -28,7 +28,7 @@ These are the nouns we should prefer in docs, APIs, and product copy when descri
 | `Scenario` | A reusable environment, simulation, or evaluation context with stable rules and scoring. | Implemented across Python, TypeScript, CLI, MCP, API/TUI surfaces, and docs. |
 | `Task` | A user-authored unit of work or prompt-centric objective that can be evaluated directly or embedded inside another surface. | Implemented, but overloaded. |
 | `Mission` | A long-running goal advanced step by step until a verifier says it is complete. | Implemented in TypeScript CLI/MCP/API/TUI surfaces. |
-| `Campaign` | A planned grouping of missions, runs, and/or scenarios used to coordinate broader work over time. | Partially implemented through TypeScript API/MCP surfaces. Not yet a shared CLI workflow or Python package surface. |
+| `Campaign` | A planned grouping of missions, runs, and/or scenarios used to coordinate broader work over time. | Partially implemented through TypeScript CLI/API/MCP surfaces. Not yet a Python package surface. |
 
 ### Runtime concepts
 

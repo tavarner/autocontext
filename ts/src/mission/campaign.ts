@@ -79,6 +79,21 @@ function isTerminalCampaignStatus(status: CampaignStatus): boolean {
   return status === "completed" || status === "failed" || status === "canceled";
 }
 
+function assertLifecycleTransitionAllowed(
+  current: CampaignStatus,
+  next: CampaignStatus,
+): void {
+  if (next === "paused" && current !== "active") {
+    throw new Error(`Cannot pause campaign in status: ${current}`);
+  }
+  if (next === "active" && current !== "paused") {
+    throw new Error(`Cannot resume campaign in status: ${current}`);
+  }
+  if (next === "canceled" && current !== "active" && current !== "paused") {
+    throw new Error(`Cannot cancel campaign in status: ${current}`);
+  }
+}
+
 function missionCountsAsFailure(status: MissionStatus): boolean {
   return status === "failed" || status === "verifier_failed" || status === "budget_exhausted";
 }
@@ -463,6 +478,7 @@ export class CampaignManager {
   private setStatus(campaignId: string, status: CampaignStatus): void {
     const campaign = this.store.getCampaign(campaignId);
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
+    assertLifecycleTransitionAllowed(campaign.status, status);
     this.store.setStatus(campaignId, status);
   }
 }

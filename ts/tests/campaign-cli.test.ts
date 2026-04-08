@@ -77,6 +77,16 @@ function setupProjectDir(): string {
 // ---------------------------------------------------------------------------
 
 describe("autoctx campaign --help", () => {
+  it("appears in top-level help and capabilities", () => {
+    const help = runCli(["--help"]);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain("campaign");
+
+    const capabilities = runCli(["capabilities"]);
+    expect(capabilities.exitCode).toBe(0);
+    expect(JSON.parse(capabilities.stdout).commands).toContain("campaign");
+  });
+
   it("shows campaign subcommands", () => {
     const { stdout, exitCode } = runCli(["campaign", "--help"]);
     expect(exitCode).toBe(0);
@@ -151,6 +161,24 @@ describe("autoctx campaign create", () => {
     expect(stderr).toContain("--name");
     expect(stderr).toContain("--goal");
   });
+
+  it("rejects invalid numeric budget flags", () => {
+    const { exitCode, stderr } = runCli(
+      [
+        "campaign",
+        "create",
+        "--name",
+        "Bad",
+        "--goal",
+        "g",
+        "--max-missions",
+        "oops",
+      ],
+      { cwd: dir },
+    );
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("--max-missions must be a positive integer");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -223,6 +251,15 @@ describe("autoctx campaign list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.length).toBe(1);
     expect(parsed[0].name).toBe("B");
+  });
+
+  it("rejects invalid status filters", () => {
+    const { exitCode, stderr } = runCli(
+      ["campaign", "list", "--status", "mystery"],
+      { cwd: dir },
+    );
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("--status must be one of");
   });
 });
 
@@ -320,6 +357,36 @@ describe("autoctx campaign add-mission and progress", () => {
     const status = JSON.parse(statusOut);
     expect(status.missions.length).toBe(2);
   });
+
+  it("rejects invalid priority values", () => {
+    const { stdout: cOut } = runCli(
+      ["campaign", "create", "--name", "C", "--goal", "g"],
+      { cwd: dir },
+    );
+    const campaignId = JSON.parse(cOut).id;
+
+    const { stdout: mOut } = runCli(
+      ["mission", "create", "--name", "M1", "--goal", "mg"],
+      { cwd: dir },
+    );
+    const missionId = JSON.parse(mOut).id;
+
+    const { exitCode, stderr } = runCli(
+      [
+        "campaign",
+        "add-mission",
+        "--id",
+        campaignId,
+        "--mission-id",
+        missionId,
+        "--priority",
+        "bogus",
+      ],
+      { cwd: dir },
+    );
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("--priority must be a positive integer");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -373,6 +440,25 @@ describe("autoctx campaign lifecycle", () => {
     const { id } = JSON.parse(created);
 
     runCli(["campaign", "cancel", "--id", id], { cwd: dir });
+
+    const { stdout } = runCli(["campaign", "status", "--id", id], { cwd: dir });
+    expect(JSON.parse(stdout).status).toBe("canceled");
+  });
+
+  it("does not allow canceled campaigns to resume", () => {
+    const { stdout: created } = runCli(
+      ["campaign", "create", "--name", "T", "--goal", "g"],
+      { cwd: dir },
+    );
+    const { id } = JSON.parse(created);
+
+    runCli(["campaign", "cancel", "--id", id], { cwd: dir });
+    const { exitCode, stderr } = runCli(["campaign", "resume", "--id", id], {
+      cwd: dir,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Cannot resume campaign in status: canceled");
 
     const { stdout } = runCli(["campaign", "status", "--id", id], { cwd: dir });
     expect(JSON.parse(stdout).status).toBe("canceled");

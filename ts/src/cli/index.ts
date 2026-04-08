@@ -16,6 +16,7 @@ import { parseArgs } from "node:util";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { emitEngineResult } from "./emit-engine-result.js";
+import type { CampaignStatus } from "../mission/campaign.js";
 
 function getMigrationsDir(): string {
   const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ Commands:
   logout           Clear stored provider credentials
   providers        List all known providers with auth status (JSON)
   models           List available models for authenticated providers (JSON)
+  campaign         Manage multi-mission campaigns
   tui              Start interactive TUI (WebSocket server + Ink UI)
   judge            One-shot evaluation of output against a rubric
   improve          Run multi-round improvement loop
@@ -2194,6 +2196,7 @@ async function cmdCapabilities(): Promise<void> {
       "providers",
       "models",
       "mission",
+      "campaign",
       "tui",
       "judge",
       "improve",
@@ -2816,9 +2819,55 @@ See also: mission, run`);
     const id = requireIdArg(
       `Usage: autoctx campaign ${action} --id <campaign-id>`,
     );
-    requireCampaign(id);
+    const campaign = requireCampaign(id);
+    if (action === "pause" && campaign.status !== "active") {
+      console.error(`Cannot pause campaign in status: ${campaign.status}`);
+      process.exit(1);
+    }
+    if (action === "resume" && campaign.status !== "paused") {
+      console.error(`Cannot resume campaign in status: ${campaign.status}`);
+      process.exit(1);
+    }
+    if (
+      action === "cancel" &&
+      campaign.status !== "active" &&
+      campaign.status !== "paused"
+    ) {
+      console.error(`Cannot cancel campaign in status: ${campaign.status}`);
+      process.exit(1);
+    }
     manager[action](id);
     console.log(JSON.stringify(manager.get(id), null, 2));
+  }
+
+  function parseCampaignPositiveInteger(
+    raw: string | undefined,
+    label: string,
+  ): number {
+    try {
+      return parsePositiveInteger(raw, label);
+    } catch (error) {
+      console.error(formatFatalCliError(error));
+      process.exit(1);
+    }
+  }
+
+  function parseCampaignStatus(raw: string | undefined): CampaignStatus | undefined {
+    if (!raw) return undefined;
+    const allowed: CampaignStatus[] = [
+      "active",
+      "paused",
+      "completed",
+      "failed",
+      "canceled",
+    ];
+    if (!allowed.includes(raw as CampaignStatus)) {
+      console.error(
+        `Error: --status must be one of ${allowed.join(", ")}`,
+      );
+      process.exit(1);
+    }
+    return raw as CampaignStatus;
   }
 
   try {
@@ -2843,10 +2892,20 @@ See also: mission, run`);
           values["max-missions"] || values["max-steps"]
             ? {
                 ...(values["max-missions"]
-                  ? { maxMissions: parseInt(values["max-missions"], 10) }
+                  ? {
+                      maxMissions: parseCampaignPositiveInteger(
+                        values["max-missions"],
+                        "--max-missions",
+                      ),
+                    }
                   : {}),
                 ...(values["max-steps"]
-                  ? { maxTotalSteps: parseInt(values["max-steps"], 10) }
+                  ? {
+                      maxTotalSteps: parseCampaignPositiveInteger(
+                        values["max-steps"],
+                        "--max-steps",
+                      ),
+                    }
                   : {}),
               }
             : undefined;
@@ -2875,8 +2934,7 @@ See also: mission, run`);
           args: process.argv.slice(4),
           options: { status: { type: "string" } },
         });
-        type CampaignStatusParam = Parameters<typeof manager.list>[0];
-        const campaigns = manager.list(values.status as CampaignStatusParam);
+        const campaigns = manager.list(parseCampaignStatus(values.status));
         console.log(JSON.stringify(campaigns, null, 2));
         break;
       }
@@ -2899,7 +2957,12 @@ See also: mission, run`);
         requireCampaign(values.id);
         manager.addMission(values.id, values["mission-id"], {
           ...(values.priority
-            ? { priority: parseInt(values.priority, 10) }
+            ? {
+                priority: parseCampaignPositiveInteger(
+                  values.priority,
+                  "--priority",
+                ),
+              }
             : {}),
           ...(values["depends-on"]
             ? { dependsOn: [values["depends-on"]] }

@@ -100,6 +100,17 @@ describe("campaign lifecycle", () => {
     campaignManager.cancel(id);
     expect(campaignManager.get(id)!.status).toBe("canceled");
   });
+
+  it("does not allow terminal campaigns to resume", () => {
+    const id = campaignManager.create({ name: "Terminal", goal: "Stay terminal" });
+
+    campaignManager.cancel(id);
+
+    expect(() => campaignManager.resume(id)).toThrow(
+      "Cannot resume campaign in status: canceled",
+    );
+    expect(campaignManager.get(id)!.status).toBe("canceled");
+  });
 });
 
 // ---------------------------------------------------------------------------
