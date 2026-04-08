@@ -16,6 +16,7 @@ from autocontext.harness.evaluation.runner import EvaluationRunner
 from autocontext.harness.evaluation.scenario_evaluator import ScenarioEvaluator
 from autocontext.harness.evaluation.types import EvaluationLimits as HarnessLimits
 from autocontext.harness.evaluation.types import EvaluationResult
+from autocontext.harness.mutations.parser import parse_mutations
 from autocontext.harness.pipeline.holdout import HoldoutResult
 from autocontext.harness.pipeline.trend_gate import TrendAwareGate
 from autocontext.harness.pipeline.validity_gate import ValidityGate
@@ -83,6 +84,13 @@ from autocontext.loop.stage_helpers.freshness import (
     _filter_notebook_by_freshness,
     _load_fresh_hint_context,
     _load_fresh_skill_context,
+)
+from autocontext.loop.stage_helpers.harness_mutations import (
+    apply_harness_mutations_to_prompts,
+    load_active_harness_mutations,
+    persist_approved_harness_mutations,
+    render_context_policy_block,
+    render_tool_instruction_block,
 )
 from autocontext.loop.stage_helpers.persistence_helpers import (
     _apply_tuning_to_settings,
@@ -358,6 +366,7 @@ def stage_knowledge_setup(
     strategy_interface = scenario.describe_strategy_interface()
     evidence_manifest = ""
     notebook_contexts: dict[str, str] | None = None
+    active_harness_mutations = [] if ablation else load_active_harness_mutations(artifacts, ctx.scenario_name)
     if not ablation:
         raw_notebook = artifacts.read_notebook(ctx.run_id)
         if isinstance(raw_notebook, dict):
@@ -380,6 +389,12 @@ def stage_knowledge_setup(
                 if experiment_log
                 else freshness_block
             )
+    tool_instruction_block = render_tool_instruction_block(active_harness_mutations)
+    if tool_instruction_block:
+        tool_context = f"{tool_context}\n\n{tool_instruction_block}".strip() if tool_context else tool_instruction_block
+    context_policy_block = render_context_policy_block(active_harness_mutations)
+    if context_policy_block:
+        experiment_log = f"{experiment_log}\n\n{context_policy_block}".strip() if experiment_log else context_policy_block
     if not ablation and ctx.settings.evidence_workspace_enabled:
         try:
             evidence_manifest = _materialize_evidence_manifest(ctx, artifacts=artifacts)
@@ -414,6 +429,7 @@ def stage_knowledge_setup(
         environment_snapshot="" if ablation else ctx.environment_snapshot,
         evidence_manifest=evidence_manifest,
     )
+    prompts = apply_harness_mutations_to_prompts(prompts, active_harness_mutations)
 
     ctx.applied_competitor_hints = "" if ablation else coach_hints_for_prompt
     ctx.prompts = prompts
@@ -517,6 +533,13 @@ def stage_agent_generation(
     # Persist harness validators if enabled
     if ctx.settings.harness_validators_enabled and outputs.architect_harness_specs:
         artifacts.persist_harness(ctx.scenario_name, ctx.generation, outputs.architect_harness_specs)
+    persist_approved_harness_mutations(
+        artifacts,
+        ctx.scenario_name,
+        generation=ctx.generation,
+        run_id=ctx.run_id,
+        proposed=parse_mutations(outputs.architect_markdown),
+    )
 
     # Parse DAG change directives from architect output
     ctx.dag_changes = parse_dag_changes(outputs.architect_markdown)

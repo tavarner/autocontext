@@ -13,9 +13,11 @@ from autocontext.agents.types import AgentOutputs
 from autocontext.harness.evaluation.runner import EvaluationRunner
 from autocontext.harness.evaluation.scenario_evaluator import ScenarioEvaluator
 from autocontext.harness.evaluation.types import EvaluationLimits as HarnessLimits
+from autocontext.harness.mutations.parser import parse_mutations
 from autocontext.knowledge.rapid_gate import rapid_gate
 from autocontext.loop.hypothesis_tree import HypothesisTree
 from autocontext.loop.refinement_prompt import build_refinement_prompt
+from autocontext.loop.stage_helpers.harness_mutations import persist_approved_harness_mutations
 from autocontext.loop.stage_types import GenerationContext
 
 if TYPE_CHECKING:
@@ -309,6 +311,13 @@ def stage_tree_search(
     created_tools = artifacts.persist_tools(ctx.scenario_name, ctx.generation, tools)
     if settings.harness_validators_enabled and harness_specs:
         artifacts.persist_harness(ctx.scenario_name, ctx.generation, harness_specs)
+    persist_approved_harness_mutations(
+        artifacts,
+        ctx.scenario_name,
+        generation=ctx.generation,
+        run_id=ctx.run_id,
+        proposed=parse_mutations(architect_exec.content),
+    )
 
     ctx.dag_changes = parse_dag_changes(architect_exec.content)
 

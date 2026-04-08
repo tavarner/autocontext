@@ -302,6 +302,56 @@ class TestStageKnowledgeSetup:
         assert "Recent progress reports:" in result.prompts.competitor
         assert "Tokens per advance" in result.prompts.competitor
 
+    def test_applies_active_harness_mutations_to_live_prompts(self) -> None:
+        from autocontext.harness.mutations.spec import HarnessMutation, MutationType
+
+        artifacts = MagicMock()
+        artifacts.read_playbook.return_value = ""
+        artifacts.read_tool_context.return_value = "Existing tool context"
+        artifacts.read_skills.return_value = ""
+        artifacts.read_mutation_replay.return_value = ""
+        artifacts.read_latest_weakness_reports_markdown.return_value = ""
+        artifacts.read_latest_progress_reports_markdown.return_value = ""
+        artifacts.read_latest_advance_analysis.return_value = ""
+        artifacts.read_progress.return_value = None
+        artifacts.load_harness_mutations.return_value = [
+            HarnessMutation(
+                mutation_type=MutationType.PROMPT_FRAGMENT,
+                target_role="competitor",
+                content="Always verify edge cases before finalizing.",
+            ),
+            HarnessMutation(
+                mutation_type=MutationType.COMPLETION_CHECK,
+                content="Return valid JSON strategy output.",
+            ),
+            HarnessMutation(
+                mutation_type=MutationType.CONTEXT_POLICY,
+                component="trajectory",
+                content="prefer latest 5 entries",
+            ),
+            HarnessMutation(
+                mutation_type=MutationType.TOOL_INSTRUCTION,
+                tool_name="path_optimizer",
+                content="Prefer this tool for route selection.",
+            ),
+        ]
+        trajectory = MagicMock()
+        trajectory.build_trajectory.return_value = ""
+        trajectory.build_strategy_registry.return_value = ""
+        trajectory.build_experiment_log.return_value = ""
+        ctx = _make_ctx()
+
+        result = stage_knowledge_setup(ctx, artifacts=artifacts, trajectory_builder=trajectory)
+
+        assert result.prompts is not None
+        assert "Always verify edge cases before finalizing." in result.prompts.competitor
+        assert "Active completion checks" in result.prompts.competitor
+        assert "Return valid JSON strategy output." in result.prompts.competitor
+        assert "Tool-specific instructions" in result.prompts.competitor
+        assert "path_optimizer" in result.prompts.competitor
+        assert "Active context policies" in result.prompts.competitor
+        assert "prefer latest 5 entries" in result.prompts.competitor
+
     def test_includes_role_specific_notebook_context_in_live_prompt_bundle(self) -> None:
         artifacts = MagicMock()
         artifacts.read_playbook.return_value = ""
@@ -782,6 +832,59 @@ class TestStageAgentGeneration:
         written_tracker = artifacts.write_tool_usage_tracker.call_args.args[1]
         assert isinstance(written_tracker, ToolUsageTracker)
         assert written_tracker.get_stats()["cluster_evaluator"].total_refs == 1
+
+    def test_persists_approved_harness_mutations_from_architect_output(self) -> None:
+        scenario = _make_scenario_mock()
+        ctx = _make_ctx(settings=_make_settings(), scenario=scenario)
+
+        from autocontext.prompts.templates import build_prompt_bundle
+
+        ctx.prompts = build_prompt_bundle(
+            scenario_rules="Test",
+            strategy_interface='{"aggression": float}',
+            evaluation_criteria="Score",
+            previous_summary="best: 0.0",
+            observation=scenario.get_observation(None, "challenger"),
+            current_playbook="",
+            available_tools="",
+        )
+        ctx.strategy_interface = '{"aggression": float}'
+
+        outputs = AgentOutputs(
+            strategy={"aggression": 0.5},
+            analysis_markdown="analysis",
+            coach_markdown="coach",
+            coach_playbook="playbook",
+            coach_lessons="",
+            coach_competitor_hints="",
+            architect_markdown=(
+                "## Tool Proposals\n\nNone.\n\n"
+                "<!-- MUTATIONS_START -->\n"
+                '{"mutations":[{"type":"prompt_fragment","target_role":"competitor",'
+                '"content":"Check edge cases","rationale":"rollback trend"}]}\n'
+                "<!-- MUTATIONS_END -->"
+            ),
+            architect_tools=[],
+            role_executions=[],
+        )
+        orchestrator = MagicMock()
+        orchestrator.run_generation.return_value = outputs
+        artifacts = MagicMock()
+        artifacts.persist_tools.return_value = []
+        artifacts.load_harness_mutations.return_value = []
+        sqlite = MagicMock()
+
+        stage_agent_generation(ctx, orchestrator=orchestrator, artifacts=artifacts, sqlite=sqlite)
+
+        artifacts.save_harness_mutations.assert_called_once()
+        call = artifacts.save_harness_mutations.call_args
+        assert call.args[0] == ctx.scenario_name
+        saved = call.args[1]
+        assert len(saved) == 1
+        assert saved[0].target_role == "competitor"
+        assert saved[0].content == "Check edge cases"
+        assert call.kwargs["generation"] == ctx.generation
+        assert call.kwargs["run_id"] == ctx.run_id
 
     def test_multi_basin_branching_selects_best_candidate_in_live_path(self) -> None:
         from autocontext.prompts.templates import build_prompt_bundle
