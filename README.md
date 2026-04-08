@@ -11,11 +11,11 @@ autocontext runs LLM agents through structured scenarios, evaluates their output
 <!-- autocontext-whats-new:start -->
 ## What's New
 
-- GEPA-inspired ASI/Pareto optimizer wired into improvement loop
-- Component sensitivity profiling and credit assignment
-- Pluggable scoring backends with Elo and Glicko support
-- Novelty exploration and multi-basin playbook branching
-- Cost-aware loop control and long-run presets
+- All 11 scenario families executable in both Python and TypeScript
+- TypeScript campaign API and MCP surfaces shipped for multi-mission coordination
+- Provider expansion: Gemini, Mistral, Groq, OpenRouter, and Azure OpenAI
+- Evidence and privacy hardening with TruffleHog integration and redaction
+- Session-runtime parity across Python and TypeScript surfaces
 <!-- autocontext-whats-new:end -->
 
 ## What actually is autocontext?
@@ -49,7 +49,7 @@ The product model centers on a few stable ideas:
 - `Scenario`: a reusable environment or evaluation context with stable rules and scoring
 - `Task`: a prompt-centric unit of work that can be evaluated directly or embedded elsewhere
 - `Mission`: a long-running goal advanced step by step until a verifier says it is done
-- `Campaign`: a planned grouping of missions under long-term goals with budget tracking and dependencies (library abstraction; no standalone CLI command yet)
+- `Campaign`: a planned grouping of missions under long-term goals; today it has partial TypeScript API/MCP support but is not yet a top-level CLI workflow or Python package surface
 - `Run`: a concrete execution instance of a scenario or task
 - `Verifier`: the runtime check that decides whether a mission, step, or output is acceptable
 - `Knowledge`: validated lessons that should carry forward across runs
@@ -77,6 +77,8 @@ Strategies are then evaluated through scenario execution, staged validation, and
 | `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria |
 | `train`       | Distill stable exported data into a cheaper local runtime                           |
 | `replay`      | Inspect what happened before deciding what knowledge should persist                 |
+
+`campaign` now has partial TypeScript API/MCP support for multi-mission coordination, but it is not yet a top-level CLI workflow in either package.
 
 ## Choose An Entry Point
 

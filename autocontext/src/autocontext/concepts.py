@@ -29,8 +29,13 @@ _CONCEPT_MODEL: dict[str, Any] = {
         },
         {
             "name": "Campaign",
-            "description": "A planned grouping of missions, runs, and scenarios used to coordinate broader work over time.",
-            "status": "reserved",
+            "description": (
+                "A planned grouping of missions, runs, and scenarios used to "
+                "coordinate broader work over time. Partial support exists "
+                "today through TypeScript API/MCP surfaces; the Python "
+                "package does not expose campaign workflows yet."
+            ),
+            "status": "partial",
         },
     ],
     "runtime": [
@@ -57,8 +62,7 @@ _CONCEPT_MODEL: dict[str, Any] = {
         {
             "name": "Knowledge",
             "description": (
-                "Persisted learned state that should carry forward across runs, "
-                "such as playbooks, hints, lessons, and analysis."
+                "Persisted learned state that should carry forward across runs, such as playbooks, hints, lessons, and analysis."
             ),
             "status": "implemented",
         },
@@ -100,8 +104,7 @@ _CONCEPT_MODEL: dict[str, Any] = {
             "canonical_concept": "Run",
             "category": "operation",
             "notes": (
-                "Solve is a workflow that creates or selects a scenario/task, "
-                "launches a run, and exports resulting knowledge."
+                "Solve is a workflow that creates or selects a scenario/task, launches a run, and exports resulting knowledge."
             ),
         },
         {
