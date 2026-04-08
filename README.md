@@ -9,12 +9,14 @@
 autocontext runs LLM agents through structured scenarios, evaluates their outputs, and accumulates the knowledge that improved results — so repeated runs get better, not just different. Point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
 
 <!-- autocontext-whats-new:start -->
+
 ## What's New
 
+- **0.3.7**: Blob store for large artifact storage (local + HF Bucket backends), harness mutation surface, environment snapshot bootstrapping, evidence workspace, redacted session sharing with TruffleHog backstop
 - All 11 scenario families executable in both Python and TypeScript
-- TypeScript campaign CLI, API, and MCP surfaces shipped for multi-mission coordination
+- Campaign CLI, API, and MCP surfaces for multi-mission coordination
 - Provider expansion: Gemini, Mistral, Groq, OpenRouter, and Azure OpenAI
-- Evidence and privacy hardening with TruffleHog integration and redaction
+- Behavioral contracts enforce scenario fidelity (operator-loop escalation signals)
 - Session-runtime parity across Python and TypeScript surfaces
 <!-- autocontext-whats-new:end -->
 
@@ -68,16 +70,16 @@ Strategies are then evaluated through scenario execution, staged validation, and
 
 ## Which Surface Fits Which Job
 
-| Surface       | When to use it                                                                      |
-| ------------- | ----------------------------------------------------------------------------------- |
-| `run`         | Improve behavior inside a reusable scenario or task across generations              |
-| `simulate`    | Model a system, explore parameter sweeps, or compare replayable outcomes            |
-| `investigate` | Evidence-driven diagnosis with hypotheses and confidence scoring                    |
-| `analyze`     | Inspect or compare runs, simulations, investigations, or missions after the fact    |
-| `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria |
+| Surface       | When to use it                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `run`         | Improve behavior inside a reusable scenario or task across generations                    |
+| `simulate`    | Model a system, explore parameter sweeps, or compare replayable outcomes                  |
+| `investigate` | Evidence-driven diagnosis with hypotheses and confidence scoring                          |
+| `analyze`     | Inspect or compare runs, simulations, investigations, or missions after the fact          |
+| `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria       |
 | `campaign`    | Coordinate multiple missions with budget tracking, dependencies, and progress aggregation |
-| `train`       | Distill stable exported data into a cheaper local runtime                           |
-| `replay`      | Inspect what happened before deciding what knowledge should persist                 |
+| `train`       | Distill stable exported data into a cheaper local runtime                                 |
+| `replay`      | Inspect what happened before deciding what knowledge should persist                       |
 
 `campaign` now ships as a TypeScript CLI/API/MCP workflow for multi-mission coordination. The Python package still does not expose a campaign control-plane surface.
 
@@ -257,6 +259,10 @@ MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenCl
 - MLX host training and OpenClaw bridge: [autocontext/docs/mlx-training.md](autocontext/docs/mlx-training.md)
 - Sandbox and executor notes: [autocontext/docs/sandbox.md](autocontext/docs/sandbox.md)
 - License: [LICENSE](LICENSE)
+
+## Acknowledgments
+
+Thanks to [George](https://github.com/GeorgeH87) for generously donating the `autocontext` name on PyPI.
 
 ## Project Signals
 
