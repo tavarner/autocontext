@@ -18,9 +18,11 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, cast
+
+from pydantic import BaseModel
 
 from autocontext.agents.types import LlmFn
 from autocontext.scenarios.base import ScenarioInterface
@@ -33,6 +35,30 @@ from autocontext.scenarios.custom.registry import CUSTOM_SCENARIOS_DIR
 from autocontext.scenarios.families import get_family_marker
 
 logger = logging.getLogger(__name__)
+
+
+def spec_to_plain_data(value: Any) -> Any:
+    """Convert nested dataclass/BaseModel specs into JSON-friendly plain data."""
+    if isinstance(value, BaseModel):
+        return {
+            key: spec_to_plain_data(item)
+            for key, item in value.model_dump().items()
+        }
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: spec_to_plain_data(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): spec_to_plain_data(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [spec_to_plain_data(item) for item in value]
+    if isinstance(value, tuple):
+        return [spec_to_plain_data(item) for item in value]
+    return value
 
 
 class GenericScenarioCreator:
@@ -67,7 +93,7 @@ class GenericScenarioCreator:
         spec = self.designer_fn(description, self.llm_fn)
 
         # 2. Validate spec
-        spec_dict = asdict(spec) if hasattr(spec, "__dataclass_fields__") else spec.model_dump()
+        spec_dict = spec_to_plain_data(spec)
         errors = validate_for_family(self.family, spec_dict)
         if errors:
             raise ValueError(f"{self.family} spec validation failed: {'; '.join(errors)}")

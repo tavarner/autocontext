@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from autocontext.scenarios.custom._family_creator_shim import FamilyCreatorShim
 from autocontext.scenarios.custom.family_pipeline import validate_for_family
+from autocontext.scenarios.custom.generic_creator import spec_to_plain_data
 from autocontext.scenarios.custom.simulation_spec import SimulationSpec
 
 
@@ -28,7 +27,7 @@ def should_use_simulation_family(description: str) -> bool:
 
 
 def validate_simulation_spec(spec: SimulationSpec) -> list[str]:
-    return validate_for_family("simulation", asdict(spec))
+    return validate_for_family("simulation", spec_to_plain_data(spec))
 
 
 class SimulationCreator(FamilyCreatorShim):
