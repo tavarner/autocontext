@@ -6,13 +6,10 @@
 <p align="center"><strong>turn repeated agent work into validated, reusable execution</strong></p>
 <!-- autocontext-readme-hero:end -->
 
-autocontext is a system for running scenarios, tasks, and missions, analyzing what happened, and carrying forward the knowledge that actually improved outcomes.
-
-The North Star is to move from one-off frontier-model exploration toward workflows that become more reliable, more auditable, and cheaper to run over time.
-
-The intended use is mostly hands-off: point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
+autocontext runs LLM agents through structured scenarios, evaluates their outputs, and accumulates the knowledge that improved results — so repeated runs get better, not just different. Point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
 
 <!-- autocontext-whats-new:start -->
+
 ## What's New
 
 - GEPA-inspired ASI/Pareto optimizer wired into improvement loop
@@ -53,7 +50,7 @@ The product model centers on a few stable ideas:
 - `Scenario`: a reusable environment or evaluation context with stable rules and scoring
 - `Task`: a prompt-centric unit of work that can be evaluated directly or embedded elsewhere
 - `Mission`: a long-running goal advanced step by step until a verifier says it is done
-- `Campaign`: a planned grouping of missions, runs, and supporting context; part of the North Star model, but still a reserved concept rather than a first-class shipped surface
+- `Campaign`: a planned grouping of missions under long-term goals with budget tracking and dependencies
 - `Run`: a concrete execution instance of a scenario or task
 - `Verifier`: the runtime check that decides whether a mission, step, or output is acceptable
 - `Knowledge`: validated lessons that should carry forward across runs
@@ -72,14 +69,16 @@ Strategies are then evaluated through scenario execution, staged validation, and
 
 ## Which Surface Fits Which Job
 
-- Reach for `run` when you want to improve behavior inside a reusable scenario or task across generations.
-- Reach for `simulate` when you want to model a system, explore parameter sweeps, or compare replayable outcomes.
-- Reach for `investigate` when you want evidence-driven diagnosis with hypotheses and confidence scoring.
-- Reach for `analyze` when you want to inspect or compare runs, simulations, investigations, or missions after the fact.
-- Reach for `mission` when you want a verifier-driven goal advanced step by step with checkpoints and explicit completion criteria.
-- Reach for `train` when you have stable exported data and want to distill behavior into a cheaper local runtime.
-- Reach for `replay`, reports, and exported artifacts when you need to inspect what happened before deciding what knowledge should persist.
-- Treat `campaign` as part of the intended product model above missions and runs, but not yet as a shipped workflow in this repo.
+| Surface       | When to use it                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `run`         | Improve behavior inside a reusable scenario or task across generations                   |
+| `simulate`    | Model a system, explore parameter sweeps, or compare replayable outcomes                 |
+| `investigate` | Evidence-driven diagnosis with hypotheses and confidence scoring                         |
+| `analyze`     | Inspect or compare runs, simulations, investigations, or missions after the fact         |
+| `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria      |
+| `campaign`    | Coordinate multiple missions under long-term goals with budget tracking and dependencies |
+| `train`       | Distill stable exported data into a cheaper local runtime                                |
+| `replay`      | Inspect what happened before deciding what knowledge should persist                      |
 
 ## Choose An Entry Point
 
@@ -88,16 +87,62 @@ Strategies are then evaluated through scenario execution, staged validation, and
 - Want to wire another agent into autocontext? Start with the CLI-first guide in `autocontext/docs/agent-integration.md`.
 - Want to contribute or point a coding agent at the repo? Read `CONTRIBUTING.md` and `AGENTS.md`.
 
+## Scenario Families
+
+All 11 families are executable in both Python and TypeScript via V8 isolate codegen.
+
+| Family             | Evaluation              | What it tests                                                           |
+| ------------------ | ----------------------- | ----------------------------------------------------------------------- |
+| `game`             | Tournament with Elo     | Turn-based strategy (grid_ctf, othello)                                 |
+| `agent_task`       | LLM judge               | Prompt-centric tasks with optional improvement loops                    |
+| `simulation`       | Trace evaluation        | Action-trace scenarios with mock environments and fault injection       |
+| `artifact_editing` | Artifact validation     | File, config, and schema modification with diff tracking                |
+| `investigation`    | Evidence chains         | Diagnosis accuracy with red herring detection                           |
+| `workflow`         | Workflow evaluation     | Transactional flows with compensation, retry, and side-effect tracking  |
+| `negotiation`      | Negotiation evaluation  | Hidden preferences, BATNA constraints, and opponent modeling            |
+| `schema_evolution` | Schema adaptation       | Mid-run state changes where agents must detect stale context            |
+| `tool_fragility`   | Drift adaptation        | APIs that drift, requiring agents to adapt to changed tool behavior     |
+| `operator_loop`    | Judgment evaluation     | Escalation and clarification judgment in operator-in-the-loop workflows |
+| `coordination`     | Coordination evaluation | Multi-agent partial context, handoff, merge, and duplication detection  |
+
 ## Core Capabilities
 
 - Persistent playbooks, hints, tools, reports, and progress snapshots across runs
 - Staged validation, harness synthesis, and harness-aware execution
-- Scenario families for simulation, investigation, workflow, coordination, negotiation, artifact editing, operator-in-the-loop, tool-fragility, and schema-evolution tasks
 - Replays, checkpoints, reports, and exported artifacts for inspection and reuse
 - Frontier-to-local distillation with MLX on Apple Silicon
-- Runtime routing across Anthropic, OpenAI-compatible backends, Ollama, vLLM, MLX, and Pi-based runtimes, including Python `simulate` flows that now follow the configured live agent runtime surface
+- Notification hooks via Slack, HTTP webhooks, stdout, and composite routing (`AUTOCONTEXT_NOTIFY_*`)
 - OpenClaw-facing APIs and agent integration surfaces
 - CLI, API server, MCP, and TypeScript/TUI surfaces for operators and external agents
+
+### Providers
+
+Runtime routing across multiple LLM backends:
+
+- **Anthropic** — native Anthropic API and Agent SDK
+- **OpenAI-compatible** — any OpenAI-compatible endpoint (vLLM, Ollama, Hermes)
+- **Gemini, Mistral, Groq, OpenRouter, Azure OpenAI** — env-driven config in TypeScript
+- **MLX** — Apple Silicon local inference
+- **Pi** — CLI and RPC-based Pi agent runtimes
+- **Deterministic** — reproducible testing without API keys
+
+### Runtimes
+
+Agent runtimes control how agents execute during runs:
+
+- **Claude CLI** and **Codex CLI** — subprocess-based agent execution
+- **Hermes CLI** — Hermes gateway runtime
+- **Direct API** — in-process API calls
+- **Pi CLI, Pi RPC, Pi Artifacts** — Pi agent runtime variants
+
+### Executors
+
+Strategy and code execution backends:
+
+- **Local** — subprocess execution with timeout and memory limits
+- **SSH** — remote execution over SSH
+- **Monty** — sandboxed execution via pydantic-monty (`AUTOCONTEXT_EXECUTOR_MODE=monty`)
+- **PrimeIntellect** — remote sandbox via PrimeIntellect SDK
 
 ## Quick Start From Source
 
@@ -145,6 +190,7 @@ The repo publishes two installable packages with different scopes:
 - Current release line: `autocontext==0.3.6` and `autoctx@0.3.6`
 
 Important:
+
 - The Python package on PyPI is now `autocontext`.
 - The CLI entrypoint remains `autoctx`.
 - The npm package for this project is still `autoctx`.
@@ -154,14 +200,14 @@ The Python package exposes the full `autoctx` control-plane CLI for scenario exe
 
 ## Which Package Should You Use?
 
-| If you want to... | Start here | Why |
-|---|---|---|
-| Run the full multi-generation control plane | [autocontext/README.md](autocontext/README.md) | Python has the API server, training loop, scenario scaffolding, export/import, and full CLI surface. |
-| Run simulations, investigations, analysis, or missions from Node | [ts/README.md](ts/README.md) | The TypeScript package is focused on operator-facing workflows, integrations, mission control, and MCP serving. |
-| Embed autocontext in a Node app or operator workflow | [ts/README.md](ts/README.md) | The TypeScript package also exposes library surfaces for evaluation, artifacts, publishing, and integrations. |
-| Point an external agent at autocontext | [autocontext/docs/agent-integration.md](autocontext/docs/agent-integration.md) | It documents the CLI-first contract, JSON output, MCP usage, and SDK options. |
-| Grab copy-paste integration snippets | [examples/README.md](examples/README.md) | The examples cover Python CLI, Claude Code MCP, Python SDK, and TypeScript library usage. |
-| Catch up on recent repo evolution | [CHANGELOG.md](CHANGELOG.md) | It summarizes recent public releases and notable changes. |
+| If you want to...                                                | Start here                                                                     | Why                                                                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Run the full multi-generation control plane                      | [autocontext/README.md](autocontext/README.md)                                 | Python has the API server, training loop, scenario scaffolding, export/import, and full CLI surface.            |
+| Run simulations, investigations, analysis, or missions from Node | [ts/README.md](ts/README.md)                                                   | The TypeScript package is focused on operator-facing workflows, integrations, mission control, and MCP serving. |
+| Embed autocontext in a Node app or operator workflow             | [ts/README.md](ts/README.md)                                                   | The TypeScript package also exposes library surfaces for evaluation, artifacts, publishing, and integrations.   |
+| Point an external agent at autocontext                           | [autocontext/docs/agent-integration.md](autocontext/docs/agent-integration.md) | It documents the CLI-first contract, JSON output, MCP usage, and SDK options.                                   |
+| Grab copy-paste integration snippets                             | [examples/README.md](examples/README.md)                                       | The examples cover Python CLI, Claude Code MCP, Python SDK, and TypeScript library usage.                       |
+| Catch up on recent repo evolution                                | [CHANGELOG.md](CHANGELOG.md)                                                   | It summarizes recent public releases and notable changes.                                                       |
 
 ## Common Workflows
 
@@ -181,7 +227,7 @@ Representative TypeScript operator workflows:
 - Analyze an artifact: `npx autoctx analyze --id deploy_sim --type simulation`
 - Operate a mission: `npx autoctx mission create --name "Ship login" --goal "Implement OAuth"`
 
-`operator-in-the-loop` is a runnable scenario family for escalation and clarification experiments. Use it when you want executable operator-loop simulations, judgment evaluation, and live-agent escalation workflow testing.
+`operator-in-the-loop` is a fully runnable scenario family in both Python and TypeScript. It tests escalation and clarification judgment with real escalation/clarification hooks and behavioral-contract signals across multi-run, sweep, and replay flows.
 
 MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenClaw agent to trigger training, use the file-based host watcher flow documented in [autocontext/docs/mlx-training.md](autocontext/docs/mlx-training.md).
 
@@ -189,7 +235,6 @@ MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenCl
 
 - `autocontext/`: Python package, CLI, API server, and training loop
 - `ts/`: published TypeScript package, CLI, and MCP-compatible tooling
-- `tui/`: interactive terminal UI
 - `docs/`: docs landing page and maintainer checklists
 - `examples/`: copy-paste integration snippets for package users and external agents
 - `infra/`: Docker, Fly.io, and bootstrap scripts
@@ -211,7 +256,6 @@ MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenCl
 - MLX host training and OpenClaw bridge: [autocontext/docs/mlx-training.md](autocontext/docs/mlx-training.md)
 - Sandbox and executor notes: [autocontext/docs/sandbox.md](autocontext/docs/sandbox.md)
 - License: [LICENSE](LICENSE)
-
 
 ## Project Signals
 

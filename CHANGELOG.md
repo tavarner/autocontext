@@ -71,7 +71,9 @@ Changes in this section are on the branch/repo after `0.3.6` and are not part of
 
 ## [0.3.0] - 2026-03-29
 
-### New Commands
+### Added
+
+#### Commands
 
 - **`autoctx simulate`** — plain-language multi-variable simulation with sweeps, replay, compare, and export.
 - **`autoctx investigate`** — evidence-driven diagnosis with hypotheses, confidence scoring, and unknowns.
@@ -79,7 +81,7 @@ Changes in this section are on the branch/repo after `0.3.6` and are not part of
 - **`autoctx train`** — train distilled models from curated datasets with backend selection.
 - **Python `autoctx simulate`** — full parity with the TypeScript surface: run, replay, compare, and export.
 
-### Scenarios
+#### Scenarios
 
 - All 11 scenario families now fully executable in TypeScript (was 2/11) via secure-exec V8 isolate codegen.
 - `operator_loop` is now a fully runnable family in both packages.
@@ -91,13 +93,13 @@ Changes in this section are on the branch/repo after `0.3.6` and are not part of
 - `new-scenario` CLI materializes runnable artifacts to disk.
 - Scenario parity matrix documents Python/TypeScript surface coverage.
 
-### Missions & Campaigns
+#### Missions & Campaigns
 
 - Adaptive mission execution: LLM-driven goal decomposition and step planning replaces generic bookkeeping.
 - Campaign abstraction: coordinate multiple missions under long-term goals with budget tracking and dependencies.
 - Mission-simulation integration: missions invoke simulations as planning tools.
 
-### Trace Pipeline
+#### Trace Pipeline
 
 - Open public trace schema v1.0.0: versioned interchange format for coding agent traces.
 - Sensitive-data detection and redaction with policy-backed actions.
@@ -107,14 +109,14 @@ Changes in this section are on the branch/repo after `0.3.6` and are not part of
 - Repo-local dataset discovery: scan repo trees and convert JSONL, JSON, CSV, and markdown into ShareGPT-style records.
 - Curated distillation dataset pipeline with gate filtering, top-quartile selection, family filtering, and failure-example policy.
 
-### Training & Distillation
+#### Training & Distillation
 
 - Base model selection maps scenario families to training modes (from-scratch, LoRA, and full fine-tune).
 - Training backend abstraction with MLX and CUDA plus an injectable `TrainingExecutor` hook.
 - Prompt alignment ensures distilled models match runtime invocation.
 - Candidate-shadow-active promotion lifecycle with configurable quantitative gates and rollback.
 
-### Infrastructure
+### Changed
 
 - Consolidated operator UI: the Python `serve` and `tui` surfaces are API/WebSocket-first, while interactive terminal UI remains available through the TypeScript client surfaces.
 - Richer sweep DSL: categorical sweeps, logarithmic scales, sweep file loading, and named presets.
@@ -154,3 +156,13 @@ Changes in this section are on the branch/repo after `0.3.6` and are not part of
 - MCP server with tool implementations.
 - FastAPI dashboard with WebSocket events.
 - CLI via Typer (Python) and `parseArgs` (TypeScript).
+
+[0.3.6]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/greyhaven-ai/autocontext/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/greyhaven-ai/autocontext/compare/v0.2.4...v0.3.0
+[0.2.4]: https://github.com/greyhaven-ai/autocontext/compare/v0.2.0...v0.2.4
+[0.2.0]: https://github.com/greyhaven-ai/autocontext/releases/tag/v0.2.0
