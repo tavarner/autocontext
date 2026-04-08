@@ -17,6 +17,8 @@ from autocontext.agents.feedback_loops import (
 )
 from autocontext.agents.hint_feedback import HintFeedback
 from autocontext.analytics.credit_assignment import CreditAssignmentRecord
+from autocontext.harness.mutations.spec import HarnessMutation
+from autocontext.harness.mutations.store import MutationStore
 from autocontext.harness.storage.versioned_store import VersionedFileStore
 from autocontext.knowledge.hint_volume import HintManager, HintVolumePolicy
 from autocontext.knowledge.lessons import LessonStore
@@ -73,6 +75,13 @@ class ArtifactStore:
                 skills_root=self.skills_root,
             )
         return self._lesson_store
+
+    @property
+    def harness_mutation_store(self) -> MutationStore:
+        """Lazily create a MutationStore for harness mutation state."""
+        if not hasattr(self, "_harness_mutation_store"):
+            self._harness_mutation_store = MutationStore(root=self.knowledge_root)
+        return self._harness_mutation_store
 
     def _playbook_store(self, scenario_name: str) -> VersionedFileStore:
         """Lazily create a per-scenario VersionedFileStore with legacy naming."""
@@ -315,6 +324,34 @@ class ArtifactStore:
     def read_mutation_replay(self, scenario_name: str, *, max_entries: int = 10) -> str:
         """Read a compact replay summary of mutations since the last checkpoint."""
         return self.mutation_log.replay_summary(scenario_name, max_entries=max_entries)
+
+    def load_harness_mutations(self, scenario_name: str) -> list[HarnessMutation]:
+        """Load persisted harness mutations for a scenario."""
+        return self.harness_mutation_store.load(scenario_name)
+
+    def save_harness_mutations(
+        self,
+        scenario_name: str,
+        mutations: list[HarnessMutation],
+        *,
+        generation: int = 0,
+        run_id: str = "",
+    ) -> None:
+        """Persist harness mutations and log the update in the mutation audit trail."""
+        self.harness_mutation_store.save(scenario_name, mutations)
+        self._append_mutation(
+            scenario_name,
+            mutation_type="harness_mutations_updated",
+            payload={
+                "count": len(mutations),
+                "active_count": sum(1 for mutation in mutations if mutation.active),
+                "mutation_ids": [mutation.mutation_id for mutation in mutations],
+                "types": [mutation.mutation_type.value for mutation in mutations],
+            },
+            generation=generation,
+            run_id=run_id,
+            description="Harness mutations updated",
+        )
 
     def read_progress(self, scenario_name: str) -> dict[str, Any] | None:
         """Read progress snapshot, or None if missing."""

@@ -193,6 +193,20 @@ class TestMutationStore:
             loaded = store.load("s")
             assert loaded[0].content == "original"
 
+    def test_rejects_scenario_path_escape(self) -> None:
+        from autocontext.harness.mutations.spec import HarnessMutation, MutationType
+        from autocontext.harness.mutations.store import MutationStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MutationStore(root=Path(tmp))
+            mutation = HarnessMutation(mutation_type=MutationType.PROMPT_FRAGMENT, content="safe")
+            try:
+                store.save("../escape", [mutation])
+            except ValueError as exc:
+                assert "invalid blob key" in str(exc)
+            else:
+                raise AssertionError("expected path-escape scenario name to be rejected")
+
 
 # ---------------------------------------------------------------------------
 # Gate
@@ -237,6 +251,42 @@ class TestMutationGate:
         )
         result = evaluate_mutation(m)
         assert not result.approved
+
+    def test_reject_prompt_fragment_without_target_role(self) -> None:
+        from autocontext.harness.mutations.gate import evaluate_mutation
+        from autocontext.harness.mutations.spec import HarnessMutation, MutationType
+
+        m = HarnessMutation(
+            mutation_type=MutationType.PROMPT_FRAGMENT,
+            content="Always check edge cases",
+        )
+        result = evaluate_mutation(m)
+        assert not result.approved
+        assert "target_role" in result.reason
+
+    def test_reject_context_policy_without_component(self) -> None:
+        from autocontext.harness.mutations.gate import evaluate_mutation
+        from autocontext.harness.mutations.spec import HarnessMutation, MutationType
+
+        m = HarnessMutation(
+            mutation_type=MutationType.CONTEXT_POLICY,
+            content="include_last_5",
+        )
+        result = evaluate_mutation(m)
+        assert not result.approved
+        assert "component" in result.reason
+
+    def test_reject_tool_instruction_without_tool_name(self) -> None:
+        from autocontext.harness.mutations.gate import evaluate_mutation
+        from autocontext.harness.mutations.spec import HarnessMutation, MutationType
+
+        m = HarnessMutation(
+            mutation_type=MutationType.TOOL_INSTRUCTION,
+            content="Use normalized values",
+        )
+        result = evaluate_mutation(m)
+        assert not result.approved
+        assert "tool_name" in result.reason
 
 
 # ---------------------------------------------------------------------------

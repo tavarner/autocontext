@@ -241,7 +241,18 @@ def build_prompt_bundle(
             '{"harness":[{"name":"<snake_case>","description":"<text>",'
             '"code":"def validate_strategy(strategy, scenario):\\n    ..."}]}\n'
             "<!-- HARNESS_END -->\n\n"
-            "If no harness validators, omit the HARNESS markers entirely."
+            "If no harness validators, omit the HARNESS markers entirely.\n\n"
+            "Additionally, you may propose harness mutations — lightweight prompt, "
+            "context, completion, or tool-usage adjustments that carry forward to future generations. "
+            "Wrap mutation specs between markers:\n\n"
+            "<!-- MUTATIONS_START -->\n"
+            '{"mutations":[{"type":"prompt_fragment","target_role":"<competitor|analyst|coach|architect>",'
+            '"content":"<text>","rationale":"<why>"},{"type":"context_policy","component":"<component>",'
+            '"content":"<policy>","rationale":"<why>"},{"type":"completion_check","content":"<check>",'
+            '"rationale":"<why>"},{"type":"tool_instruction","tool_name":"<tool_name>",'
+            '"content":"<instruction>","rationale":"<why>"}]}\n'
+            "<!-- MUTATIONS_END -->\n\n"
+            "If no harness mutations, omit the MUTATIONS markers entirely."
         ),
     )
 
