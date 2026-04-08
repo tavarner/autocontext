@@ -74,7 +74,12 @@ def apply_harness_mutations_to_prompts(
         checklist = "Active completion checks:\n" + "\n".join(f"- {check}" for check in checks)
         prompt_map["competitor"] = f"{prompt_map['competitor']}\n\n{checklist}"
 
-    return dataclasses.replace(prompts, **prompt_map)
+    if dataclasses.is_dataclass(prompts):
+        return dataclasses.replace(prompts, **prompt_map)
+
+    for role, prompt in prompt_map.items():
+        setattr(prompts, role, prompt)
+    return prompts
 
 
 def persist_approved_harness_mutations(
