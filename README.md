@@ -9,14 +9,12 @@
 autocontext runs LLM agents through structured scenarios, evaluates their outputs, and accumulates the knowledge that improved results — so repeated runs get better, not just different. Point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
 
 <!-- autocontext-whats-new:start -->
-
 ## What's New
 
-- **0.3.7**: Blob store for large artifact storage (local + HF Bucket backends), harness mutation surface, environment snapshot bootstrapping, evidence workspace, redacted session sharing with TruffleHog backstop
 - All 11 scenario families executable in both Python and TypeScript
-- Campaign CLI, API, and MCP surfaces for multi-mission coordination
+- TypeScript campaign CLI, API, and MCP surfaces shipped for multi-mission coordination
 - Provider expansion: Gemini, Mistral, Groq, OpenRouter, and Azure OpenAI
-- Behavioral contracts enforce scenario fidelity (operator-loop escalation signals)
+- Evidence and privacy hardening with TruffleHog integration and redaction
 - Session-runtime parity across Python and TypeScript surfaces
 <!-- autocontext-whats-new:end -->
 
@@ -190,7 +188,7 @@ The repo publishes two installable packages with different scopes:
 
 - Python package: `pip install autocontext`
 - TypeScript package: `npm install autoctx`
-- Current release line: `autocontext==0.3.6` and `autoctx@0.3.6`
+- Current release line: `autocontext==0.3.7` and `autoctx@0.3.7`
 
 Important:
 
