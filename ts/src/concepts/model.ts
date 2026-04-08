@@ -15,7 +15,13 @@ export interface CanonicalConcept {
 export interface SurfaceMapping {
   surface: string;
   canonical_concept: string;
-  category: "operation" | "runtime_job" | "internal_type" | "runtime_boundary" | "artifact" | "collection";
+  category:
+    | "operation"
+    | "runtime_job"
+    | "internal_type"
+    | "runtime_boundary"
+    | "artifact"
+    | "collection";
   notes?: string;
 }
 
@@ -33,23 +39,27 @@ const CONCEPT_MODEL: ConceptModel = {
   user_facing: [
     {
       name: "Scenario",
-      description: "A reusable environment, simulation, or evaluation context with stable rules and scoring.",
+      description:
+        "A reusable environment, simulation, or evaluation context with stable rules and scoring.",
       status: "implemented",
     },
     {
       name: "Task",
-      description: "A user-authored unit of work or prompt-centric objective that can be evaluated directly or embedded inside another surface.",
+      description:
+        "A user-authored unit of work or prompt-centric objective that can be evaluated directly or embedded inside another surface.",
       status: "partial",
     },
     {
       name: "Mission",
-      description: "A long-running goal advanced step by step until a verifier says it is complete.",
+      description:
+        "A long-running goal advanced step by step until a verifier says it is complete.",
       status: "partial",
     },
     {
       name: "Campaign",
-      description: "A planned grouping of missions, runs, and scenarios used to coordinate broader work over time.",
-      status: "reserved",
+      description:
+        "A planned grouping of missions, runs, and scenarios used to coordinate broader work over time.",
+      status: "partial",
     },
   ],
   runtime: [
@@ -60,32 +70,38 @@ const CONCEPT_MODEL: ConceptModel = {
     },
     {
       name: "Step",
-      description: "A bounded action taken while advancing a Mission or another long-running workflow.",
+      description:
+        "A bounded action taken while advancing a Mission or another long-running workflow.",
       status: "partial",
     },
     {
       name: "Verifier",
-      description: "The runtime check that decides whether a mission, step, or output is acceptable.",
+      description:
+        "The runtime check that decides whether a mission, step, or output is acceptable.",
       status: "partial",
     },
     {
       name: "Artifact",
-      description: "A persisted runtime output such as a replay, checkpoint, package, report, harness, or skill export.",
+      description:
+        "A persisted runtime output such as a replay, checkpoint, package, report, harness, or skill export.",
       status: "implemented",
     },
     {
       name: "Knowledge",
-      description: "Persisted learned state that should carry forward across runs, such as playbooks, hints, lessons, and analysis.",
+      description:
+        "Persisted learned state that should carry forward across runs, such as playbooks, hints, lessons, and analysis.",
       status: "implemented",
     },
     {
       name: "Budget",
-      description: "Constraints that bound runtime behavior, such as max steps, cost, time, or retries.",
+      description:
+        "Constraints that bound runtime behavior, such as max steps, cost, time, or retries.",
       status: "partial",
     },
     {
       name: "Policy",
-      description: "Structured rules that constrain or guide runtime behavior, such as escalation, hint volume, cost, conflict, or harness policies.",
+      description:
+        "Structured rules that constrain or guide runtime behavior, such as escalation, hint volume, cost, conflict, or harness policies.",
       status: "partial",
     },
   ],
@@ -94,13 +110,15 @@ const CONCEPT_MODEL: ConceptModel = {
       surface: "run",
       canonical_concept: "Run",
       category: "operation",
-      notes: "CLI and MCP keep the verb, but the underlying runtime noun is Run.",
+      notes:
+        "CLI and MCP keep the verb, but the underlying runtime noun is Run.",
     },
     {
       surface: "task queue / TaskRow",
       canonical_concept: "Task",
       category: "runtime_job",
-      notes: "Represents background evaluation jobs today, not the canonical user-facing Task concept.",
+      notes:
+        "Represents background evaluation jobs today, not the canonical user-facing Task concept.",
     },
     {
       surface: "AgentTask / AgentTaskSpec",
@@ -112,13 +130,15 @@ const CONCEPT_MODEL: ConceptModel = {
       surface: "solve",
       canonical_concept: "Run",
       category: "operation",
-      notes: "Solve is a workflow that creates or selects a scenario/task, launches a run, and exports resulting knowledge.",
+      notes:
+        "Solve is a workflow that creates or selects a scenario/task, launches a run, and exports resulting knowledge.",
     },
     {
       surface: "sandbox",
       canonical_concept: "Policy",
       category: "runtime_boundary",
-      notes: "Sandboxing is runtime isolation around execution, not a peer product noun.",
+      notes:
+        "Sandboxing is runtime isolation around execution, not a peer product noun.",
     },
     {
       surface: "replay",
