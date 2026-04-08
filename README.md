@@ -18,7 +18,7 @@ autocontext runs LLM agents through structured scenarios, evaluates their output
 - Cost-aware loop control and long-run presets
 <!-- autocontext-whats-new:end -->
 
-## North Star
+## What actually is autocontext?
 
 Most agent systems still start every run cold. They do not reliably preserve what worked, separate signal from noise, or turn repeated success into a reusable asset.
 
