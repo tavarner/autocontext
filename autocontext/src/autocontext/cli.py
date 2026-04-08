@@ -31,6 +31,7 @@ from autocontext.util.json_io import read_json, write_json
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from autocontext.agents.llm_client import LanguageModelClient
     from autocontext.providers.base import LLMProvider
     from autocontext.training.runner import TrainingConfig, TrainingResult
 
@@ -178,10 +179,52 @@ def _is_agent_task(scenario_name: str) -> bool:
     return issubclass(family.interface_class, AgentTaskInterface)
 
 
-def _resolve_agent_task_runtime(settings: AppSettings, scenario_name: str) -> tuple[LLMProvider, str]:
-    """Resolve the effective competitor runtime for direct agent-task execution."""
+def _wrap_role_client_as_provider(
+    client: LanguageModelClient,
+    resolved_model: str,
+    *,
+    role: str,
+) -> tuple[LLMProvider, str]:
+    """Adapt a resolved LanguageModelClient into an LLMProvider-compatible callable.
+
+    This keeps prompt-only workflows like simulate aligned with the same runtime
+    bridge used by role-driven execution without duplicating the generate() glue.
+    """
     from autocontext.providers.callable_wrapper import CallableProvider
 
+    def _llm_fn(system_prompt: str, user_prompt: str) -> str:
+        response = client.generate(
+            model=resolved_model,
+            prompt=f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt,
+            max_tokens=4096,
+            temperature=0.0,
+            role=role,
+        )
+        return response.text
+
+    return CallableProvider(_llm_fn, model_name=resolved_model), resolved_model
+
+
+def _resolve_simulation_runtime(settings: AppSettings) -> tuple[LLMProvider, str]:
+    """Resolve the architect-style runtime used for simulation spec generation.
+
+    Simulations are authoring/spec-generation tasks, so they should follow the
+    configured architect runtime surface rather than the judge provider.
+    """
+    sqlite = _sqlite_from_settings(settings)
+    artifacts = _artifacts_from_settings(settings)
+    orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
+    client, model = orchestrator.resolve_role_execution(
+        "architect",
+        generation=1,
+        scenario_name="",
+    )
+    resolved_model = model or settings.model_architect or settings.agent_default_model
+    return _wrap_role_client_as_provider(client, resolved_model, role="architect")
+
+
+def _resolve_agent_task_runtime(settings: AppSettings, scenario_name: str) -> tuple[LLMProvider, str]:
+    """Resolve the effective competitor runtime for direct agent-task execution."""
     sqlite = _sqlite_from_settings(settings)
     artifacts = _artifacts_from_settings(settings)
     orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
@@ -191,18 +234,7 @@ def _resolve_agent_task_runtime(settings: AppSettings, scenario_name: str) -> tu
         scenario_name=scenario_name,
     )
     resolved_model = model or settings.model_competitor or settings.agent_default_model
-
-    def _llm_fn(system_prompt: str, user_prompt: str) -> str:
-        response = client.generate(
-            model=resolved_model,
-            prompt=f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt,
-            max_tokens=4096,
-            temperature=0.0,
-            role="competitor",
-        )
-        return response.text
-
-    return CallableProvider(_llm_fn, model_name=resolved_model), resolved_model
+    return _wrap_role_client_as_provider(client, resolved_model, role="competitor")
 
 
 def _run_agent_task(
@@ -1093,11 +1125,10 @@ def simulate(
                         v += st
                     parsed_sweep.append({"name": name, "values": vals})
 
+    runtime_provider, runtime_model = _resolve_simulation_runtime(settings)
+
     def _llm_fn(system: str, user: str) -> str:
-        from autocontext.providers.registry import get_provider
-        provider = get_provider(settings)
-        model = settings.model_architect or provider.default_model()
-        result = provider.complete(system, user, model=model)
+        result = runtime_provider.complete(system, user, model=runtime_model)
         return result.text
 
     engine = SimulationEngine(llm_fn=_llm_fn, knowledge_root=settings.knowledge_root)

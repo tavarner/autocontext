@@ -14,6 +14,7 @@ import pytest
 
 DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"
+REPO_README_PATH = Path(__file__).resolve().parents[2] / "README.md"
 INTEGRATION_GUIDE = DOCS_DIR / "agent-integration.md"
 TS_README_PATH = Path(__file__).resolve().parents[2] / "ts" / "README.md"
 
@@ -48,6 +49,20 @@ class TestIntegrationGuideContent:
         if not INTEGRATION_GUIDE.is_file():
             pytest.skip("integration guide not yet written")
         self.content = INTEGRATION_GUIDE.read_text(encoding="utf-8")
+
+
+class TestOperatorLoopDocsAlignment:
+    @pytest.fixture(autouse=True)
+    def _load_guide(self) -> None:
+        if not INTEGRATION_GUIDE.is_file():
+            pytest.skip("integration guide not yet written")
+        self.content = INTEGRATION_GUIDE.read_text(encoding="utf-8")
+
+    def test_public_readmes_do_not_claim_operator_loop_is_non_executable(self) -> None:
+        stale_phrase = "does not scaffold executable operator-loop runtimes"
+        for path in (README_PATH, REPO_README_PATH):
+            content = path.read_text(encoding="utf-8")
+            assert stale_phrase not in content, f"{path} still contains stale operator_loop guidance"
 
     def test_has_cli_first_rationale(self) -> None:
         """Guide should explain why CLI is the default integration surface."""

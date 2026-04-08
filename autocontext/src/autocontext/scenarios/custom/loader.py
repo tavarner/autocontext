@@ -12,16 +12,21 @@ def load_custom_scenario(
     custom_dir: Path,
     name: str,
     interface_class: type[Any] = ScenarioInterface,
+    *,
+    force_reload: bool = False,
 ) -> type[Any]:
     module_name = f"autocontext.scenarios.custom.generated.{name}"
+    source_path = custom_dir / name / "scenario.py"
+    if not source_path.exists():
+        raise FileNotFoundError(f"custom scenario source not found: {source_path}")
+
+    if force_reload and module_name in sys.modules:
+        del sys.modules[module_name]
+        importlib.invalidate_caches()
 
     if module_name in sys.modules:
         mod = sys.modules[module_name]
     else:
-        source_path = custom_dir / name / "scenario.py"
-        if not source_path.exists():
-            raise FileNotFoundError(f"custom scenario source not found: {source_path}")
-
         spec = importlib.util.spec_from_file_location(module_name, str(source_path))
         if spec is None or spec.loader is None:
             raise ImportError(f"cannot create module spec for {source_path}")

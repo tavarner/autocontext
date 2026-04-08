@@ -55,7 +55,7 @@ uv sync --group dev
 
 Use the repo-level `.env.example` as the reference for available `AUTOCONTEXT_*` settings.
 
-`operator-in-the-loop` remains a typed scenario family for capability discovery and experimentation, but autocontext does not scaffold executable operator-loop runtimes. Use datasets, tools, or live-agent experiments instead of harness-owned escalation scripts.
+`operator-in-the-loop` is a runnable scenario family for escalation and clarification experiments. Use it when you want executable operator-loop simulations, judgment evaluation, and live-agent escalation workflow testing.
 
 Run a deterministic local scenario:
 
@@ -79,6 +79,8 @@ AUTOCONTEXT_AGENT_PROVIDER=pi \
 AUTOCONTEXT_PI_COMMAND=pi \
 uv run autoctx solve --description "improve customer-support replies for billing disputes" --gens 3
 ```
+
+`autoctx simulate` now follows the effective architect-role runtime surface, so `AUTOCONTEXT_ARCHITECT_PROVIDER` and other role-routing overrides apply to live simulation generation as well.
 
 Run with Pi RPC (remote Pi agent via HTTP):
 
@@ -181,6 +183,7 @@ Common settings:
 - `AUTOCONTEXT_MATCHES_PER_GENERATION`
 - `AUTOCONTEXT_MAX_RETRIES`
 - `AUTOCONTEXT_JUDGE_PROVIDER`
+- `AUTOCONTEXT_PI_TIMEOUT` (defaults to 300 seconds for Pi-backed live runs)
 - `AUTOCONTEXT_RLM_ENABLED`
 - `AUTOCONTEXT_HARNESS_PREFLIGHT_ENABLED`
 - `AUTOCONTEXT_STAGED_VALIDATION_ENABLED`

@@ -136,6 +136,45 @@ class TestBuildAndValidate:
         assert match_result.winner in ("challenger", "incumbent")
 
 
+def _make_manual_spec(name: str, param_name: str, env_name: str = "pressure") -> ScenarioSpec:
+    return ScenarioSpec(
+        name=name,
+        display_name=name.replace("_", " ").title(),
+        description=f"Scenario for {param_name}",
+        strategy_interface_description=f"Return {param_name} as a float in [0,1].",
+        evaluation_criteria="Optimize the score.",
+        strategy_params=[
+            {
+                "name": param_name,
+                "description": f"Control {param_name}",
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "default": 0.5,
+            },
+        ],
+        constraints=[],
+        environment_variables=[
+            {
+                "name": env_name,
+                "description": f"Environment signal for {param_name}",
+                "low": 0.1,
+                "high": 0.9,
+            },
+        ],
+        scoring_components=[
+            {
+                "name": "score",
+                "description": "Primary score",
+                "formula_terms": {param_name: 1.0},
+                "noise_range": [-0.01, 0.01],
+            },
+        ],
+        final_score_weights={"score": 1.0},
+        win_threshold=0.5,
+        observation_constraints=[],
+    )
+
+
 class TestEndToEnd:
     def test_description_to_match(self, creator: ScenarioCreator) -> None:
         spec = creator.generate_spec("A resource management game where you balance mining vs defense vs trade")
@@ -155,3 +194,21 @@ class TestEndToEnd:
         revised = creator.revise_spec(spec, "Add more parameters")
         assert isinstance(revised, ScenarioSpec)
         assert revised.name
+
+
+class TestReloadingGeneratedScenarios:
+    def test_build_and_validate_reloads_when_same_name_is_regenerated(self, creator: ScenarioCreator) -> None:
+        first = _make_manual_spec("repeatable_linear_escalation", "clarification_threshold")
+        second = _make_manual_spec("repeatable_linear_escalation", "clarification_depth")
+
+        creator.build_and_validate(first)
+        rebuilt = creator.build_and_validate(second)
+
+        scenario = rebuilt.scenario_class()
+        valid, reason = scenario.validate_actions(
+            scenario.initial_state(seed=0),
+            "test_player",
+            {"clarification_depth": 0.5},
+        )
+
+        assert valid is True, reason

@@ -14,6 +14,7 @@ from autocontext.agents.provider_bridge import RuntimeBridgeClient, create_role_
 from autocontext.config.settings import AppSettings
 from autocontext.runtimes.base import AgentOutput
 from autocontext.runtimes.pi_cli import PiCLIConfig, PiCLIRuntime
+from autocontext.runtimes.pi_defaults import PI_DEFAULT_TIMEOUT_SECONDS
 
 # ---------------------------------------------------------------------------
 # PiCLIConfig defaults
@@ -24,7 +25,7 @@ def test_config_defaults() -> None:
     c = PiCLIConfig()
     assert c.pi_command == "pi"
     assert c.model == ""
-    assert c.timeout == 120.0
+    assert c.timeout == PI_DEFAULT_TIMEOUT_SECONDS
     assert c.json_output is True
     assert c.workspace == ""
     assert c.extra_args == []
@@ -46,7 +47,7 @@ def test_config_custom_values() -> None:
 def test_settings_pi_fields_exist() -> None:
     s = AppSettings()
     assert s.pi_command == "pi"
-    assert s.pi_timeout == 120.0
+    assert s.pi_timeout == PI_DEFAULT_TIMEOUT_SECONDS
     assert s.pi_workspace == ""
     assert s.pi_model == ""
 

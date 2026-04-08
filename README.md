@@ -22,7 +22,7 @@ The intended use is mostly hands-off: point the harness at a real task in plain 
 - Cost-aware loop control and long-run presets
 <!-- autocontext-whats-new:end -->
 
-## North Star
+## What actually is autocontext?
 
 Most agent systems still start every run cold. They do not reliably preserve what worked, separate signal from noise, or turn repeated success into a reusable asset.
 
@@ -95,7 +95,7 @@ Strategies are then evaluated through scenario execution, staged validation, and
 - Scenario families for simulation, investigation, workflow, coordination, negotiation, artifact editing, operator-in-the-loop, tool-fragility, and schema-evolution tasks
 - Replays, checkpoints, reports, and exported artifacts for inspection and reuse
 - Frontier-to-local distillation with MLX on Apple Silicon
-- Runtime routing across Anthropic, OpenAI-compatible backends, Ollama, vLLM, MLX, and Pi-based runtimes
+- Runtime routing across Anthropic, OpenAI-compatible backends, Ollama, vLLM, MLX, and Pi-based runtimes, including Python `simulate` flows that now follow the configured live agent runtime surface
 - OpenClaw-facing APIs and agent integration surfaces
 - CLI, API server, MCP, and TypeScript/TUI surfaces for operators and external agents
 
@@ -181,7 +181,7 @@ Representative TypeScript operator workflows:
 - Analyze an artifact: `npx autoctx analyze --id deploy_sim --type simulation`
 - Operate a mission: `npx autoctx mission create --name "Ship login" --goal "Implement OAuth"`
 
-`operator-in-the-loop` remains a typed scenario family for capability discovery and experimentation, but autocontext does not scaffold executable operator-loop runtimes. Use datasets, tools, or live-agent experiments instead of harness-owned escalation scripts.
+`operator-in-the-loop` is a runnable scenario family for escalation and clarification experiments. Use it when you want executable operator-loop simulations, judgment evaluation, and live-agent escalation workflow testing.
 
 MLX training is host-only on Apple Silicon macOS. If you want a sandboxed OpenClaw agent to trigger training, use the file-based host watcher flow documented in [autocontext/docs/mlx-training.md](autocontext/docs/mlx-training.md).
 

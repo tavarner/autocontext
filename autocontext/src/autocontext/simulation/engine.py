@@ -44,6 +44,7 @@ def _derive_name(description: str) -> str:
     words = re.sub(r"[^a-z0-9\s]", "", description.lower()).split()
     return "_".join(w for w in words if len(w) > 2)[:4] or "simulation"
 
+
 class SimulationEngine:
     """Plain-language simulation engine with sweep/replay/compare."""
 
@@ -71,7 +72,7 @@ class SimulationEngine:
 
         try:
             family = infer_family(description)
-            spec = self._apply_variables(self._build_spec(description, family), resolved_variables)
+            spec = self._normalize_spec(self._apply_variables(self._build_spec(description, family), resolved_variables))
 
             source = self._generate_source(spec, name, family)
             scenario_dir = self._persist(name, family, spec, source)
@@ -326,12 +327,16 @@ class SimulationEngine:
             "actions": [{"name": "act", "description": "Take action", "parameters": {}, "preconditions": [], "effects": []}],
         }
 
+    def _normalize_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
+        from autocontext.scenarios.custom.simulation_spec import normalize_simulation_spec_dict
+
+        return normalize_simulation_spec_dict(spec)
+
     def _generate_source(self, spec: dict[str, Any], name: str, family: str) -> str:
         if family == "operator_loop":
             from autocontext.scenarios.custom.operator_loop_codegen import generate_operator_loop_class
             from autocontext.scenarios.custom.operator_loop_spec import OperatorLoopSpec
-            from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel
-
+            from autocontext.scenarios.custom.simulation_spec import parse_simulation_actions
             ol_spec = OperatorLoopSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
@@ -339,21 +344,20 @@ class SimulationEngine:
                 escalation_policy=spec.get("escalation_policy", {"escalation_threshold": "medium", "max_escalations": 5}),
                 success_criteria=spec.get("success_criteria", []),
                 failure_modes=spec.get("failure_modes", []),
-                actions=[SimulationActionSpecModel(**a) for a in spec.get("actions", [])],
+                actions=parse_simulation_actions(spec.get("actions", [])),
                 max_steps=spec.get("max_steps", 10),
             )
             return generate_operator_loop_class(ol_spec, name)
         else:
             from autocontext.scenarios.custom.simulation_codegen import generate_simulation_class
-            from autocontext.scenarios.custom.simulation_spec import SimulationActionSpecModel, SimulationSpec
-
+            from autocontext.scenarios.custom.simulation_spec import SimulationSpec, parse_simulation_actions
             sim_spec = SimulationSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
                 initial_state_description=spec.get("initial_state_description", ""),
                 success_criteria=spec.get("success_criteria", []),
                 failure_modes=spec.get("failure_modes", []),
-                actions=[SimulationActionSpecModel(**a) for a in spec.get("actions", [])],
+                actions=parse_simulation_actions(spec.get("actions", [])),
                 max_steps=spec.get("max_steps", 10),
             )
             return generate_simulation_class(sim_spec, name)
@@ -560,7 +564,7 @@ class SimulationEngine:
         for i, variables in enumerate(combos):
             merged_variables = {**base_variables, **variables}
             variant_name = f"{name}__sweep_{i + 1}"
-            variant_spec = self._apply_variables(base_spec, merged_variables)
+            variant_spec = self._normalize_spec(self._apply_variables(base_spec, merged_variables))
             source = self._generate_source(variant_spec, variant_name, family)
             variant_dir = scenario_dir / "sweep" / str(i + 1)
             self._persist(variant_name, family, variant_spec, source, variant_dir)
@@ -670,7 +674,7 @@ class SimulationEngine:
         if not variables and source_path.exists():
             return source_path.read_text(encoding="utf-8")
 
-        updated_spec = self._apply_variables(spec, variables)
+        updated_spec = self._normalize_spec(self._apply_variables(spec, variables))
         return self._generate_source(updated_spec, name, family)
 
     def _apply_variables(self, spec: dict[str, Any], variables: dict[str, Any] | None) -> dict[str, Any]:
@@ -729,7 +733,7 @@ class SimulationEngine:
         for i, cell in enumerate(original_results):
             cell_variables = {**(cell.get("variables") or {}), **overrides}
             variant_name = f"{base_name}__sweep_{i + 1}"
-            variant_spec = self._apply_variables(base_spec, cell_variables)
+            variant_spec = self._normalize_spec(self._apply_variables(base_spec, cell_variables))
             source = self._generate_source(variant_spec, variant_name, family)
             variant_dir = scenario_dir / "sweep" / str(i + 1)
             self._persist(variant_name, family, variant_spec, source, variant_dir)
