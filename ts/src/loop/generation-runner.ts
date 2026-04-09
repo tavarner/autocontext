@@ -37,25 +37,22 @@ import {
   buildCuratorPrompt,
   buildSupportPrompt,
 } from "./generation-prompts.js";
-import { createGenerationAttemptOrchestration } from "./generation-attempt-orchestrator.js";
 import { createGenerationAttemptWorkflow, runGenerationAttemptWorkflow } from "./generation-attempt-workflow.js";
+import {
+  completeGenerationLifecycleWorkflow,
+  createGenerationLifecycleWorkflow,
+  runGenerationLifecycleWorkflow,
+} from "./generation-lifecycle-workflow.js";
 import { buildRoleCompletedPayload } from "./generation-side-effect-coordinator.js";
 import { GenerationJournal } from "./generation-journal.js";
 import {
   completeGenerationLoopRun,
   createGenerationLoopOrchestration,
   failGenerationLoopRun,
-  finalizeGenerationCycle,
-  getActiveGenerationPhase,
-  startNextGeneration,
 } from "./generation-loop-orchestrator.js";
 import { GenerationRecovery } from "./generation-recovery.js";
 import { hasRemainingGenerationCycles } from "./generation-cycle-state.js";
-import {
-  canContinueGenerationPhase,
-  getFinalizedGenerationPhaseAttempt,
-  type GenerationAttempt,
-} from "./generation-phase-state.js";
+import { type GenerationAttempt } from "./generation-phase-state.js";
 import {
   consumeFreshStartHint,
   queueFreshStartHint,
@@ -200,75 +197,65 @@ export class GenerationRunner {
 
       while (hasRemainingGenerationCycles(orchestration.cycleState)) {
         await this.#controller?.waitIfPaused();
-        orchestration = startNextGeneration(orchestration, this.#curatorEnabled);
-        let phaseState = getActiveGenerationPhase(orchestration);
-        const gen = phaseState.generation;
-        this.emit("generation_started", orchestration.events.generationStarted!);
-        this.emit("agents_started", orchestration.events.agentsStarted!);
-
-        let attemptOrchestration = createGenerationAttemptOrchestration(
-          orchestration,
-          phaseState,
+        let lifecycle = await runGenerationLifecycleWorkflow(
+          createGenerationLifecycleWorkflow({
+            orchestration,
+            curatorEnabled: this.#curatorEnabled,
+            maxRetries: this.#maxRetries,
+            runAttempt: async ({ attemptOrchestration, generation }) => {
+              await this.#controller?.waitIfPaused();
+              const competitorPrompt = this.buildCompetitorPrompt(runId);
+              return runGenerationAttemptWorkflow(
+                createGenerationAttemptWorkflow({
+                  attemptOrchestration,
+                  runId,
+                  generation,
+                  competitorPrompt,
+                  seedBase: this.#seedBase,
+                  matchesPerGeneration: this.#matchesPerGeneration,
+                  currentElo: this.#runState!.currentElo,
+                  executeCompetitor: () => this.completeRole("competitor", competitorPrompt),
+                  beforeTournament: async () => {
+                    await this.#controller?.waitIfPaused();
+                  },
+                  executeTournament: ({ strategy: nextStrategy, tournamentOptions }) =>
+                    new TournamentRunner(this.#scenario, tournamentOptions).run(nextStrategy),
+                  decideGate: ({ attemptOrchestration: currentAttemptOrchestration, tournamentResult }) => {
+                    const decision = this.#gate.evaluate(
+                      currentAttemptOrchestration.orchestration.cycleState.previousBestOverall,
+                      tournamentResult.bestScore,
+                      currentAttemptOrchestration.phaseState.attemptState.retryCount,
+                      this.#maxRetries,
+                    );
+                    const gateDecision = this.#controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
+                    return {
+                      gateDecision,
+                      delta: decision.delta,
+                      threshold: decision.threshold,
+                    };
+                  },
+                }),
+              );
+            },
+          }),
         );
-
-        // Retry loop for this generation
-        while (canContinueGenerationPhase(phaseState, this.#maxRetries)) {
-          await this.#controller?.waitIfPaused();
-          const competitorPrompt = this.buildCompetitorPrompt(runId);
-          const workflowResult = await runGenerationAttemptWorkflow(
-            createGenerationAttemptWorkflow({
-              attemptOrchestration,
-              runId,
-              generation: gen,
-              competitorPrompt,
-              seedBase: this.#seedBase,
-              matchesPerGeneration: this.#matchesPerGeneration,
-              currentElo: this.#runState.currentElo,
-              executeCompetitor: () => this.completeRole("competitor", competitorPrompt),
-              beforeTournament: async () => {
-                await this.#controller?.waitIfPaused();
-              },
-              executeTournament: ({ strategy: nextStrategy, tournamentOptions }) =>
-                new TournamentRunner(this.#scenario, tournamentOptions).run(nextStrategy),
-              decideGate: ({ attemptOrchestration: currentAttemptOrchestration, tournamentResult }) => {
-                const decision = this.#gate.evaluate(
-                  currentAttemptOrchestration.orchestration.cycleState.previousBestOverall,
-                  tournamentResult.bestScore,
-                  currentAttemptOrchestration.phaseState.attemptState.retryCount,
-                  this.#maxRetries,
-                );
-                const gateDecision = this.#controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
-                return {
-                  gateDecision,
-                  delta: decision.delta,
-                  threshold: decision.threshold,
-                };
-              },
-            }),
-          );
-          attemptOrchestration = workflowResult.attemptOrchestration;
-          phaseState = attemptOrchestration.phaseState;
-          orchestration = attemptOrchestration.orchestration;
-          this.#runState = orchestration.runState;
-          for (const event of workflowResult.events) {
-            this.emit(event.event, event.payload);
-          }
+        orchestration = lifecycle.orchestration;
+        this.#runState = orchestration.runState;
+        for (const event of lifecycle.events) {
+          this.emit(event.event, event.payload);
         }
 
-        const finalizedAttempt = getFinalizedGenerationPhaseAttempt(phaseState);
-
-        this.#journal.persistGeneration(runId, gen, finalizedAttempt);
+        this.#journal.persistGeneration(runId, lifecycle.generation, lifecycle.finalizedAttempt);
         await this.#controller?.waitIfPaused();
-        await this.runSupportRoles(runId, gen, finalizedAttempt);
-        await this.applyAdvancedFeatures(runId, gen, finalizedAttempt, phaseState.previousBestForGeneration);
-        orchestration = finalizeGenerationCycle(orchestration, phaseState, {
+        await this.runSupportRoles(runId, lifecycle.generation, lifecycle.finalizedAttempt);
+        await this.applyAdvancedFeatures(
           runId,
-          generation: gen,
-          meanScore: finalizedAttempt.tournamentResult.meanScore,
-          bestScore: finalizedAttempt.tournamentResult.bestScore,
-          elo: finalizedAttempt.tournamentResult.elo,
-          gateDecision: finalizedAttempt.gateDecision,
-        });
+          lifecycle.generation,
+          lifecycle.finalizedAttempt,
+          lifecycle.phaseState.previousBestForGeneration,
+        );
+        lifecycle = completeGenerationLifecycleWorkflow(lifecycle);
+        orchestration = lifecycle.orchestration;
         this.emit("generation_completed", orchestration.events.generationCompleted!);
       }
 
