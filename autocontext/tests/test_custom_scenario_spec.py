@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from autocontext.execution.executors.local import LocalExecutor
+from autocontext.scenarios.base import ExecutionLimits
 from autocontext.scenarios.custom.codegen import generate_scenario_class
 from autocontext.scenarios.custom.loader import load_custom_scenario
 from autocontext.scenarios.custom.spec import (
@@ -262,3 +264,23 @@ class TestDynamicLoader:
 
         # Cleanup
         del SCENARIO_REGISTRY[spec.name]
+
+    def test_local_executor_runs_dynamic_custom_scenario_in_subprocess(self, tmp_path: Path) -> None:
+        spec = _make_spec(name="test_subprocess_dynamic_loader")
+        source = generate_scenario_class(spec)
+        scenario_dir = tmp_path / spec.name
+        scenario_dir.mkdir(parents=True, exist_ok=True)
+        (scenario_dir / "scenario.py").write_text(source)
+
+        scenario = load_custom_scenario(tmp_path, spec.name)()
+        executor = LocalExecutor()
+
+        result, replay = executor.execute(
+            scenario=scenario,
+            strategy={"alpha": 0.5, "beta": 0.5},
+            seed=42,
+            limits=ExecutionLimits(timeout_seconds=10.0, max_memory_mb=256),
+        )
+
+        assert 0.0 <= result.score <= 1.0
+        assert replay.scenario == spec.name
