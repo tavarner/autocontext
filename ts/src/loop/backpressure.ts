@@ -74,19 +74,25 @@ export interface TrendAwareGateOpts {
   consecutiveRollbackThreshold?: number;
 }
 
+const TREND_AWARE_GATE_DEFAULTS = {
+  minDelta: 0.005,
+  plateauWindow: 3,
+  plateauRelaxationFactor: 0.5,
+  consecutiveRollbackThreshold: 3,
+};
+
 export class TrendAwareGate {
-  private simple: BackpressureGate;
-  private minDelta: number;
-  private plateauWindow: number;
-  private plateauRelaxationFactor: number;
-  private consecutiveRollbackThreshold: number;
+  #minDelta: number;
+  #plateauWindow: number;
+  #plateauRelaxationFactor: number;
+  #consecutiveRollbackThreshold: number;
 
   constructor(opts: TrendAwareGateOpts = {}) {
-    this.minDelta = opts.minDelta ?? 0.005;
-    this.plateauWindow = opts.plateauWindow ?? 3;
-    this.plateauRelaxationFactor = opts.plateauRelaxationFactor ?? 0.5;
-    this.consecutiveRollbackThreshold = opts.consecutiveRollbackThreshold ?? 3;
-    this.simple = new BackpressureGate(this.minDelta);
+    const resolved = { ...TREND_AWARE_GATE_DEFAULTS, ...opts };
+    this.#minDelta = resolved.minDelta;
+    this.#plateauWindow = resolved.plateauWindow;
+    this.#plateauRelaxationFactor = resolved.plateauRelaxationFactor;
+    this.#consecutiveRollbackThreshold = resolved.consecutiveRollbackThreshold;
   }
 
   evaluate(
@@ -97,22 +103,22 @@ export class TrendAwareGate {
     history?: ScoreHistory,
     customMetrics?: Record<string, number>,
   ): GateDecision {
-    let effectiveDelta = this.minDelta;
+    let effectiveDelta = this.#minDelta;
 
     // Plateau detection: low spread in recent scores
-    if (history && history.scores.length > this.plateauWindow) {
-      const recent = history.scores.slice(-(this.plateauWindow + 1), -1);
+    if (history && history.scores.length > this.#plateauWindow) {
+      const recent = history.scores.slice(-(this.#plateauWindow + 1), -1);
       const spread = Math.max(...recent) - Math.min(...recent);
-      if (spread < this.minDelta) {
-        effectiveDelta = this.minDelta * this.plateauRelaxationFactor;
+      if (spread < this.#minDelta) {
+        effectiveDelta = this.#minDelta * this.#plateauRelaxationFactor;
       }
     }
 
     // Consecutive rollback detection
-    if (history && history.gateDecisions.length >= this.consecutiveRollbackThreshold) {
-      const recentDecisions = history.gateDecisions.slice(-this.consecutiveRollbackThreshold);
+    if (history && history.gateDecisions.length >= this.#consecutiveRollbackThreshold) {
+      const recentDecisions = history.gateDecisions.slice(-this.#consecutiveRollbackThreshold);
       if (recentDecisions.every((d) => d === "rollback")) {
-        effectiveDelta = this.minDelta * this.plateauRelaxationFactor;
+        effectiveDelta = this.#minDelta * this.#plateauRelaxationFactor;
       }
     }
 

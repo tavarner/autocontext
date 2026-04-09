@@ -10,21 +10,21 @@ export type EventCallback = (event: string, payload: Record<string, unknown>) =>
 
 export class EventStreamEmitter {
   readonly path: string;
-  private sequence = 0;
-  private subscribers: EventCallback[] = [];
+  #sequence = 0;
+  #subscribers: EventCallback[] = [];
 
   constructor(path: string) {
     this.path = path;
   }
 
   subscribe(callback: EventCallback): void {
-    this.subscribers.push(callback);
+    this.#subscribers.push(callback);
   }
 
   unsubscribe(callback: EventCallback): void {
-    const idx = this.subscribers.indexOf(callback);
+    const idx = this.#subscribers.indexOf(callback);
     if (idx !== -1) {
-      this.subscribers.splice(idx, 1);
+      this.#subscribers.splice(idx, 1);
     }
   }
 
@@ -36,9 +36,9 @@ export class EventStreamEmitter {
     // Ensure parent directory exists
     mkdirSync(dirname(this.path), { recursive: true });
 
-    this.sequence += 1;
-    const seq = this.sequence;
-    const subscribersCopy = [...this.subscribers];
+    this.#sequence += 1;
+    const seq = this.#sequence;
+    const subscribersCopy = [...this.#subscribers];
 
     const line = {
       channel,
