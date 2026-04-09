@@ -40,13 +40,15 @@ import {
 import { GenerationJournal } from "./generation-journal.js";
 import { GenerationRecovery } from "./generation-recovery.js";
 import {
-  applyGenerationAttemptDecision,
-  canContinueGenerationAttempt,
-  createGenerationAttemptState,
-  didAdvanceGenerationAttempt,
-  getFinalizedGenerationAttempt,
+  applyGenerationPhaseDecision,
+  canContinueGenerationPhase,
+  createGenerationPhaseState,
+  didAdvanceGenerationPhase,
+  getFinalizedGenerationPhaseAttempt,
+  markAwaitingCompetitorResult,
+  markAwaitingTournamentResult,
   type GenerationAttempt,
-} from "./generation-attempt-state.js";
+} from "./generation-phase-state.js";
 import {
   completeGenerationRun,
   consumeFreshStartHint,
@@ -200,10 +202,9 @@ export class GenerationRunner {
 
       for (let gen = 1; gen <= generations; gen++) {
         await this.#controller?.waitIfPaused();
-        const previousBestForGeneration = previousBest;
-        let attemptState = createGenerationAttemptState({
+        let phaseState = createGenerationPhaseState({
           generation: gen,
-          previousBestForGeneration,
+          previousBestForGeneration: previousBest,
         });
         this.emit("generation_started", { run_id: runId, generation: gen });
         this.emit("agents_started", {
@@ -215,8 +216,9 @@ export class GenerationRunner {
         });
 
         // Retry loop for this generation
-        while (canContinueGenerationAttempt(attemptState, this.#maxRetries)) {
+        while (canContinueGenerationPhase(phaseState, this.#maxRetries)) {
           await this.#controller?.waitIfPaused();
+          phaseState = markAwaitingCompetitorResult(phaseState);
           const competitorPrompt = this.buildCompetitorPrompt(runId);
 
           // Step 1: Get strategy from provider (competitor role)
@@ -233,6 +235,7 @@ export class GenerationRunner {
 
           // Step 2: Run tournament
           await this.#controller?.waitIfPaused();
+          phaseState = markAwaitingTournamentResult(phaseState);
           const seedForGen = this.#seedBase + (gen - 1) * this.#matchesPerGeneration;
           const tournament = new TournamentRunner(this.#scenario, {
             matchCount: this.#matchesPerGeneration,
@@ -267,7 +270,7 @@ export class GenerationRunner {
           const decision = this.#gate.evaluate(
             previousBest,
             tournamentResult.bestScore,
-            attemptState.retryCount,
+            phaseState.attemptState.retryCount,
             this.#maxRetries,
           );
           const gateDecision = this.#controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
@@ -286,9 +289,9 @@ export class GenerationRunner {
             threshold: decision.threshold,
           });
 
-          attemptState = applyGenerationAttemptDecision(attemptState, attempt);
+          phaseState = applyGenerationPhaseDecision(phaseState, attempt);
 
-          if (didAdvanceGenerationAttempt(attemptState)) {
+          if (didAdvanceGenerationPhase(phaseState)) {
             previousBest = tournamentResult.bestScore;
             this.#runState = recordGenerationResult(this.#runState!, {
               generation: gen,
@@ -298,12 +301,12 @@ export class GenerationRunner {
           }
         }
 
-        const finalizedAttempt = getFinalizedGenerationAttempt(attemptState);
+        const finalizedAttempt = getFinalizedGenerationPhaseAttempt(phaseState);
 
         this.#journal.persistGeneration(runId, gen, finalizedAttempt);
         await this.#controller?.waitIfPaused();
         await this.runSupportRoles(runId, gen, finalizedAttempt);
-        await this.applyAdvancedFeatures(runId, gen, finalizedAttempt, previousBestForGeneration);
+        await this.applyAdvancedFeatures(runId, gen, finalizedAttempt, phaseState.previousBestForGeneration);
         this.emit("generation_completed", {
           run_id: runId,
           generation: gen,
