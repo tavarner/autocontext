@@ -3,18 +3,20 @@
  * Mirrors Python's autocontext/agents/model_router.py.
  */
 
-export interface TierConfigOpts {
-  enabled?: boolean;
-  tierHaikuModel?: string;
-  tierSonnetModel?: string;
-  tierOpusModel?: string;
-  competitorHaikuMaxGen?: number;
-  competitorRetryEscalation?: number;
-  coachMinTier?: string;
-  architectMinTier?: string;
-  analystMinTier?: string;
-  translatorMinTier?: string;
-}
+const TIER_CONFIG_DEFAULTS = {
+  enabled: false,
+  tierHaikuModel: "claude-haiku-4-5-20251001",
+  tierSonnetModel: "claude-sonnet-4-5-20250929",
+  tierOpusModel: "claude-opus-4-6",
+  competitorHaikuMaxGen: 3,
+  competitorRetryEscalation: 1,
+  coachMinTier: "sonnet",
+  architectMinTier: "opus",
+  analystMinTier: "haiku",
+  translatorMinTier: "haiku",
+};
+
+export type TierConfigOpts = Partial<typeof TIER_CONFIG_DEFAULTS>;
 
 export class TierConfig {
   readonly enabled: boolean;
@@ -29,16 +31,17 @@ export class TierConfig {
   readonly translatorMinTier: string;
 
   constructor(opts: TierConfigOpts = {}) {
-    this.enabled = opts.enabled ?? false;
-    this.tierHaikuModel = opts.tierHaikuModel ?? "claude-haiku-4-5-20251001";
-    this.tierSonnetModel = opts.tierSonnetModel ?? "claude-sonnet-4-5-20250929";
-    this.tierOpusModel = opts.tierOpusModel ?? "claude-opus-4-6";
-    this.competitorHaikuMaxGen = opts.competitorHaikuMaxGen ?? 3;
-    this.competitorRetryEscalation = opts.competitorRetryEscalation ?? 1;
-    this.coachMinTier = opts.coachMinTier ?? "sonnet";
-    this.architectMinTier = opts.architectMinTier ?? "opus";
-    this.analystMinTier = opts.analystMinTier ?? "haiku";
-    this.translatorMinTier = opts.translatorMinTier ?? "haiku";
+    const resolved = { ...TIER_CONFIG_DEFAULTS, ...opts };
+    this.enabled = resolved.enabled;
+    this.tierHaikuModel = resolved.tierHaikuModel;
+    this.tierSonnetModel = resolved.tierSonnetModel;
+    this.tierOpusModel = resolved.tierOpusModel;
+    this.competitorHaikuMaxGen = resolved.competitorHaikuMaxGen;
+    this.competitorRetryEscalation = resolved.competitorRetryEscalation;
+    this.coachMinTier = resolved.coachMinTier;
+    this.architectMinTier = resolved.architectMinTier;
+    this.analystMinTier = resolved.analystMinTier;
+    this.translatorMinTier = resolved.translatorMinTier;
   }
 }
 
@@ -51,12 +54,12 @@ export interface SelectOpts {
 const TIER_ORDER = ["haiku", "sonnet", "opus"] as const;
 
 export class ModelRouter {
-  private config: TierConfig;
-  private tierMap: Record<string, string>;
+  #config: TierConfig;
+  #tierMap: Record<string, string>;
 
   constructor(config: TierConfig) {
-    this.config = config;
-    this.tierMap = {
+    this.#config = config;
+    this.#tierMap = {
       haiku: config.tierHaikuModel,
       sonnet: config.tierSonnetModel,
       opus: config.tierOpusModel,
@@ -64,22 +67,22 @@ export class ModelRouter {
   }
 
   select(role: string, opts: SelectOpts): string | null {
-    if (!this.config.enabled) return null;
+    if (!this.#config.enabled) return null;
 
     const minTiers: Record<string, string> = {
-      analyst: this.config.analystMinTier,
-      coach: this.config.coachMinTier,
-      architect: this.config.architectMinTier,
-      translator: this.config.translatorMinTier,
+      analyst: this.#config.analystMinTier,
+      coach: this.#config.coachMinTier,
+      architect: this.#config.architectMinTier,
+      translator: this.#config.translatorMinTier,
       curator: "opus",
     };
 
     let tier = minTiers[role] ?? "sonnet";
 
     if (role === "competitor") {
-      tier = opts.generation <= this.config.competitorHaikuMaxGen ? "haiku" : "sonnet";
+      tier = opts.generation <= this.#config.competitorHaikuMaxGen ? "haiku" : "sonnet";
 
-      if (opts.retryCount >= this.config.competitorRetryEscalation) {
+      if (opts.retryCount >= this.#config.competitorRetryEscalation) {
         tier = this.maxTier(tier, "sonnet");
       }
       if (opts.isPlateau) {
@@ -91,7 +94,7 @@ export class ModelRouter {
       }
     }
 
-    return this.tierMap[tier] ?? null;
+    return this.#tierMap[tier] ?? null;
   }
 
   private maxTier(a: string, b: string): string {

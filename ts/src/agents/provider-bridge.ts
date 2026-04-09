@@ -12,16 +12,16 @@ import type { AgentRuntime } from "../runtimes/index.js";
 
 export class RuntimeBridgeProvider implements LLMProvider {
   readonly name = "runtime-bridge";
-  private runtime: AgentRuntime;
-  private model: string;
+  #runtime: AgentRuntime;
+  #model: string;
 
   constructor(runtime: AgentRuntime, model: string) {
-    this.runtime = runtime;
-    this.model = model;
+    this.#runtime = runtime;
+    this.#model = model;
   }
 
   defaultModel(): string {
-    return this.model;
+    return this.#model;
   }
 
   async complete(opts: {
@@ -31,13 +31,13 @@ export class RuntimeBridgeProvider implements LLMProvider {
     temperature?: number;
     maxTokens?: number;
   }): Promise<CompletionResult> {
-    const output = await this.runtime.generate({
+    const output = await this.#runtime.generate({
       prompt: opts.userPrompt,
       system: opts.systemPrompt || undefined,
     });
     return {
       text: output.text,
-      model: opts.model ?? this.model,
+      model: opts.model ?? this.#model,
       usage: {},
     };
   }
@@ -55,21 +55,21 @@ export interface RetryOpts {
 
 export class RetryProvider implements LLMProvider {
   readonly name: string;
-  private inner: LLMProvider;
-  private maxRetries: number;
-  private baseDelay: number;
-  private maxDelay: number;
+  #inner: LLMProvider;
+  #maxRetries: number;
+  #baseDelay: number;
+  #maxDelay: number;
 
   constructor(inner: LLMProvider, opts: RetryOpts) {
-    this.inner = inner;
+    this.#inner = inner;
     this.name = `retry(${inner.name})`;
-    this.maxRetries = opts.maxRetries;
-    this.baseDelay = opts.baseDelay ?? 250;
-    this.maxDelay = opts.maxDelay ?? 10_000;
+    this.#maxRetries = opts.maxRetries;
+    this.#baseDelay = opts.baseDelay ?? 250;
+    this.#maxDelay = opts.maxDelay ?? 10_000;
   }
 
   defaultModel(): string {
-    return this.inner.defaultModel();
+    return this.#inner.defaultModel();
   }
 
   async complete(opts: {
@@ -80,13 +80,13 @@ export class RetryProvider implements LLMProvider {
     maxTokens?: number;
   }): Promise<CompletionResult> {
     let lastError: Error | undefined;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= this.#maxRetries; attempt++) {
       try {
-        return await this.inner.complete(opts);
+        return await this.#inner.complete(opts);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt < this.maxRetries) {
-          const delay = Math.min(this.baseDelay * 2 ** attempt, this.maxDelay);
+        if (attempt < this.#maxRetries) {
+          const delay = Math.min(this.#baseDelay * 2 ** attempt, this.#maxDelay);
           await new Promise((r) => setTimeout(r, delay));
         }
       }
