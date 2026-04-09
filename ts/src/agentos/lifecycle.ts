@@ -13,48 +13,48 @@ const SANDBOX_KEYWORDS = [
   "browser", "playwright", "puppeteer", "selenium",
   "dev server", "port 3000", "port 8080", "localhost",
   "gui", "native build", "docker", "container",
-];
+] as const;
 
 export class AgentOsLifecycle {
-  private runtime: AgentOsRuntimePort;
-  private _mountedPaths: string[] = [];
-  private _activeSessions = new Map<string, string>(); // autocontext sessionId → agentOS sessionId
-  private _isShutdown = false;
+  #runtime: AgentOsRuntimePort;
+  #mountedPaths: string[] = [];
+  #activeSessions = new Map<string, string>(); // autocontext sessionId → agentOS sessionId
+  #isShutdown = false;
 
   constructor(runtime: AgentOsRuntimePort) {
-    this.runtime = runtime;
+    this.#runtime = runtime;
   }
 
-  get mountedPaths(): string[] { return [...this._mountedPaths]; }
-  get isShutdown(): boolean { return this._isShutdown; }
+  get mountedPaths(): string[] { return [...this.#mountedPaths]; }
+  get isShutdown(): boolean { return this.#isShutdown; }
 
   async mountWorkspace(hostPath: string): Promise<void> {
     // agentOS host-dir mounts are configured at creation time,
     // but we track them here for lifecycle visibility
-    this._mountedPaths.push(hostPath);
+    this.#mountedPaths.push(hostPath);
   }
 
   async startSession(sessionId: string, agentType: string): Promise<string> {
-    const { sessionId: aosSessionId } = await this.runtime.createSession(agentType);
-    this._activeSessions.set(sessionId, aosSessionId);
+    const { sessionId: aosSessionId } = await this.#runtime.createSession(agentType);
+    this.#activeSessions.set(sessionId, aosSessionId);
     return aosSessionId;
   }
 
   async closeSession(sessionId: string): Promise<void> {
-    const aosSessionId = this._activeSessions.get(sessionId);
+    const aosSessionId = this.#activeSessions.get(sessionId);
     if (aosSessionId) {
-      await this.runtime.closeSession(aosSessionId);
-      this._activeSessions.delete(sessionId);
+      await this.#runtime.closeSession(aosSessionId);
+      this.#activeSessions.delete(sessionId);
     }
   }
 
   async shutdown(): Promise<void> {
     // Close all active sessions
-    for (const [sid] of this._activeSessions) {
+    for (const [sid] of this.#activeSessions) {
       await this.closeSession(sid);
     }
-    await this.runtime.dispose();
-    this._isShutdown = true;
+    await this.#runtime.dispose();
+    this.#isShutdown = true;
   }
 
   /**

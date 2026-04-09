@@ -16,11 +16,17 @@ export interface CuratorLessonResult {
   reasoning: string;
 }
 
+const CURATOR_DECISION_REGEX = /<!--\s*CURATOR_DECISION:\s*(accept|reject|merge)\s*-->/;
+const CURATOR_SCORE_REGEX = /<!--\s*CURATOR_SCORE:\s*(\d+)\s*-->/;
+const LESSONS_REMOVED_REGEX = /<!--\s*LESSONS_REMOVED:\s*(\d+)\s*-->/;
+const CONSOLIDATED_LESSONS_BLOCK_REGEX =
+  /<!--\s*CONSOLIDATED_LESSONS_START\s*-->[\s\S]*?<!--\s*CONSOLIDATED_LESSONS_END\s*-->/;
+
 export function parseCuratorPlaybookDecision(text: string): CuratorPlaybookDecision {
-  const decisionMatch = /<!--\s*CURATOR_DECISION:\s*(accept|reject|merge)\s*-->/.exec(text);
+  const decisionMatch = CURATOR_DECISION_REGEX.exec(text);
   const decision = (decisionMatch?.[1] ?? "reject") as CuratorPlaybookDecision["decision"];
 
-  const scoreMatch = /<!--\s*CURATOR_SCORE:\s*(\d+)\s*-->/.exec(text);
+  const scoreMatch = CURATOR_SCORE_REGEX.exec(text);
   const score = scoreMatch ? parseInt(scoreMatch[1], 10) : 0;
 
   let playbook = "";
@@ -53,12 +59,12 @@ export function parseCuratorLessonResult(text: string): CuratorLessonResult {
       .trim();
   }
 
-  const removedMatch = /<!--\s*LESSONS_REMOVED:\s*(\d+)\s*-->/.exec(text);
+  const removedMatch = LESSONS_REMOVED_REGEX.exec(text);
   const removedCount = removedMatch ? parseInt(removedMatch[1], 10) : 0;
 
   const reasoning = text
-    .replace(/<!--\s*CONSOLIDATED_LESSONS_START\s*-->[\s\S]*?<!--\s*CONSOLIDATED_LESSONS_END\s*-->/, "")
-    .replace(/<!--\s*LESSONS_REMOVED:\s*\d+\s*-->/, "")
+    .replace(CONSOLIDATED_LESSONS_BLOCK_REGEX, "")
+    .replace(LESSONS_REMOVED_REGEX, "")
     .trim();
 
   return { consolidatedLessons, removedCount, reasoning };

@@ -22,24 +22,49 @@ export interface AgentOsRuntimePort {
   dispose(): Promise<void>;
 }
 
+export const AGENT_OS_FILESYSTEM_MODES = ["none", "readonly", "readwrite"] as const;
+export type AgentOsFilesystemMode = (typeof AGENT_OS_FILESYSTEM_MODES)[number];
+
+const AGENT_OS_PERMISSIONS_DEFAULTS = {
+  network: false,
+  filesystem: "readonly" as AgentOsFilesystemMode,
+  processes: false,
+  maxMemoryMb: 512,
+};
+
+export type AgentOsPermissionsOpts = Partial<typeof AGENT_OS_PERMISSIONS_DEFAULTS>;
+
+const DEFAULT_SANDBOX_ESCALATION_KEYWORDS = [
+  "browser", "playwright", "puppeteer", "selenium",
+  "dev server", "port", "localhost",
+  "gui", "native build", "docker",
+] as const;
+
 export class AgentOsPermissions {
   readonly network: boolean;
-  readonly filesystem: "none" | "readonly" | "readwrite";
+  readonly filesystem: AgentOsFilesystemMode;
   readonly processes: boolean;
   readonly maxMemoryMb: number;
 
-  constructor(opts?: {
-    network?: boolean;
-    filesystem?: "none" | "readonly" | "readwrite";
-    processes?: boolean;
-    maxMemoryMb?: number;
-  }) {
-    this.network = opts?.network ?? false;
-    this.filesystem = opts?.filesystem ?? "readonly";
-    this.processes = opts?.processes ?? false;
-    this.maxMemoryMb = opts?.maxMemoryMb ?? 512;
+  constructor(opts: AgentOsPermissionsOpts = {}) {
+    const resolved = { ...AGENT_OS_PERMISSIONS_DEFAULTS, ...opts };
+    this.network = resolved.network;
+    this.filesystem = resolved.filesystem;
+    this.processes = resolved.processes;
+    this.maxMemoryMb = resolved.maxMemoryMb;
   }
 }
+
+const AGENT_OS_CONFIG_DEFAULTS = {
+  enabled: false,
+  agentType: "pi",
+  workspacePath: "",
+};
+
+export type AgentOsConfigOpts = Partial<typeof AGENT_OS_CONFIG_DEFAULTS> & {
+  permissions?: AgentOsPermissions;
+  sandboxEscalationKeywords?: string[];
+};
 
 export class AgentOsConfig {
   readonly enabled: boolean;
@@ -48,21 +73,14 @@ export class AgentOsConfig {
   readonly permissions: AgentOsPermissions;
   readonly sandboxEscalationKeywords: string[];
 
-  constructor(opts?: {
-    enabled?: boolean;
-    agentType?: string;
-    workspacePath?: string;
-    permissions?: AgentOsPermissions;
-    sandboxEscalationKeywords?: string[];
-  }) {
-    this.enabled = opts?.enabled ?? false;
-    this.agentType = opts?.agentType ?? "pi";
-    this.workspacePath = opts?.workspacePath ?? "";
-    this.permissions = opts?.permissions ?? new AgentOsPermissions();
-    this.sandboxEscalationKeywords = opts?.sandboxEscalationKeywords ?? [
-      "browser", "playwright", "puppeteer", "selenium",
-      "dev server", "port", "localhost",
-      "GUI", "native build", "docker",
+  constructor(opts: AgentOsConfigOpts = {}) {
+    const resolved = { ...AGENT_OS_CONFIG_DEFAULTS, ...opts };
+    this.enabled = resolved.enabled;
+    this.agentType = resolved.agentType;
+    this.workspacePath = resolved.workspacePath;
+    this.permissions = opts.permissions ?? new AgentOsPermissions();
+    this.sandboxEscalationKeywords = [
+      ...(opts.sandboxEscalationKeywords ?? DEFAULT_SANDBOX_ESCALATION_KEYWORDS),
     ];
   }
 }

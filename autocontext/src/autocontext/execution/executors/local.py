@@ -1,17 +1,30 @@
 from __future__ import annotations
 
 import resource
+import sys
 from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 from autocontext.scenarios.base import ExecutionLimits, ReplayEnvelope, Result, ScenarioInterface
+from autocontext.scenarios.custom.loader import load_custom_module_from_path
+
+
+def _load_scenario_module(scenario_module: str, scenario_source_path: str | None) -> Any:
+    try:
+        return import_module(scenario_module)
+    except ModuleNotFoundError:
+        if scenario_source_path is None:
+            raise
+        return load_custom_module_from_path(scenario_module, Path(scenario_source_path))
 
 
 def _execute_in_subprocess(
     scenario_module: str,
     scenario_class: str,
+    scenario_source_path: str | None,
     strategy: dict[str, Any],
     seed: int,
     max_memory_mb: int,
@@ -21,7 +34,7 @@ def _execute_in_subprocess(
         resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
     except Exception:
         pass
-    module = import_module(scenario_module)
+    module = _load_scenario_module(scenario_module, scenario_source_path)
     scenario_type = getattr(module, scenario_class)
     scenario: ScenarioInterface = scenario_type()
     return scenario.execute_match(strategy=strategy, seed=seed)
@@ -44,12 +57,17 @@ class LocalExecutor:
                 seed=seed,
                 limits=limits,
             )
+        scenario_module = scenario.__class__.__module__
+        source_module = sys.modules.get(scenario_module)
+        scenario_source_path = getattr(source_module, "__file__", None)
+
         try:
             with ProcessPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(
                     _execute_in_subprocess,
-                    scenario.__class__.__module__,
+                    scenario_module,
                     scenario.__class__.__name__,
+                    scenario_source_path,
                     dict(strategy),
                     seed,
                     limits.max_memory_mb,

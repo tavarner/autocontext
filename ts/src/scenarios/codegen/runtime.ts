@@ -22,6 +22,11 @@ export interface ScenarioRuntimeOpts {
   cpuTimeLimitMs?: number;
 }
 
+const SCENARIO_RUNTIME_DEFAULTS = {
+  memoryLimit: 64,
+  cpuTimeLimitMs: 10_000,
+};
+
 export interface ScenarioProxy {
   /** Call a method on the sandboxed scenario. */
   call<T = unknown>(method: string, ...args: unknown[]): Promise<T>;
@@ -107,14 +112,30 @@ ${scenarioSource}
 
 // The generated code must assign a scenario object to module.exports.scenario
 // or export individual methods.
-const scenario = module.exports.scenario || module.exports;
+const exportedScenario = module.exports.scenario || module.exports;
 
 // Validate scenario is an object with callable methods
-if (!scenario || typeof scenario !== 'object') {
+if (!exportedScenario || typeof exportedScenario !== 'object') {
   throw new Error('Generated scenario must export an object with methods');
 }
+`;
+}
 
-module.exports = { scenario };
+function buildValidationProgram(source: string, requiredMethods: readonly string[]): string {
+  return `
+${buildSandboxWrapper(source)}
+const missing = [];
+${requiredMethods.map((methodName) => `if (typeof exportedScenario.${methodName} !== 'function') missing.push('${methodName}');`).join("\n")}
+module.exports = { valid: missing.length === 0, missing };
+`;
+}
+
+function buildMethodCallProgram(source: string, method: string, args: unknown[]): string {
+  return `
+${buildSandboxWrapper(source)}
+const args = ${JSON.stringify(args)};
+const result = exportedScenario.${method}(...args);
+module.exports = { result };
 `;
 }
 
@@ -122,16 +143,15 @@ module.exports = { scenario };
  * Create a ScenarioRuntime that can load and execute generated scenario code.
  */
 export class ScenarioRuntime {
-  private runtime: NodeRuntime;
-  private opts: ScenarioRuntimeOpts;
+  #runtime: NodeRuntime;
 
   constructor(opts: ScenarioRuntimeOpts = {}) {
-    this.opts = opts;
-    this.runtime = new NodeRuntime({
+    const resolved = { ...SCENARIO_RUNTIME_DEFAULTS, ...opts };
+    this.#runtime = new NodeRuntime({
       systemDriver: createNodeDriver(),
       runtimeDriverFactory: createNodeRuntimeDriverFactory(),
-      memoryLimit: opts.memoryLimit ?? 64,
-      cpuTimeLimitMs: opts.cpuTimeLimitMs ?? 10_000,
+      memoryLimit: resolved.memoryLimit,
+      cpuTimeLimitMs: resolved.cpuTimeLimitMs,
     });
   }
 
@@ -157,17 +177,9 @@ export class ScenarioRuntime {
       throw new CodegenUnsupportedFamilyError(family);
     }
 
-    // Validate the source exports the required methods by running a check
-    const validationCode = `
-${source}
+    const validationCode = buildValidationProgram(source, requiredMethods);
 
-const exportedScenario = module.exports.scenario || module.exports;
-const missing = [];
-${requiredMethods.map((m) => `if (typeof exportedScenario.${m} !== 'function') missing.push('${m}');`).join("\n")}
-module.exports = { valid: missing.length === 0, missing };
-`;
-
-    const validationResult = await this.runtime.run<{ valid: boolean; missing: string[] }>(validationCode);
+    const validationResult = await this.#runtime.run<{ valid: boolean; missing: string[] }>(validationCode);
     if (validationResult.code !== 0) {
       throw new Error(
         `Generated scenario code failed to load: ${validationResult.errorMessage ?? `exit code ${validationResult.code}`}`,
@@ -181,18 +193,12 @@ module.exports = { valid: missing.length === 0, missing };
     }
 
     // Create the proxy that calls into the sandbox for each method invocation
-    const runtime = this.runtime;
+    const runtime = this.#runtime;
     const proxy: ScenarioProxy = {
       family,
       name,
       async call<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
-        const callCode = `
-${source}
-const exportedScenario = module.exports.scenario || module.exports;
-const args = ${JSON.stringify(args)};
-const result = exportedScenario.${method}(...args);
-module.exports = { result };
-`;
+        const callCode = buildMethodCallProgram(source, method, args);
         const callResult = await runtime.run<{ result: T }>(callCode);
         if (callResult.code !== 0) {
           throw new Error(
@@ -213,6 +219,6 @@ module.exports = { result };
    * Dispose the underlying V8 runtime.
    */
   dispose(): void {
-    this.runtime.dispose();
+    this.#runtime.dispose();
   }
 }
