@@ -32,4 +32,44 @@ describe("template-backed negotiation codegen", () => {
     expect(source).not.toMatch(/__[A-Z0-9_]+__/);
     expect(() => new Function(source)).not.toThrow();
   });
+
+  it("preserves placeholder-like negotiation text literally", () => {
+    const source = generateNegotiationSource(
+      {
+        description: "__MAX_STEPS__ desc",
+        environment_description: "Marketplace haggling",
+        initial_state_description: "No offers exchanged",
+        success_criteria: ["agreement reached"],
+        failure_modes: ["stalled negotiation"],
+        max_steps: 8,
+        hidden_preferences: { note: "__TOTAL_ROUNDS__" },
+        rounds: 3,
+        actions: [],
+      },
+      "price_negotiation",
+    );
+
+    expect(source).toContain('return "__MAX_STEPS__ desc";');
+    expect(source).toContain('"note":"__TOTAL_ROUNDS__"');
+    expect(() => new Function(source)).not.toThrow();
+  });
+
+  it("accepts placeholder-shaped negotiation text from the spec", () => {
+    expect(() =>
+      generateNegotiationSource(
+        {
+          description: "__SAFE_MODE__",
+          environment_description: "Marketplace haggling",
+          initial_state_description: "No offers exchanged",
+          success_criteria: ["agreement reached"],
+          failure_modes: ["__SAFE_MODE__"],
+          max_steps: 6,
+          hidden_preferences: {},
+          rounds: 3,
+          actions: [],
+        },
+        "price_negotiation",
+      ),
+    ).not.toThrow();
+  });
 });
