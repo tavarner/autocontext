@@ -43,6 +43,11 @@ import {
   createGenerationAttemptOrchestration,
   finalizeGenerationAttemptDecision,
 } from "./generation-attempt-orchestrator.js";
+import {
+  buildGenerationAttemptCandidate,
+  createTournamentExecutionPlan,
+  parseCompetitorStrategyResult,
+} from "./generation-execution-step.js";
 import { buildGenerationTournamentEventSequence } from "./generation-tournament-event-sequencing.js";
 import { GenerationJournal } from "./generation-journal.js";
 import {
@@ -228,24 +233,23 @@ export class GenerationRunner {
           const competitorResult = await this.completeRole("competitor", competitorPrompt);
           this.emitRoleCompleted("competitor", competitorStartedAt, competitorResult.usage);
 
-          let strategy: Record<string, unknown>;
-          try {
-            strategy = JSON.parse(competitorResult.text);
-          } catch {
-            strategy = { aggression: 0.5, defense: 0.5, path_bias: 0.5 };
-          }
+          const strategy = parseCompetitorStrategyResult(competitorResult.text);
 
           // Step 2: Run tournament
           await this.#controller?.waitIfPaused();
           attemptOrchestration = awaitGenerationTournamentResult(attemptOrchestration);
           phaseState = attemptOrchestration.phaseState;
           orchestration = attemptOrchestration.orchestration;
-          const seedForGen = this.#seedBase + (gen - 1) * this.#matchesPerGeneration;
-          const tournament = new TournamentRunner(this.#scenario, {
-            matchCount: this.#matchesPerGeneration,
-            seedBase: seedForGen,
-            initialElo: this.#runState.currentElo,
+          const tournamentPlan = createTournamentExecutionPlan({
+            generation: gen,
+            seedBase: this.#seedBase,
+            matchesPerGeneration: this.#matchesPerGeneration,
+            currentElo: this.#runState.currentElo,
           });
+          const tournament = new TournamentRunner(
+            this.#scenario,
+            tournamentPlan.tournamentOptions,
+          );
           const tournamentResult = tournament.run(strategy);
           for (const event of buildGenerationTournamentEventSequence({
             runId,
@@ -264,13 +268,13 @@ export class GenerationRunner {
             this.#maxRetries,
           );
           const gateDecision = this.#controller?.takeGateOverride() as GenerationAttempt["gateDecision"] | null ?? decision.decision;
-          const attempt: GenerationAttempt = {
+          const attempt: GenerationAttempt = buildGenerationAttemptCandidate({
             competitorPrompt,
             competitorResultText: competitorResult.text,
             strategy,
             tournamentResult,
             gateDecision,
-          };
+          });
           attemptOrchestration = finalizeGenerationAttemptDecision(
             attemptOrchestration,
             {
