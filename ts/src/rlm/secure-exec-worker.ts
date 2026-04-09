@@ -129,10 +129,10 @@ function joinOutput(parts: string[]): string {
 export class SecureExecReplWorker implements ReplWorker {
   readonly namespace: Record<string, unknown>;
 
-  private readonly runtime: NodeRuntime;
-  private readonly maxStdoutChars: number;
-  private stdoutParts: string[] = [];
-  private stderrParts: string[] = [];
+  readonly #runtime: NodeRuntime;
+  readonly #maxStdoutChars: number;
+  #stdoutParts: string[] = [];
+  #stderrParts: string[] = [];
 
   constructor(opts: SecureExecReplWorkerOpts = {}) {
     this.namespace = {
@@ -140,34 +140,34 @@ export class SecureExecReplWorker implements ReplWorker {
       state: {},
       ...(toJsonSafe(opts.namespace ?? {}) as Record<string, unknown> | null ?? {}),
     };
-    this.maxStdoutChars = opts.maxStdoutChars ?? 8192;
-    this.runtime = new NodeRuntime({
+    this.#maxStdoutChars = opts.maxStdoutChars ?? 8192;
+    this.#runtime = new NodeRuntime({
       systemDriver: createNodeDriver(),
       runtimeDriverFactory: createNodeRuntimeDriverFactory(),
       memoryLimit: opts.memoryLimitMb ?? 64,
       cpuTimeLimitMs: opts.codeTimeoutMs ?? 10000,
       onStdio: (event) => {
         if (event.channel === "stderr") {
-          this.stderrParts.push(event.message);
+          this.#stderrParts.push(event.message);
           return;
         }
-        this.stdoutParts.push(event.message);
+        this.#stdoutParts.push(event.message);
       },
       resourceBudgets: {
-        maxOutputBytes: this.maxStdoutChars * 2,
+        maxOutputBytes: this.#maxStdoutChars * 2,
         maxBridgeCalls: 100,
       },
     });
   }
 
   async runCode(command: ReplCommand): Promise<ReplResult> {
-    this.stdoutParts = [];
-    this.stderrParts = [];
+    this.#stdoutParts = [];
+    this.#stderrParts = [];
     const program = buildWrappedProgram(command.code, this.namespace);
 
-    const result = await this.runtime.run<Record<string, string>>(program, "repl-session.js");
-    const stdout = joinOutput(this.stdoutParts).slice(0, this.maxStdoutChars);
-    const stderr = joinOutput(this.stderrParts).slice(0, this.maxStdoutChars);
+    const result = await this.#runtime.run<Record<string, string>>(program, "repl-session.js");
+    const stdout = joinOutput(this.#stdoutParts).slice(0, this.#maxStdoutChars);
+    const stderr = joinOutput(this.#stderrParts).slice(0, this.#maxStdoutChars);
 
     let answer = this.namespace.answer as Record<string, unknown>;
     if (result.code === 0 && typeof result.exports?.default === "string") {
@@ -203,6 +203,6 @@ export class SecureExecReplWorker implements ReplWorker {
   }
 
   async dispose(): Promise<void> {
-    await this.runtime.terminate();
+    await this.#runtime.terminate();
   }
 }
