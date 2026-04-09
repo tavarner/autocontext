@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 export interface SimulationListEntry {
   name: string;
@@ -47,6 +47,23 @@ export function buildSimulationApiRoutes(
 ): SimulationApiRoutes {
   const simDir = join(knowledgeRoot, "_simulations");
 
+  function resolveSimulationReportPath(name: string): string | null {
+    const normalized = name.trim();
+    if (!normalized) return null;
+    const simulationDir = resolve(simDir, normalized);
+    const rel = relative(simDir, simulationDir);
+    if (
+      rel === "" ||
+      rel === "." ||
+      rel.startsWith("..") ||
+      rel.includes(".." + "/") ||
+      rel.includes(".." + "\\")
+    ) {
+      return null;
+    }
+    return join(simulationDir, "report.json");
+  }
+
   return {
     listSimulations(): SimulationListEntry[] {
       if (!existsSync(simDir)) return [];
@@ -79,7 +96,8 @@ export function buildSimulationApiRoutes(
     },
 
     getSimulation(name: string): Record<string, unknown> | null {
-      const reportPath = join(simDir, name, "report.json");
+      const reportPath = resolveSimulationReportPath(name);
+      if (!reportPath) return null;
       if (!existsSync(reportPath)) return null;
       try {
         return JSON.parse(readFileSync(reportPath, "utf-8")) as Record<
