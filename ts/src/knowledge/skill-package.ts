@@ -3,33 +3,22 @@
  * Port of autocontext/src/autocontext/knowledge/export.py
  */
 
-export interface SkillPackageData {
-  scenarioName: string;
-  displayName: string;
-  description: string;
-  playbook: string;
-  lessons: string[];
-  bestStrategy: Record<string, unknown> | null;
-  bestScore: number;
-  bestElo: number;
-  hints: string;
-  harness?: Record<string, string>;
-  metadata?: Record<string, unknown>;
-  // Agent task fields
-  taskPrompt?: string | null;
-  judgeRubric?: string | null;
-  exampleOutputs?: Array<{ output: string; score: number; reasoning: string }> | null;
-  outputFormat?: string | null;
-  referenceContext?: string | null;
-  contextPreparation?: string | null;
-  maxRounds?: number | null;
-  qualityThreshold?: number | null;
-}
+import {
+  type SkillPackageData,
+  type SkillPackageDict,
+  type SkillPackageExampleOutputDict,
+} from "./skill-package-contracts.js";
+import { buildSkillPackageDict } from "./skill-package-dict-workflow.js";
+import { buildExportedAgentTaskSkillData } from "./skill-package-export-workflow.js";
+import { cleanLessons } from "./skill-package-lesson-cleaning.js";
+import { buildSkillPackageMarkdown } from "./skill-package-markdown-workflow.js";
 
-// Noise patterns for cleaning lesson bullets
-const ROLLBACK_RE = /^-\s*Generation\s+\d+\s+ROLLBACK\b/i;
-const RAW_JSON_RE = /\{"[a-z_]+"\s*:\s*[\d.]+/;
-const SCORE_PARENS_RE = /\(score=[0-9.]+,\s*delta=[0-9.+-]+,\s*threshold=[0-9.]+\)/g;
+export type {
+  SkillPackageData,
+  SkillPackageDict,
+  SkillPackageExampleOutputDict,
+} from "./skill-package-contracts.js";
+export { cleanLessons } from "./skill-package-lesson-cleaning.js";
 
 export class SkillPackage {
   readonly scenarioName: string;
@@ -74,125 +63,55 @@ export class SkillPackage {
     this.qualityThreshold = data.qualityThreshold ?? null;
   }
 
-  toDict(): Record<string, unknown> {
-    const d: Record<string, unknown> = {
-      scenario_name: this.scenarioName,
-      display_name: this.displayName,
+  toDict(): SkillPackageDict {
+    return buildSkillPackageDict({
+      scenarioName: this.scenarioName,
+      displayName: this.displayName,
       description: this.description,
       playbook: this.playbook,
       lessons: this.lessons,
-      best_strategy: this.bestStrategy,
-      best_score: this.bestScore,
-      best_elo: this.bestElo,
+      bestStrategy: this.bestStrategy,
+      bestScore: this.bestScore,
+      bestElo: this.bestElo,
       hints: this.hints,
       harness: this.harness,
       metadata: this.metadata,
-    };
-    if (this.taskPrompt != null) d.task_prompt = this.taskPrompt;
-    if (this.judgeRubric != null) d.judge_rubric = this.judgeRubric;
-    if (this.exampleOutputs != null) d.example_outputs = this.exampleOutputs;
-    if (this.outputFormat != null) d.output_format = this.outputFormat;
-    if (this.referenceContext != null) d.reference_context = this.referenceContext;
-    if (this.contextPreparation != null) d.context_preparation = this.contextPreparation;
-    if (this.maxRounds != null && this.maxRounds > 1) d.max_rounds = this.maxRounds;
-    if (this.qualityThreshold != null) d.quality_threshold = this.qualityThreshold;
-    return d;
+      taskPrompt: this.taskPrompt,
+      judgeRubric: this.judgeRubric,
+      exampleOutputs: this.exampleOutputs,
+      outputFormat: this.outputFormat,
+      referenceContext: this.referenceContext,
+      contextPreparation: this.contextPreparation,
+      maxRounds: this.maxRounds,
+      qualityThreshold: this.qualityThreshold,
+    });
   }
 
   toSkillMarkdown(): string {
-    const lessonsBlock = this.lessons.length > 0
-      ? this.lessons.map((l) => `- ${l}`).join("\n")
-      : "No lessons yet.";
-
-    if (this.taskPrompt != null) {
-      return this._renderAgentTaskMarkdown(lessonsBlock);
-    }
-
-    let strategyBlock = "";
-    if (this.bestStrategy) {
-      strategyBlock =
-        `\n## Best Known Strategy\n\n` +
-        `\`\`\`json\n${JSON.stringify(this.bestStrategy, null, 2)}\n\`\`\`\n` +
-        `\nBest score: ${this.bestScore.toFixed(4)} | Best Elo: ${this.bestElo.toFixed(1)}\n`;
-    }
-
-    let harnessBlock = "";
-    const harnessEntries = Object.entries(this.harness).sort(([a], [b]) => a.localeCompare(b));
-    if (harnessEntries.length > 0) {
-      const parts = ["\n## Harness Validators\n"];
-      for (const [name, source] of harnessEntries) {
-        parts.push(`\n### ${name}\n\n\`\`\`python\n${source}\n\`\`\`\n`);
-      }
-      harnessBlock = parts.join("");
-    }
-
-    return (
-      `---\nname: ${this.scenarioName.replace(/_/g, "-")}-knowledge\n` +
-      `description: ${this.description.slice(0, 200)}\n---\n\n` +
-      `# ${this.displayName}\n\n` +
-      `${this.description}\n\n` +
-      `## Operational Lessons\n\n` +
-      `${lessonsBlock}\n` +
-      `${strategyBlock}\n` +
-      `## Playbook\n\n` +
-      `${this.playbook}\n` +
-      harnessBlock
-    );
-  }
-
-  private _renderAgentTaskMarkdown(lessonsBlock: string): string {
-    const parts: string[] = [
-      `---\nname: ${this.scenarioName.replace(/_/g, "-")}-knowledge\n` +
-        `description: ${this.description.slice(0, 200)}\n---\n\n` +
-        `# ${this.displayName}\n\n` +
-        `${this.description}\n\n` +
-        `## Task\n\n` +
-        `${this.taskPrompt}\n`,
-    ];
-
-    if (this.judgeRubric) {
-      parts.push(`\n## Evaluation Criteria\n\n${this.judgeRubric}\n`);
-    }
-
-    if (this.contextPreparation) {
-      parts.push(`\n## Context Preparation\n\n${this.contextPreparation}\n`);
-    }
-
-    if (this.referenceContext) {
-      parts.push(`\n## Reference Context\n\n${this.referenceContext}\n`);
-    }
-
-    if (this.exampleOutputs && this.exampleOutputs.length > 0) {
-      parts.push("\n## Example Outputs\n");
-      for (const [i, ex] of this.exampleOutputs.slice(0, 3).entries()) {
-        parts.push(
-          `\n<details>\n<summary>Example ${i + 1} (score: ${ex.score.toFixed(2)})</summary>\n\n` +
-            `**Output:**\n\n${ex.output}\n\n` +
-            `**Reasoning:** ${ex.reasoning}\n\n` +
-            `</details>\n`,
-        );
-      }
-    }
-
-    parts.push(`\n## Operational Lessons\n\n${lessonsBlock}\n`);
-
-    if (this.bestStrategy) {
-      parts.push(
-        `\n## Best Known Strategy\n\n` +
-          `\`\`\`\n${JSON.stringify(this.bestStrategy, null, 2)}\n\`\`\`\n` +
-          `\nBest score: ${this.bestScore.toFixed(4)} | Best Elo: ${this.bestElo.toFixed(1)}\n`,
-      );
-    }
-
-    parts.push(`\n## Playbook\n\n${this.playbook}\n`);
-
-    return parts.join("");
+    return buildSkillPackageMarkdown({
+      scenarioName: this.scenarioName,
+      displayName: this.displayName,
+      description: this.description,
+      playbook: this.playbook,
+      lessons: this.lessons,
+      bestStrategy: this.bestStrategy,
+      bestScore: this.bestScore,
+      bestElo: this.bestElo,
+      hints: this.hints,
+      harness: this.harness,
+      metadata: this.metadata,
+      taskPrompt: this.taskPrompt,
+      judgeRubric: this.judgeRubric,
+      exampleOutputs: this.exampleOutputs,
+      outputFormat: this.outputFormat,
+      referenceContext: this.referenceContext,
+      contextPreparation: this.contextPreparation,
+      maxRounds: this.maxRounds,
+      qualityThreshold: this.qualityThreshold,
+    });
   }
 }
 
-/**
- * Convenience builder for agent-task skill packages.
- */
 export function exportAgentTaskSkill(opts: {
   scenarioName: string;
   taskPrompt: string;
@@ -205,39 +124,5 @@ export function exportAgentTaskSkill(opts: {
   referenceContext?: string;
   contextPreparation?: string;
 }): SkillPackage {
-  const displayName = opts.scenarioName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return new SkillPackage({
-    scenarioName: opts.scenarioName,
-    displayName,
-    description: `Agent task: ${displayName}`,
-    playbook: opts.playbook,
-    lessons: opts.lessons,
-    bestStrategy: null,
-    bestScore: opts.bestOutputs.length > 0 ? opts.bestOutputs[0].score : 0.0,
-    bestElo: 1500.0,
-    hints: opts.hints ?? "",
-    taskPrompt: opts.taskPrompt,
-    judgeRubric: opts.judgeRubric,
-    exampleOutputs: opts.bestOutputs.length > 0 ? opts.bestOutputs : null,
-    outputFormat: opts.outputFormat,
-    referenceContext: opts.referenceContext ?? null,
-    contextPreparation: opts.contextPreparation ?? null,
-  });
-}
-
-/**
- * Clean lesson bullets: strip autocontext-internal noise, keeping prescriptive rules.
- */
-export function cleanLessons(rawBullets: string[]): string[] {
-  const cleaned: string[] = [];
-  for (const bullet of rawBullets) {
-    const text = bullet.trim();
-    if (!text) continue;
-    let content = text.startsWith("- ") ? text.slice(2) : text;
-    if (ROLLBACK_RE.test(text)) continue;
-    if (RAW_JSON_RE.test(content) && content.trim().startsWith("{")) continue;
-    content = content.replace(SCORE_PARENS_RE, "").trim();
-    if (content) cleaned.push(content);
-  }
-  return cleaned;
+  return new SkillPackage(buildExportedAgentTaskSkillData(opts));
 }

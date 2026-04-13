@@ -1,9 +1,13 @@
-import type { AgentTaskInterface, ImprovementResult, LLMProvider } from "../types/index.js";
 import { ImprovementLoop } from "../execution/improvement-loop.js";
 import { createAgentTask } from "../scenarios/agent-task-factory.js";
 import { AgentTaskSpecSchema, type AgentTaskSpec } from "../scenarios/agent-task-spec.js";
-import { serializeSkillPackage } from "./package.js";
-import { SkillPackage } from "./skill-package.js";
+import type {
+  AgentTaskInterface,
+  ImprovementResult,
+  LLMProvider,
+} from "../types/index.js";
+import type { SerializedSkillPackageDict } from "./package.js";
+import { buildAgentTaskSolvePackage } from "./solve-workflow.js";
 
 function readString(spec: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) {
@@ -25,18 +29,14 @@ function readStringArray(spec: Record<string, unknown>, ...keys: string[]): stri
   return null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function readRecordArray(
   spec: Record<string, unknown>,
   ...keys: string[]
 ): Array<Record<string, unknown>> | null {
   for (const key of keys) {
     const value = spec[key];
-    if (Array.isArray(value) && value.every(isRecord)) {
-      return value;
+    if (Array.isArray(value) && value.every((entry) => entry != null && typeof entry === "object")) {
+      return value as Array<Record<string, unknown>>;
     }
   }
   return null;
@@ -56,28 +56,6 @@ function readNumber(spec: Record<string, unknown>, fallback: number, ...keys: st
     }
   }
   return fallback;
-}
-
-function humanizeScenarioName(name: string): string {
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function buildAgentTaskLessons(
-  result: {
-    bestScore: number;
-    totalRounds: number;
-    terminationReason: string;
-  },
-  bestReasoning: string,
-): string[] {
-  const lessons = [
-    `The best output reached ${result.bestScore.toFixed(4)} quality after ${result.totalRounds} rounds.`,
-    `The loop stopped because '${result.terminationReason}'.`,
-  ];
-  if (bestReasoning.trim()) {
-    lessons.push(bestReasoning.trim());
-  }
-  return lessons;
 }
 
 export function buildAgentTaskSolveSpec(
@@ -104,30 +82,64 @@ export function buildAgentTaskSolveSpec(
   });
 }
 
+export type AgentTaskSolveTask = AgentTaskInterface & {
+  readonly name: string;
+  readonly spec: AgentTaskSpec;
+};
+
+export interface AgentTaskSolveLoop {
+  run(opts: {
+    initialOutput: string;
+    state: Record<string, unknown>;
+    referenceContext?: string;
+    requiredConcepts?: string[];
+    calibrationExamples?: Array<Record<string, unknown>>;
+  }): Promise<ImprovementResult>;
+}
+
+export interface AgentTaskSolveExecutionDeps {
+  createTask?: (opts: {
+    spec: AgentTaskSpec;
+    name: string;
+    provider: LLMProvider;
+  }) => AgentTaskSolveTask;
+  createLoop?: (opts: {
+    task: AgentTaskSolveTask;
+    maxRounds: number;
+    qualityThreshold: number;
+  }) => AgentTaskSolveLoop;
+}
+
+export interface AgentTaskSolveExecutionResult {
+  progress: number;
+  result: SerializedSkillPackageDict;
+}
+
+function defaultCreateLoop(opts: {
+  task: AgentTaskSolveTask;
+  maxRounds: number;
+  qualityThreshold: number;
+}): AgentTaskSolveLoop {
+  return new ImprovementLoop({
+    task: opts.task,
+    maxRounds: opts.maxRounds,
+    qualityThreshold: opts.qualityThreshold,
+  });
+}
+
 export async function executeAgentTaskSolve(opts: {
   provider: LLMProvider;
   created: { name: string; spec: Record<string, unknown> };
   generations: number;
-  deps?: {
-    createTask?: (input: {
-      spec: AgentTaskSpec;
-      name: string;
-      provider: LLMProvider;
-    }) => AgentTaskInterface & { readonly name: string; readonly spec: AgentTaskSpec };
-    createLoop?: (input: {
-      task: AgentTaskInterface;
-      maxRounds: number;
-      qualityThreshold: number;
-    }) => { run(input: Parameters<ImprovementLoop["run"]>[0]): Promise<ImprovementResult> };
-  };
-}): Promise<{ progress: number; result: Record<string, unknown> }> {
+  deps?: AgentTaskSolveExecutionDeps;
+}): Promise<AgentTaskSolveExecutionResult> {
   const spec = buildAgentTaskSolveSpec(opts.created.spec, opts.generations);
   const task = (opts.deps?.createTask ?? createAgentTask)({
     spec,
     name: opts.created.name,
     provider: opts.provider,
   });
-  const loop = (opts.deps?.createLoop ?? ((input) => new ImprovementLoop(input)))({
+  const loop = (opts.deps?.createLoop ?? defaultCreateLoop)({
     task,
     maxRounds: spec.maxRounds,
     qualityThreshold: spec.qualityThreshold,
@@ -142,6 +154,7 @@ export async function executeAgentTaskSolve(opts: {
   if (contextErrors.length > 0) {
     throw new Error(`agent_task context preparation failed: ${contextErrors.join("; ")}`);
   }
+
   const initialOutput = await opts.provider.complete({
     systemPrompt: "You are a helpful assistant.",
     userPrompt: task.getTaskPrompt(initialState),
@@ -154,53 +167,27 @@ export async function executeAgentTaskSolve(opts: {
     requiredConcepts: spec.requiredConcepts ?? undefined,
     calibrationExamples: spec.calibrationExamples ?? undefined,
   });
+
   const bestRound = result.rounds.find((round) => round.roundNumber === result.bestRound);
-  const pkg = new SkillPackage({
-    scenarioName: opts.created.name,
-    displayName: humanizeScenarioName(opts.created.name),
-    description: String(opts.created.spec.description ?? `Agent task: ${opts.created.name}`),
-    playbook: [
-      "## Improvement Summary",
-      "",
-      `- Best round: ${result.bestRound}`,
-      `- Total rounds: ${result.totalRounds}`,
-      `- Termination reason: ${result.terminationReason}`,
-      `- Best score: ${result.bestScore.toFixed(4)}`,
-      "",
-      "## Best Output",
-      "",
-      result.bestOutput,
-    ].join("\n"),
-    lessons: buildAgentTaskLessons(result, bestRound?.reasoning ?? ""),
-    bestStrategy: {
-      family: "agent_task",
-      best_round: result.bestRound,
-      termination_reason: result.terminationReason,
-    },
-    bestScore: result.bestScore,
-    bestElo: 1500,
-    hints: "",
-    metadata: {
-      family: "agent_task",
-      total_rounds: result.totalRounds,
-      termination_reason: result.terminationReason,
-      judge_failures: result.judgeFailures,
-    },
-    taskPrompt: spec.taskPrompt,
-    judgeRubric: spec.judgeRubric,
-    exampleOutputs: [{
-      output: result.bestOutput,
-      score: result.bestScore,
-      reasoning: bestRound?.reasoning ?? "Best output from improvement loop.",
-    }],
-    outputFormat: spec.outputFormat,
-    referenceContext: spec.referenceContext ?? null,
-    contextPreparation: spec.contextPreparation ?? null,
-    maxRounds: spec.maxRounds,
-    qualityThreshold: spec.qualityThreshold,
-  });
   return {
     progress: result.totalRounds,
-    result: serializeSkillPackage(pkg),
+    result: buildAgentTaskSolvePackage({
+      scenarioName: opts.created.name,
+      description: String(opts.created.spec.description ?? `Agent task: ${opts.created.name}`),
+      taskPrompt: spec.taskPrompt,
+      judgeRubric: spec.judgeRubric,
+      outputFormat: spec.outputFormat,
+      maxRounds: spec.maxRounds,
+      qualityThreshold: spec.qualityThreshold,
+      bestRound: result.bestRound,
+      totalRounds: result.totalRounds,
+      terminationReason: result.terminationReason,
+      bestScore: result.bestScore,
+      bestOutput: result.bestOutput,
+      judgeFailures: result.judgeFailures,
+      bestReasoning: bestRound?.reasoning ?? "Best output from improvement loop.",
+      referenceContext: spec.referenceContext ?? null,
+      contextPreparation: spec.contextPreparation ?? null,
+    }),
   };
 }
