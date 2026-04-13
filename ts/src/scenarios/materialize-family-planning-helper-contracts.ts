@@ -6,7 +6,7 @@ export interface AgentTaskFamilyMaterializationRequest {
 }
 
 export interface CodegenFamilyMaterializationRequest {
-  family: string;
+  family: ScenarioFamilyName;
   name: string;
   healedSpec: Record<string, unknown>;
   persistedSpec: Record<string, unknown>;

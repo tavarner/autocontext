@@ -1,4 +1,3 @@
-import type { AgentTaskSpec } from "./agent-task-spec.js";
 import type { MaterializeFamilyPlanningResult } from "./materialize-family-planning-contracts.js";
 
 function buildBaseCodegenMaterializationResult(opts: {
@@ -9,7 +8,7 @@ function buildBaseCodegenMaterializationResult(opts: {
 }): MaterializeFamilyPlanningResult {
   return {
     persistedSpec: opts.persistedSpec,
-    agentTaskSpec: null as AgentTaskSpec | null,
+    agentTaskSpec: null,
     source: opts.source,
     generatedSource: opts.generatedSource,
     errors: opts.errors,

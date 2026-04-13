@@ -1,11 +1,12 @@
 import { generateScenarioSource, hasCodegen } from "./codegen/index.js";
 import { validateGeneratedScenario } from "./codegen/execution-validator.js";
 import type { AgentTaskSpec } from "./agent-task-spec.js";
+import type { ScenarioFamilyName } from "./families.js";
 
 export const AGENT_TASK_FAMILY = "agent_task";
 
 export interface MaterializeFamilyPlanningRequest {
-  family: string;
+  family: ScenarioFamilyName;
   name: string;
   healedSpec: Record<string, unknown>;
   scenarioType: string;

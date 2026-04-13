@@ -1,11 +1,12 @@
 import type { MaterializeScenarioDependencies } from "./materialize-dependencies.js";
 import type { MaterializeResult } from "./materialize-contracts.js";
+import type { ScenarioFamilyName } from "./families.js";
 
 const AGENT_TASK_FAMILY = "agent_task";
 
 export async function executeMaterializeScenarioWorkflow(opts: {
   name: string;
-  family: string;
+  family: ScenarioFamilyName;
   healedSpec: Record<string, unknown>;
   scenarioDir: string;
   scenarioType: string;

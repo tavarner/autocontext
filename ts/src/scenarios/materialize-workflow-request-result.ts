@@ -1,9 +1,10 @@
 import type { MaterializeScenarioDependencies } from "./materialize-dependencies.js";
 import type { MaterializeRequestPlanningResult } from "./materialize-request-planning.js";
+import type { ScenarioFamilyName } from "./families.js";
 
 export interface MaterializeScenarioWorkflowRequest {
   name: string;
-  family: string;
+  family: ScenarioFamilyName;
   healedSpec: Record<string, unknown>;
   scenarioDir: string;
   scenarioType: string;

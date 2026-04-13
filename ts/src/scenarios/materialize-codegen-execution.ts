@@ -11,7 +11,7 @@ export async function executeCodegenMaterializationPlan(
 ): Promise<MaterializeFamilyPlanningResult> {
   try {
     const source = opts.generateScenarioSource(
-      opts.family as Parameters<CodegenFamilyMaterializationRequest["generateScenarioSource"]>[0],
+      opts.family,
       opts.healedSpec,
       opts.name,
     );
