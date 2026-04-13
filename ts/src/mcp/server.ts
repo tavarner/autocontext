@@ -25,6 +25,7 @@ import { registerMissionTools } from "./mission-tools.js";
 import { registerSandboxTools } from "./sandbox-tools.js";
 import { registerAgentTaskPackageTools } from "./agent-task-package-tools.js";
 import { registerScenarioRevisionTools } from "./scenario-revision-tools.js";
+import { registerSolveTools } from "./solve-tools.js";
 
 export interface MtsServerOpts {
   store: SQLiteStore;
@@ -831,42 +832,7 @@ export function createMcpServer(opts: MtsServerOpts): McpServer {
     },
   );
 
-  // -- solve_scenario (AC-370) --
-  server.tool(
-    "solve_scenario",
-    "Submit a problem for on-demand solving. Returns a job_id for polling.",
-    { description: z.string(), generations: z.number().int().default(5) },
-    async (args) => {
-      const jobId = solveManager.submit(args.description, args.generations);
-      return { content: [{ type: "text" as const, text: JSON.stringify({ jobId, status: "pending" }) }] };
-    },
-  );
-
-  // -- solve_status (AC-370) --
-  server.tool(
-    "solve_status",
-    "Check status of a solve-on-demand job",
-    { jobId: z.string() },
-    async (args) => {
-      return { content: [{ type: "text" as const, text: JSON.stringify(solveManager.getStatus(args.jobId), null, 2) }] };
-    },
-  );
-
-  // -- solve_result (AC-370) --
-  server.tool(
-    "solve_result",
-    "Get the exported skill package result of a completed solve-on-demand job",
-    { jobId: z.string() },
-    async (args) => {
-      const result = solveManager.getResult(args.jobId);
-      if (!result) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: "Job not completed or not found", jobId: args.jobId }) }],
-        };
-      }
-      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-    },
-  );
+  registerSolveTools(server, { solveManager });
 
   registerSandboxTools(server, { sandboxManager });
 

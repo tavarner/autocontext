@@ -29,14 +29,18 @@ function readStringArray(spec: Record<string, unknown>, ...keys: string[]): stri
   return null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function readRecordArray(
   spec: Record<string, unknown>,
   ...keys: string[]
 ): Array<Record<string, unknown>> | null {
   for (const key of keys) {
     const value = spec[key];
-    if (Array.isArray(value) && value.every((entry) => entry != null && typeof entry === "object")) {
-      return value as Array<Record<string, unknown>>;
+    if (Array.isArray(value) && value.every(isRecord)) {
+      return value;
     }
   }
   return null;
