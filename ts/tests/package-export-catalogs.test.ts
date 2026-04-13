@@ -1,0 +1,27 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+describe("package root exports", () => {
+  it("re-exports representative public symbols directly through the package root", async () => {
+    const pkg = await import("../src/index.js");
+
+    expect(pkg.SQLiteStore).toBeDefined();
+    expect(pkg.createProvider).toBeDefined();
+    expect(pkg.ActionFilterHarness).toBeDefined();
+    expect(pkg.SkillPackage).toBeDefined();
+    expect(pkg.DataPlane).toBeDefined();
+    expect(pkg.ModelStrategySelector).toBeDefined();
+    expect(pkg.createMcpServer).toBeDefined();
+    expect(pkg.MissionManager).toBeDefined();
+  });
+
+  it("avoids package catalog barrel hops in ts/src/index.ts", () => {
+    const indexSource = readFileSync(join(import.meta.dirname, "..", "src", "index.ts"), "utf-8");
+
+    expect(indexSource).not.toContain('export * from "./package-core-catalog.js";');
+    expect(indexSource).not.toContain('export * from "./package-execution-catalog.js";');
+    expect(indexSource).not.toContain('export * from "./package-trace-training-catalog.js";');
+    expect(indexSource).not.toContain('export * from "./package-platform-catalog.js";');
+  });
+});

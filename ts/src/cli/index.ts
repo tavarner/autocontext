@@ -24,6 +24,21 @@ import {
   executeTemplateScaffoldWorkflow,
   renderTemplateList,
 } from "./new-scenario-command-workflow.js";
+import {
+  MISSION_HELP_TEXT,
+  getMissionIdOrThrow,
+  planMissionCreate,
+  planMissionList,
+  planMissionRun,
+} from "./mission-command-workflow.js";
+import {
+  executeMissionArtifactsCommand,
+  executeMissionCreateCommand,
+  executeMissionLifecycleCommand,
+  executeMissionListCommand,
+  executeMissionRunCommand,
+  executeMissionStatusCommand,
+} from "./mission-command-execution.js";
 import type { CampaignStatus } from "../mission/campaign.js";
 
 function getMigrationsDir(): string {
@@ -2333,27 +2348,7 @@ async function cmdMission(dbPath: string): Promise<void> {
   const runsRoot = resolve(settings.runsRoot);
 
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    console.log(`autoctx mission — Manage verifier-driven missions
-
-Subcommands:
-  create     Create a new mission
-  run        Advance a mission and write a checkpoint
-  status     Show mission details
-  list       List all missions
-  pause      Pause an active mission
-  resume     Resume a paused mission
-  cancel     Cancel a mission
-  artifacts  Inspect saved mission checkpoints
-
-Examples:
-  autoctx mission create --name "Ship login" --goal "Implement OAuth"
-  autoctx mission create --type code --name "Fix login" --goal "Tests pass" --repo-path . --test-command "npm test"
-  autoctx mission run --id mission-abc123 --max-iterations 3
-  autoctx mission list --status active
-  autoctx mission status --id mission-abc123
-  autoctx mission artifacts --id mission-abc123
-
-See also: run, improve, judge`);
+    console.log(MISSION_HELP_TEXT);
     process.exit(0);
   }
 
@@ -2374,52 +2369,16 @@ See also: run, improve, judge`);
             "build-command": { type: "string" },
           },
         });
-        if (!values.name || !values.goal) {
-          console.error(
-            "Usage: autoctx mission create --name <name> --goal <goal> [--type code --repo-path <path> --test-command <cmd> [--lint-command <cmd>] [--build-command <cmd>]] [--max-steps N]",
-          );
-          process.exit(1);
-        }
-        const budget = values["max-steps"]
-          ? { maxSteps: parseInt(values["max-steps"], 10) }
-          : undefined;
-        const missionType =
-          values.type === "code" ||
-          values["repo-path"] ||
-          values["test-command"] ||
-          values["lint-command"] ||
-          values["build-command"]
-            ? "code"
-            : "generic";
-
-        let id: string;
-        if (missionType === "code") {
-          if (!values["repo-path"] || !values["test-command"]) {
-            console.error(
-              "Code missions require --repo-path and --test-command.",
-            );
-            process.exit(1);
-          }
-          id = createCodeMission(manager, {
-            name: values.name,
-            goal: values.goal,
-            repoPath: resolve(values["repo-path"]),
-            testCommand: values["test-command"],
-            lintCommand: values["lint-command"],
-            buildCommand: values["build-command"],
-            budget,
-            metadata: {},
-          });
-        } else {
-          id = manager.create({ name: values.name, goal: values.goal, budget });
-        }
-        const checkpointPath = writeMissionCheckpoint(manager, id, runsRoot);
         console.log(
           JSON.stringify(
-            {
-              ...buildMissionStatusPayload(manager, id),
-              checkpointPath,
-            },
+            executeMissionCreateCommand({
+              manager,
+              createCodeMission,
+              buildMissionStatusPayload,
+              writeMissionCheckpoint,
+              runsRoot,
+              plan: planMissionCreate(values, resolve),
+            }),
             null,
             2,
           ),
@@ -2435,36 +2394,31 @@ See also: run, improve, judge`);
             "step-description": { type: "string" },
           },
         });
-        if (!values.id) {
-          console.error(
-            "Usage: autoctx mission run --id <mission-id> [--max-iterations N] [--step-description <text>]",
-          );
-          process.exit(1);
-        }
-        const mission = requireMission(manager, values.id);
-        const missionType = (
-          mission.metadata as Record<string, unknown> | undefined
-        )?.missionType;
-        const needsAdaptivePlanning =
-          missionType !== "code" && missionType !== "proof";
-        let provider: import("../types/index.js").LLMProvider | undefined;
-        if (needsAdaptivePlanning) {
+        const mission = requireMission(manager, getMissionIdOrThrow(
+          values,
+          "Usage: autoctx mission run --id <mission-id> [--max-iterations N] [--step-description <text>]",
+        ));
+        const plan = planMissionRun(values, mission);
+        let createAdaptiveProvider: () => import("../types/index.js").LLMProvider = () => {
+          throw new Error("Adaptive mission provider was not initialized.");
+        };
+        if (plan.needsAdaptivePlanning) {
           const { createProvider, resolveProviderConfig } =
             await import("../providers/index.js");
-          provider = createProvider(resolveProviderConfig());
+          createAdaptiveProvider = () => createProvider(resolveProviderConfig());
         }
-        const payload = await runMissionLoop(
-          manager,
-          values.id,
-          runsRoot,
-          resolve(settings.knowledgeRoot),
-          {
-            maxIterations: parseInt(values["max-iterations"] ?? "1", 10),
-            stepDescription: values["step-description"],
-            provider,
-          },
-        );
-        console.log(JSON.stringify(payload, null, 2));
+        console.log(JSON.stringify(
+          await executeMissionRunCommand({
+            manager,
+            plan,
+            runsRoot,
+            knowledgeRoot: resolve(settings.knowledgeRoot),
+            createAdaptiveProvider,
+            runMissionLoop,
+          }),
+          null,
+          2,
+        ));
         break;
       }
       case "status": {
@@ -2472,13 +2426,16 @@ See also: run, improve, judge`);
           args: process.argv.slice(4),
           options: { id: { type: "string" } },
         });
-        if (!values.id) {
-          console.error("Usage: autoctx mission status --id <mission-id>");
-          process.exit(1);
-        }
         console.log(
           JSON.stringify(
-            buildMissionStatusPayload(manager, values.id),
+            executeMissionStatusCommand({
+              manager,
+              missionId: getMissionIdOrThrow(
+                values,
+                "Usage: autoctx mission status --id <mission-id>",
+              ),
+              buildMissionStatusPayload,
+            }),
             null,
             2,
           ),
@@ -2491,7 +2448,12 @@ See also: run, improve, judge`);
           options: { status: { type: "string" } },
         });
         type MissionStatusParam = Parameters<typeof manager.list>[0];
-        const missions = manager.list(values.status as MissionStatusParam);
+        const { status } = planMissionList(values);
+        const missions = executeMissionListCommand({
+          listMissions: (missionStatus?: string) =>
+            manager.list(missionStatus as MissionStatusParam),
+          status,
+        });
         console.log(JSON.stringify(missions, null, 2));
         break;
       }
@@ -2500,13 +2462,17 @@ See also: run, improve, judge`);
           args: process.argv.slice(4),
           options: { id: { type: "string" } },
         });
-        if (!values.id) {
-          console.error("Usage: autoctx mission artifacts --id <mission-id>");
-          process.exit(1);
-        }
         console.log(
           JSON.stringify(
-            buildMissionArtifactsPayload(manager, values.id, runsRoot),
+            executeMissionArtifactsCommand({
+              manager,
+              missionId: getMissionIdOrThrow(
+                values,
+                "Usage: autoctx mission artifacts --id <mission-id>",
+              ),
+              runsRoot,
+              buildMissionArtifactsPayload,
+            }),
             null,
             2,
           ),
@@ -2518,23 +2484,21 @@ See also: run, improve, judge`);
           args: process.argv.slice(4),
           options: { id: { type: "string" } },
         });
-        if (!values.id) {
-          console.error("Usage: autoctx mission pause --id <mission-id>");
-          process.exit(1);
-        }
-        requireMission(manager, values.id);
-        manager.pause(values.id);
-        const checkpointPath = writeMissionCheckpoint(
-          manager,
-          values.id,
-          runsRoot,
+        const missionId = getMissionIdOrThrow(
+          values,
+          "Usage: autoctx mission pause --id <mission-id>",
         );
+        requireMission(manager, missionId);
         console.log(
           JSON.stringify(
-            {
-              ...buildMissionStatusPayload(manager, values.id),
-              checkpointPath,
-            },
+            executeMissionLifecycleCommand({
+              action: "pause",
+              missionId,
+              manager,
+              buildMissionStatusPayload,
+              writeMissionCheckpoint,
+              runsRoot,
+            }),
             null,
             2,
           ),
@@ -2546,23 +2510,21 @@ See also: run, improve, judge`);
           args: process.argv.slice(4),
           options: { id: { type: "string" } },
         });
-        if (!values.id) {
-          console.error("Usage: autoctx mission resume --id <mission-id>");
-          process.exit(1);
-        }
-        requireMission(manager, values.id);
-        manager.resume(values.id);
-        const checkpointPath = writeMissionCheckpoint(
-          manager,
-          values.id,
-          runsRoot,
+        const missionId = getMissionIdOrThrow(
+          values,
+          "Usage: autoctx mission resume --id <mission-id>",
         );
+        requireMission(manager, missionId);
         console.log(
           JSON.stringify(
-            {
-              ...buildMissionStatusPayload(manager, values.id),
-              checkpointPath,
-            },
+            executeMissionLifecycleCommand({
+              action: "resume",
+              missionId,
+              manager,
+              buildMissionStatusPayload,
+              writeMissionCheckpoint,
+              runsRoot,
+            }),
             null,
             2,
           ),
@@ -2574,23 +2536,21 @@ See also: run, improve, judge`);
           args: process.argv.slice(4),
           options: { id: { type: "string" } },
         });
-        if (!values.id) {
-          console.error("Usage: autoctx mission cancel --id <mission-id>");
-          process.exit(1);
-        }
-        requireMission(manager, values.id);
-        manager.cancel(values.id);
-        const checkpointPath = writeMissionCheckpoint(
-          manager,
-          values.id,
-          runsRoot,
+        const missionId = getMissionIdOrThrow(
+          values,
+          "Usage: autoctx mission cancel --id <mission-id>",
         );
+        requireMission(manager, missionId);
         console.log(
           JSON.stringify(
-            {
-              ...buildMissionStatusPayload(manager, values.id),
-              checkpointPath,
-            },
+            executeMissionLifecycleCommand({
+              action: "cancel",
+              missionId,
+              manager,
+              buildMissionStatusPayload,
+              writeMissionCheckpoint,
+              runsRoot,
+            }),
             null,
             2,
           ),

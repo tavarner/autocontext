@@ -1,0 +1,116 @@
+export interface TaskQueueRow {
+  id: string;
+  spec_name: string;
+  status: string;
+  priority: number;
+  config_json: string | null;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  best_score: number | null;
+  best_output: string | null;
+  total_rounds: number | null;
+  met_threshold: number;
+  result_json: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HumanFeedbackRow {
+  id: number;
+  scenario_name: string;
+  generation_id: string | null;
+  agent_output: string;
+  human_score: number | null;
+  human_notes: string;
+  created_at: string;
+}
+
+export interface RunRow {
+  run_id: string;
+  scenario: string;
+  target_generations: number;
+  executor_mode: string;
+  status: string;
+  agent_provider: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerationRow {
+  run_id: string;
+  generation_index: number;
+  mean_score: number;
+  best_score: number;
+  elo: number;
+  wins: number;
+  losses: number;
+  gate_decision: string;
+  status: string;
+  duration_seconds: number | null;
+  dimension_summary_json: string | null;
+  scoring_backend: string;
+  rating_uncertainty: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MatchRow {
+  id: number;
+  run_id: string;
+  generation_index: number;
+  seed: number;
+  score: number;
+  passed_validation: number;
+  validation_errors: string;
+  winner: string;
+  strategy_json: string;
+  replay_json: string;
+  created_at: string;
+}
+
+export interface AgentOutputRow {
+  id: number;
+  run_id: string;
+  generation_index: number;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+export interface TrajectoryRow {
+  generation_index: number;
+  mean_score: number;
+  best_score: number;
+  elo: number;
+  gate_decision: string;
+  delta: number;
+  dimension_summary: Record<string, unknown>;
+  scoring_backend: string;
+  rating_uncertainty: number | null;
+}
+
+export interface UpsertGenerationOpts {
+  meanScore: number;
+  bestScore: number;
+  elo: number;
+  wins: number;
+  losses: number;
+  gateDecision: string;
+  status: string;
+  durationSeconds?: number | null;
+  dimensionSummaryJson?: string | null;
+  scoringBackend?: string;
+  ratingUncertainty?: number | null;
+}
+
+export interface RecordMatchOpts {
+  seed: number;
+  score: number;
+  passedValidation: boolean;
+  validationErrors: string;
+  winner?: string;
+  strategyJson?: string;
+  replayJson?: string;
+}

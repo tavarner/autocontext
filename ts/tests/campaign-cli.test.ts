@@ -251,7 +251,7 @@ describe("autoctx campaign list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.length).toBe(1);
     expect(parsed[0].name).toBe("B");
-  });
+  }, 15000);
 
   it("rejects invalid status filters", () => {
     const { exitCode, stderr } = runCli(

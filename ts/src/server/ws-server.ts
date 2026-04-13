@@ -8,12 +8,14 @@ import { dirname, join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "node:net";
 import { URL, fileURLToPath } from "node:url";
-import { MissionEventEmitter, type MissionCreatedEvent, type MissionStepEvent, type MissionStatusChangedEvent, type MissionVerifiedEvent } from "../mission/events.js";
+import { MissionEventEmitter } from "../mission/events.js";
 import { CampaignManager } from "../mission/campaign.js";
 import { MissionManager } from "../mission/manager.js";
-import { buildMissionStatusPayload, requireMission, runMissionLoop, writeMissionCheckpoint } from "../mission/control-plane.js";
 import { buildCampaignApiRoutes } from "./campaign-api.js";
 import { buildMissionApiRoutes } from "./mission-api.js";
+import { executeMissionActionRequest } from "./mission-action-workflow.js";
+import { buildMissionProgressMessage, subscribeToMissionProgressEvents } from "./mission-progress-workflow.js";
+import { executeMissionReadRequest, type MissionReadResource } from "./mission-read-workflow.js";
 import { buildSimulationApiRoutes } from "./simulation-api.js";
 import { renderDashboardHtml } from "./simulation-dashboard.js";
 import { MissionProgressMsgSchema, parseClientMessage } from "./protocol.js";
@@ -401,60 +403,27 @@ export class InteractiveServer {
     const missionMatch = url.match(/^\/api\/missions\/([^/]+)$/);
     if (method === "GET" && missionMatch) {
       const [, missionId] = missionMatch;
-      const mission = missionApi.getMission(missionId!);
-      if (!mission) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-      json(200, mission);
+      const result = executeMissionReadRequest({
+        missionId: missionId!,
+        resource: "detail",
+        missionManager: this.missionManager,
+        missionApi,
+      });
+      json(result.status, result.body);
       return;
     }
 
-    // GET /api/missions/:id/steps
-    const missionStepsMatch = url.match(/^\/api\/missions\/([^/]+)\/steps$/);
-    if (method === "GET" && missionStepsMatch) {
-      const [, missionId] = missionStepsMatch;
-      if (!this.missionManager.get(missionId!)) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-      json(200, missionApi.getMissionSteps(missionId!));
-      return;
-    }
-
-    // GET /api/missions/:id/subgoals
-    const missionSubgoalsMatch = url.match(/^\/api\/missions\/([^/]+)\/subgoals$/);
-    if (method === "GET" && missionSubgoalsMatch) {
-      const [, missionId] = missionSubgoalsMatch;
-      if (!this.missionManager.get(missionId!)) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-      json(200, missionApi.getMissionSubgoals(missionId!));
-      return;
-    }
-
-    // GET /api/missions/:id/budget
-    const missionBudgetMatch = url.match(/^\/api\/missions\/([^/]+)\/budget$/);
-    if (method === "GET" && missionBudgetMatch) {
-      const [, missionId] = missionBudgetMatch;
-      if (!this.missionManager.get(missionId!)) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-      json(200, missionApi.getMissionBudget(missionId!));
-      return;
-    }
-
-    // GET /api/missions/:id/artifacts
-    const missionArtifactsMatch = url.match(/^\/api\/missions\/([^/]+)\/artifacts$/);
-    if (method === "GET" && missionArtifactsMatch) {
-      const [, missionId] = missionArtifactsMatch;
-      if (!this.missionManager.get(missionId!)) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-      json(200, missionApi.getMissionArtifacts(missionId!));
+    // GET /api/missions/:id/(steps|subgoals|budget|artifacts)
+    const missionResourceMatch = url.match(/^\/api\/missions\/([^/]+)\/(steps|subgoals|budget|artifacts)$/);
+    if (method === "GET" && missionResourceMatch) {
+      const [, missionId, resource] = missionResourceMatch;
+      const result = executeMissionReadRequest({
+        missionId: missionId!,
+        resource: resource as MissionReadResource,
+        missionManager: this.missionManager,
+        missionApi,
+      });
+      json(result.status, result.body);
       return;
     }
 
@@ -462,53 +431,18 @@ export class InteractiveServer {
     const missionActionMatch = url.match(/^\/api\/missions\/([^/]+)\/(run|pause|resume|cancel)$/);
     if (method === "POST" && missionActionMatch) {
       const [, missionId, action] = missionActionMatch;
-      const mission = this.missionManager.get(missionId!);
-      if (!mission) {
-        json(404, { error: `Mission '${missionId}' not found` });
-        return;
-      }
-
-      if (action === "run") {
-        const body = await this.readJsonBody(req);
-        const maxIterations = typeof body.maxIterations === "number"
-          ? body.maxIterations
-          : Number.parseInt(String(body.maxIterations ?? "1"), 10);
-        const missionType = (mission.metadata as Record<string, unknown> | undefined)?.missionType;
-        const provider = missionType !== "code" && missionType !== "proof"
-          ? this.runManager.buildMissionProvider()
-          : undefined;
-        const payload = await runMissionLoop(
-          this.missionManager,
-          missionId!,
-          this.runManager["opts"].runsRoot,
-          this.runManager["opts"].knowledgeRoot,
-          {
-            maxIterations: Number.isInteger(maxIterations) && maxIterations > 0 ? maxIterations : 1,
-            stepDescription: typeof body.stepDescription === "string" ? body.stepDescription : undefined,
-            provider,
-          },
-        );
-        json(200, payload);
-        return;
-      }
-
-      requireMission(this.missionManager, mission.id);
-      if (action === "pause") {
-        this.missionManager.pause(mission.id);
-      } else if (action === "resume") {
-        this.missionManager.resume(mission.id);
-      } else {
-        this.missionManager.cancel(mission.id);
-      }
-      const checkpointPath = writeMissionCheckpoint(
-        this.missionManager,
-        mission.id,
-        this.runManager["opts"].runsRoot,
-      );
-      json(200, {
-        ...buildMissionStatusPayload(this.missionManager, mission.id),
-        checkpointPath,
+      const result = await executeMissionActionRequest({
+        action: action as "run" | "pause" | "resume" | "cancel",
+        missionId: missionId!,
+        body: action === "run" ? await this.readJsonBody(req) : {},
+        missionManager: this.missionManager,
+        runManager: {
+          getRunsRoot: () => this.runManager["opts"].runsRoot,
+          getKnowledgeRoot: () => this.runManager["opts"].knowledgeRoot,
+          buildMissionProvider: () => this.runManager.buildMissionProvider(),
+        },
       });
+      json(result.status, result.body);
       return;
     }
 
@@ -538,21 +472,12 @@ export class InteractiveServer {
   }
 
   private buildMissionProgress(missionId: string, latestStep?: string): Extract<ServerMessage, { type: "mission_progress" }> | null {
-    const mission = this.missionManager.get(missionId);
-    if (!mission) {
-      return null;
-    }
-    const steps = this.missionManager.steps(missionId);
-    const budget = this.missionManager.budgetUsage(missionId);
-    return MissionProgressMsgSchema.parse({
-      type: "mission_progress",
+    const progress = buildMissionProgressMessage({
       missionId,
-      status: mission.status,
-      stepsCompleted: steps.length,
-      latestStep: latestStep ?? steps.at(-1)?.description,
-      budgetUsed: budget.stepsUsed,
-      budgetMax: budget.maxSteps,
+      latestStep,
+      missionManager: this.missionManager,
     });
+    return progress ? MissionProgressMsgSchema.parse(progress) : null;
   }
 
   async stop(): Promise<void> {
@@ -603,20 +528,11 @@ export class InteractiveServer {
     this.runManager.subscribeEvents(eventCallback);
     this.runManager.subscribeState(stateCallback);
 
-    const sendMissionProgress = (missionId: string, latestStep?: string) => {
-      const progress = this.buildMissionProgress(missionId, latestStep);
-      if (progress) {
-        this.send(ws, progress);
-      }
-    };
-    const onMissionCreated = (event: MissionCreatedEvent) => sendMissionProgress(event.missionId);
-    const onMissionStep = (event: MissionStepEvent) => sendMissionProgress(event.missionId, event.description);
-    const onMissionStatusChanged = (event: MissionStatusChangedEvent) => sendMissionProgress(event.missionId);
-    const onMissionVerified = (event: MissionVerifiedEvent) => sendMissionProgress(event.missionId);
-    this.missionEvents.on("mission_created", onMissionCreated);
-    this.missionEvents.on("mission_step", onMissionStep);
-    this.missionEvents.on("mission_status_changed", onMissionStatusChanged);
-    this.missionEvents.on("mission_verified", onMissionVerified);
+    const unsubscribeMissionProgress = subscribeToMissionProgressEvents({
+      missionEvents: this.missionEvents,
+      buildMissionProgress: (missionId, latestStep) => this.buildMissionProgress(missionId, latestStep),
+      onProgress: (progress) => this.send(ws, progress),
+    });
 
     this.send(ws, { type: "hello", protocol_version: 1 });
     this.send(ws, {
@@ -661,10 +577,7 @@ export class InteractiveServer {
     ws.on("close", () => {
       this.runManager.unsubscribeEvents(eventCallback);
       this.runManager.unsubscribeState(stateCallback);
-      this.missionEvents.off("mission_created", onMissionCreated);
-      this.missionEvents.off("mission_step", onMissionStep);
-      this.missionEvents.off("mission_status_changed", onMissionStatusChanged);
-      this.missionEvents.off("mission_verified", onMissionVerified);
+      unsubscribeMissionProgress();
     });
   }
 
@@ -684,34 +597,26 @@ export class InteractiveServer {
 
     this.runManager.subscribeEvents(eventCallback);
 
-    const sendMissionProgress = (missionId: string, latestStep?: string) => {
-      const progress = this.buildMissionProgress(missionId, latestStep);
-      if (!progress || ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      ws.send(JSON.stringify({
-        channel: "mission",
-        event: "mission_progress",
-        payload: progress,
-        ts: new Date().toISOString(),
-        v: 1,
-      }));
-    };
-    const onMissionCreated = (event: MissionCreatedEvent) => sendMissionProgress(event.missionId);
-    const onMissionStep = (event: MissionStepEvent) => sendMissionProgress(event.missionId, event.description);
-    const onMissionStatusChanged = (event: MissionStatusChangedEvent) => sendMissionProgress(event.missionId);
-    const onMissionVerified = (event: MissionVerifiedEvent) => sendMissionProgress(event.missionId);
-    this.missionEvents.on("mission_created", onMissionCreated);
-    this.missionEvents.on("mission_step", onMissionStep);
-    this.missionEvents.on("mission_status_changed", onMissionStatusChanged);
-    this.missionEvents.on("mission_verified", onMissionVerified);
+    const unsubscribeMissionProgress = subscribeToMissionProgressEvents({
+      missionEvents: this.missionEvents,
+      buildMissionProgress: (missionId, latestStep) => this.buildMissionProgress(missionId, latestStep),
+      onProgress: (progress) => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        ws.send(JSON.stringify({
+          channel: "mission",
+          event: "mission_progress",
+          payload: progress,
+          ts: new Date().toISOString(),
+          v: 1,
+        }));
+      },
+    });
 
     ws.on("close", () => {
       this.runManager.unsubscribeEvents(eventCallback);
-      this.missionEvents.off("mission_created", onMissionCreated);
-      this.missionEvents.off("mission_step", onMissionStep);
-      this.missionEvents.off("mission_status_changed", onMissionStatusChanged);
-      this.missionEvents.off("mission_verified", onMissionVerified);
+      unsubscribeMissionProgress();
     });
   }
 
