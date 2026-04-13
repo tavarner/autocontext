@@ -16,6 +16,14 @@ import { parseArgs } from "node:util";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { emitEngineResult } from "./emit-engine-result.js";
+import {
+  NEW_SCENARIO_HELP_TEXT,
+  ensureNewScenarioDescription,
+  executeCreatedScenarioMaterialization,
+  executeImportedScenarioMaterialization,
+  executeTemplateScaffoldWorkflow,
+  renderTemplateList,
+} from "./new-scenario-command-workflow.js";
 import type { CampaignStatus } from "../mission/campaign.js";
 
 function getMigrationsDir(): string {
@@ -1745,34 +1753,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
   });
 
   if (values.help) {
-    console.log(`autoctx new-scenario — create a scenario
-
-Modes:
-  --list                  List built-in templates (no LLM needed)
-  --template <name>       Scaffold a scenario from a built-in template (no LLM needed)
-  --description <text>    Generate scenario from natural language (requires LLM provider)
-  --from-spec <file>      Register a scenario from a JSON spec file (no LLM needed)
-  --from-stdin            Read a JSON spec from stdin (no LLM needed)
-  --prompt-only           Output the generation prompt without calling an LLM
-
-Template scaffolding:
-  --template <name> --name <scenario-name>
-  Built-in templates: content-generation, prompt-optimization, rag-accuracy
-
-Spec schema (for --from-spec and --from-stdin):
-  {
-    "name": "...",
-    "family": "agent_task|simulation|artifact_editing|investigation|workflow|schema_evolution|tool_fragility|negotiation|operator_loop|coordination|game",
-    "taskPrompt": "...",
-    "rubric": "...",
-    "description": "..."
-  }
-  If family is omitted, autoctx derives the best-fit family from the spec text.
-
-Options:
-  --name <scenario>       Scenario name to use when scaffolding a template
-  --json                  Output as JSON
-  -h, --help              Show this help`);
+    console.log(NEW_SCENARIO_HELP_TEXT);
     process.exit(0);
   }
 
@@ -1790,130 +1771,30 @@ Options:
   // Mode 0: --list
   if (values.list) {
     const loader = new TemplateLoader();
-    const templates = loader.listTemplates();
-    if (values.json) {
-      console.log(JSON.stringify(templates, null, 2));
-    } else {
-      for (const template of templates) {
-        console.log(
-          `${template.name}\t${template.outputFormat}\tmaxRounds=${template.maxRounds}\t${template.description}`,
-        );
-      }
-    }
+    console.log(renderTemplateList({ templates: loader.listTemplates(), json: Boolean(values.json) }));
     return;
   }
 
   // Mode 0b: --template <name> --name <scenario>
   if (values.template || values.name) {
-    if (!values.template) {
-      console.error("Error: --template is required when using --name");
-      process.exit(1);
-    }
-    if (!values.name) {
-      console.error("Error: --name is required when scaffolding a template");
-      process.exit(1);
-    }
-
     const loader = new TemplateLoader();
     try {
-      loader.getTemplate(values.template);
-    } catch {
-      const available = loader
-        .listTemplates()
-        .map((template) => template.name)
-        .join(", ");
-      console.error(
-        `Error: template '${values.template}' not found. Available: ${available}`,
+      const settings = loadSettings();
+      console.log(
+        executeTemplateScaffoldWorkflow({
+          template: values.template,
+          name: values.name,
+          knowledgeRoot: resolve(settings.knowledgeRoot),
+          json: Boolean(values.json),
+          templateLoader: loader,
+        }),
       );
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
-    }
-
-    const settings = loadSettings();
-    const targetDir = join(
-      resolve(settings.knowledgeRoot),
-      "_custom_scenarios",
-      values.name,
-    );
-    loader.scaffold(values.template, targetDir, { name: values.name });
-
-    const payload = {
-      name: values.name,
-      template: values.template,
-      family: "agent_task",
-      path: targetDir,
-    };
-    if (values.json) {
-      console.log(JSON.stringify(payload, null, 2));
-    } else {
-      console.log(
-        `Scenario '${values.name}' created from template '${values.template}'`,
-      );
-      console.log(`Files scaffolded to: ${targetDir}`);
-      console.log(
-        "Available to agent-task tooling after scaffold via knowledge/_custom_scenarios.",
-      );
     }
     return;
   }
-
-  const normalizeImportedScenario = (spec: Record<string, unknown>) => {
-    const name = typeof spec.name === "string" ? spec.name.trim() : "";
-    const taskPrompt =
-      typeof spec.taskPrompt === "string" ? spec.taskPrompt.trim() : "";
-    const rubric = typeof spec.rubric === "string" ? spec.rubric.trim() : "";
-    const description =
-      typeof spec.description === "string" ? spec.description : "";
-
-    if (!name || !taskPrompt || !rubric) {
-      console.error(
-        "Error: spec must contain name, taskPrompt, and rubric fields",
-      );
-      process.exit(1);
-    }
-
-    let family = detectScenarioFamily(
-      [description, taskPrompt].filter(Boolean).join("\n"),
-    );
-    if (typeof spec.family === "string" && spec.family.trim()) {
-      const requestedFamily = spec.family.trim();
-      if (!isScenarioFamilyName(requestedFamily)) {
-        console.error(
-          `Error: family must be one of ${validFamilies.join(", ")}`,
-        );
-        process.exit(1);
-      }
-      family = requestedFamily;
-    }
-
-    const { name: _ignoredName, family: _ignoredFamily, ...specFields } = spec;
-    return {
-      name,
-      family,
-      spec: {
-        ...specFields,
-        taskPrompt,
-        rubric,
-        description,
-      },
-    };
-  };
-
-  const failMaterialization = (errors: string[]): never => {
-    const message =
-      errors.length > 0
-        ? errors.join("; ")
-        : "scenario materialization did not produce a runnable custom artifact";
-    console.error(`Error: ${message}`);
-    process.exit(1);
-  };
-
-  const ensureMaterialized = (result: {
-    persisted: boolean;
-    errors: string[];
-  }): void => {
-    if (result.persisted && result.errors.length === 0) return;
-    failMaterialization(result.errors);
-  };
 
   // Mode 1: --from-spec <file>
   if (values["from-spec"]) {
@@ -1926,34 +1807,22 @@ Options:
       console.error(`Error reading spec file: ${(err as Error).message}`);
       process.exit(1);
     }
-    const parsed = normalizeImportedScenario(spec);
-    const settings = loadSettings();
-    const matResult = await materializeScenario({
-      name: parsed.name,
-      family: parsed.family,
-      spec: parsed.spec,
-      knowledgeRoot: resolve(settings.knowledgeRoot),
-    });
-    ensureMaterialized(matResult);
-    if (values.json) {
+    try {
+      const settings = loadSettings();
       console.log(
-        JSON.stringify(
-          {
-            ...parsed,
-            scenarioDir: matResult.scenarioDir,
-            generatedSource: matResult.generatedSource,
-            persisted: matResult.persisted,
-          },
-          null,
-          2,
-        ),
+        await executeImportedScenarioMaterialization({
+          spec,
+          detectScenarioFamily,
+          isScenarioFamilyName,
+          validFamilies,
+          materializeScenario,
+          knowledgeRoot: resolve(settings.knowledgeRoot),
+          json: Boolean(values.json),
+        }),
       );
-    } else {
-      console.log(
-        `Materialized scenario: ${parsed.name} (family: ${parsed.family})`,
-      );
-      console.log(`  Directory: ${matResult.scenarioDir}`);
-      if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
     }
     return;
   }
@@ -1973,54 +1842,51 @@ Options:
       console.error("Error: stdin must contain valid JSON");
       process.exit(1);
     }
-    const parsed = normalizeImportedScenario(spec);
-    const settings = loadSettings();
-    const matResult = await materializeScenario({
-      name: parsed.name,
-      family: parsed.family,
-      spec: parsed.spec,
-      knowledgeRoot: resolve(settings.knowledgeRoot),
-    });
-    ensureMaterialized(matResult);
-    if (values.json) {
+    try {
+      const settings = loadSettings();
       console.log(
-        JSON.stringify(
-          {
-            ...parsed,
-            scenarioDir: matResult.scenarioDir,
-            generatedSource: matResult.generatedSource,
-            persisted: matResult.persisted,
-          },
-          null,
-          2,
-        ),
+        await executeImportedScenarioMaterialization({
+          spec,
+          detectScenarioFamily,
+          isScenarioFamilyName,
+          validFamilies,
+          materializeScenario,
+          knowledgeRoot: resolve(settings.knowledgeRoot),
+          json: Boolean(values.json),
+        }),
       );
-    } else {
-      console.log(
-        `Materialized scenario: ${parsed.name} (family: ${parsed.family})`,
-      );
-      console.log(`  Directory: ${matResult.scenarioDir}`);
-      if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
     }
     return;
   }
 
   // Mode 3: --prompt-only (output the prompt, no LLM call)
   if (values["prompt-only"]) {
-    if (!values.description) {
-      console.error("Error: --description is required with --prompt-only");
+    try {
+      const description = ensureNewScenarioDescription({
+        description: values.description,
+        errorMessage: "Error: --description is required with --prompt-only",
+      });
+      console.log(buildScenarioCreationPrompt(description));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
-    const prompt = buildScenarioCreationPrompt(values.description);
-    console.log(prompt);
     return;
   }
 
   // Default: --description mode (requires LLM)
-  if (!values.description) {
-    console.error(
-      "Error: --list, --template, --description, --from-spec, --from-stdin, or --prompt-only is required",
-    );
+  let description: string;
+  try {
+    description = ensureNewScenarioDescription({
+      description: values.description,
+      errorMessage:
+        "Error: --list, --template, --description, --from-spec, --from-stdin, or --prompt-only is required",
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 
@@ -2035,42 +1901,24 @@ Options:
   }
 
   const result = await createScenarioFromDescription(
-    values.description,
+    description,
     provider,
   );
 
-  // Materialize the created scenario to disk (AC-433)
   const { materializeScenario } = await import("../scenarios/materialize.js");
   const settings = loadSettings();
-  const matResult = await materializeScenario({
-    name: result.name,
-    family: result.family,
-    spec: result.spec,
-    knowledgeRoot: resolve(settings.knowledgeRoot),
-  });
-  ensureMaterialized(matResult);
-
-  if (values.json) {
+  try {
     console.log(
-      JSON.stringify(
-        {
-          ...result,
-          scenarioDir: matResult.scenarioDir,
-          generatedSource: matResult.generatedSource,
-          persisted: matResult.persisted,
-        },
-        null,
-        2,
-      ),
+      await executeCreatedScenarioMaterialization({
+        created: result,
+        materializeScenario,
+        knowledgeRoot: resolve(settings.knowledgeRoot),
+        json: Boolean(values.json),
+      }),
     );
-  } else {
-    console.log(
-      `Materialized scenario: ${result.name} (family: ${result.family})`,
-    );
-    console.log(`  Directory: ${matResult.scenarioDir}`);
-    console.log(`  Task prompt: ${result.spec.taskPrompt}`);
-    console.log(`  Rubric: ${result.spec.rubric}`);
-    if (matResult.generatedSource) console.log(`  Generated: scenario.js`);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
   }
 }
 
