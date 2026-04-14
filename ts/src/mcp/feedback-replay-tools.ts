@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
-import type { HumanFeedbackRow, SQLiteStore } from "../storage/index.js";
+import type { SQLiteStore } from "../storage/index.js";
 
 interface JsonToolResponse {
   content: Array<{
@@ -56,10 +56,38 @@ export function readReplayArtifact(
     return { error: `no replay files under ${replayDir}` };
   }
 
-  return JSON.parse(
-    readFileSync(join(replayDir, replayFiles[0]), "utf-8"),
-  ) as Record<string, unknown>;
+  return parseReplayPayload(readFileSync(join(replayDir, replayFiles[0]), "utf-8"));
 }
+
+function parseReplayPayload(raw: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(raw);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const RecordFeedbackArgsSchema = z.object({
+  scenario: z.string(),
+  agentOutput: z.string(),
+  score: z.number().min(0).max(1).optional(),
+  notes: z.string().default(""),
+  generationId: z.string().optional(),
+});
+type RecordFeedbackArgs = z.infer<typeof RecordFeedbackArgsSchema>;
+
+const GetFeedbackArgsSchema = z.object({
+  scenario: z.string(),
+  limit: z.number().int().default(10),
+});
+type GetFeedbackArgs = z.infer<typeof GetFeedbackArgsSchema>;
+
+const RunReplayArgsSchema = z.object({
+  runId: z.string(),
+  generation: z.number().int(),
+});
+type RunReplayArgs = z.infer<typeof RunReplayArgsSchema>;
 
 export function registerFeedbackReplayTools(
   server: McpToolRegistrar,
@@ -77,20 +105,14 @@ export function registerFeedbackReplayTools(
   server.tool(
     "record_feedback",
     "Record human feedback for a scenario evaluation",
-    {
-      scenario: z.string(),
-      agentOutput: z.string(),
-      score: z.number().min(0).max(1).optional(),
-      notes: z.string().default(""),
-      generationId: z.string().optional(),
-    },
-    async (args: Record<string, unknown>) => {
+    RecordFeedbackArgsSchema.shape,
+    async (args: RecordFeedbackArgs) => {
       const feedbackId = opts.store.insertHumanFeedback(
-        args.scenario as string,
-        args.agentOutput as string,
-        (args.score as number | undefined) ?? null,
-        (args.notes as string | undefined) ?? "",
-        (args.generationId as string | undefined) ?? null,
+        args.scenario,
+        args.agentOutput,
+        args.score ?? null,
+        args.notes,
+        args.generationId ?? null,
       );
       return jsonText({ feedbackId, scenario: args.scenario });
     },
@@ -99,15 +121,12 @@ export function registerFeedbackReplayTools(
   server.tool(
     "get_feedback",
     "Retrieve human feedback for a scenario",
-    {
-      scenario: z.string(),
-      limit: z.number().int().default(10),
-    },
-    async (args: Record<string, unknown>) => {
+    GetFeedbackArgsSchema.shape,
+    async (args: GetFeedbackArgs) => {
       const feedback = opts.store.getHumanFeedback(
-        args.scenario as string,
-        args.limit as number,
-      ) as HumanFeedbackRow[];
+        args.scenario,
+        args.limit,
+      );
       return jsonText(feedback, 2);
     },
   );
@@ -115,15 +134,12 @@ export function registerFeedbackReplayTools(
   server.tool(
     "run_replay",
     "Read replay JSON for a specific generation",
-    {
-      runId: z.string(),
-      generation: z.number().int(),
-    },
-    async (args: Record<string, unknown>) => {
+    RunReplayArgsSchema.shape,
+    async (args: RunReplayArgs) => {
       const payload = internals.readReplayArtifact(
         opts.runsRoot,
-        args.runId as string,
-        args.generation as number,
+        args.runId,
+        args.generation,
       );
       return jsonText(payload, 2);
     },

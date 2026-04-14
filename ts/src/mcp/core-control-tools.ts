@@ -9,6 +9,7 @@ import {
 } from "../judge/delegated.js";
 import { ImprovementLoop } from "../execution/improvement-loop.js";
 import { enqueueTask, SimpleAgentTask } from "../execution/task-runner.js";
+import type { EnqueueTaskRequest } from "../execution/task-runner-config.js";
 import type { SQLiteStore, TaskQueueRow } from "../storage/index.js";
 import { runAgentTaskRlmSession } from "../rlm/agent-task.js";
 import { getCapabilities } from "./capabilities.js";
@@ -121,7 +122,11 @@ interface CoreControlToolInternals {
     referenceContext?: string;
     requiredConcepts?: string[];
   }): Promise<Record<string, unknown>>;
-  enqueueTask: typeof enqueueTask;
+  enqueueTask(
+    store: Pick<SQLiteStore, "pendingTaskCount" | "getTask">,
+    specName: string,
+    opts?: EnqueueTaskRequest,
+  ): string;
   getCapabilities(): Record<string, unknown>;
 }
 
@@ -149,7 +154,8 @@ const defaultInternals: CoreControlToolInternals = {
       qualityThreshold,
     }) as unknown as ImprovementLoopLike,
   runReplSession: runAgentTaskRlmSession,
-  enqueueTask,
+  enqueueTask: (store, specName, opts) =>
+    enqueueTask(store as SQLiteStore, specName, opts),
   getCapabilities: () => getCapabilities() as unknown as Record<string, unknown>,
 };
 
@@ -158,6 +164,71 @@ export const DelegatedResultArgSchema = z.object({
   reasoning: z.string(),
   dimensionScores: z.record(z.number().min(0).max(1)).optional(),
 });
+
+const EvaluateOutputArgsSchema = z.object({
+  taskPrompt: z.string().describe("The task the agent was given"),
+  agentOutput: z.string().describe("The agent's output to evaluate"),
+  rubric: z.string().describe("Evaluation rubric"),
+  referenceContext: z.string().optional().describe("Authoritative reference for fact-checking"),
+  requiredConcepts: z.array(z.string()).optional().describe("Concepts the output must address"),
+  delegatedResult: DelegatedResultArgSchema.optional().describe("Pre-computed evaluation from the calling agent"),
+});
+type EvaluateOutputArgs = z.infer<typeof EvaluateOutputArgsSchema>;
+
+const RlmArgsSchema = {
+  rlmModel: z.string().optional().describe("Optional model override for REPL-loop mode"),
+  rlmMaxTurns: z.number().int().positive().optional(),
+  rlmMaxTokensPerTurn: z.number().int().positive().optional(),
+  rlmTemperature: z.number().min(0).max(2).optional(),
+  rlmMaxStdoutChars: z.number().int().positive().optional(),
+  rlmCodeTimeoutMs: z.number().int().positive().optional(),
+  rlmMemoryLimitMb: z.number().int().positive().optional(),
+};
+
+const RunImprovementLoopArgsSchema = z.object({
+  taskPrompt: z.string().describe("The task prompt"),
+  rubric: z.string().describe("Evaluation rubric"),
+  initialOutput: z.string().optional().describe("Starting output to improve"),
+  maxRounds: z.number().int().default(5).describe("Maximum improvement rounds"),
+  qualityThreshold: z.number().default(0.9).describe("Score threshold to stop"),
+  referenceContext: z.string().optional(),
+  requiredConcepts: z.array(z.string()).optional(),
+  delegatedResults: z.array(DelegatedResultArgSchema).optional()
+    .describe("Pre-computed per-round evaluations from the calling agent"),
+  rlmEnabled: z.boolean().optional().describe("Use REPL-loop mode for generation and revisions"),
+  ...RlmArgsSchema,
+});
+type RunImprovementLoopArgs = z.infer<typeof RunImprovementLoopArgsSchema>;
+
+const RunReplSessionArgsSchema = z.object({
+  taskPrompt: z.string().describe("The task prompt"),
+  rubric: z.string().describe("Evaluation rubric"),
+  phase: z.enum(["generate", "revise"]).default("generate"),
+  currentOutput: z.string().optional().describe("Current output when revising"),
+  referenceContext: z.string().optional(),
+  requiredConcepts: z.array(z.string()).optional(),
+  ...RlmArgsSchema,
+});
+type RunReplSessionArgs = z.infer<typeof RunReplSessionArgsSchema>;
+
+const QueueTaskArgsSchema = z.object({
+  specName: z.string().describe("Task spec name / identifier"),
+  taskPrompt: z.string().optional(),
+  rubric: z.string().optional(),
+  initialOutput: z.string().optional(),
+  delegatedResults: z.array(DelegatedResultArgSchema).optional(),
+  maxRounds: z.number().int().optional(),
+  qualityThreshold: z.number().optional(),
+  priority: z.number().int().default(0),
+  rlmEnabled: z.boolean().optional(),
+  ...RlmArgsSchema,
+});
+type QueueTaskArgs = z.infer<typeof QueueTaskArgsSchema>;
+
+const GetTaskResultArgsSchema = z.object({
+  taskId: z.string().describe("Task ID to look up"),
+});
+type GetTaskResultArgs = z.infer<typeof GetTaskResultArgsSchema>;
 
 function jsonText(payload: unknown, indent?: number): JsonToolResponse {
   return {
@@ -210,27 +281,20 @@ export function registerCoreControlPlaneTools(
   server.tool(
     "evaluate_output",
     "One-shot evaluation of output against a rubric",
-    {
-      taskPrompt: z.string().describe("The task the agent was given"),
-      agentOutput: z.string().describe("The agent's output to evaluate"),
-      rubric: z.string().describe("Evaluation rubric"),
-      referenceContext: z.string().optional().describe("Authoritative reference for fact-checking"),
-      requiredConcepts: z.array(z.string()).optional().describe("Concepts the output must address"),
-      delegatedResult: DelegatedResultArgSchema.optional().describe("Pre-computed evaluation from the calling agent"),
-    },
-    async (args: Record<string, unknown>) => {
+    EvaluateOutputArgsSchema.shape,
+    async (args: EvaluateOutputArgs) => {
       const judge = args.delegatedResult
-        ? internals.createDelegatedJudge(args.delegatedResult as DelegatedResult, args.rubric as string)
+        ? internals.createDelegatedJudge(args.delegatedResult, args.rubric)
         : internals.createJudge({
             provider: opts.provider,
             model,
-            rubric: args.rubric as string,
+            rubric: args.rubric,
           });
       const result = await judge.evaluate({
-        taskPrompt: args.taskPrompt as string,
-        agentOutput: args.agentOutput as string,
-        referenceContext: args.referenceContext as string | undefined,
-        requiredConcepts: args.requiredConcepts as string[] | undefined,
+        taskPrompt: args.taskPrompt,
+        agentOutput: args.agentOutput,
+        referenceContext: args.referenceContext,
+        requiredConcepts: args.requiredConcepts,
       });
       return jsonText(
         {
@@ -246,65 +310,47 @@ export function registerCoreControlPlaneTools(
   server.tool(
     "run_improvement_loop",
     "Run multi-round improvement loop on agent output",
-    {
-      taskPrompt: z.string().describe("The task prompt"),
-      rubric: z.string().describe("Evaluation rubric"),
-      initialOutput: z.string().optional().describe("Starting output to improve"),
-      maxRounds: z.number().int().default(5).describe("Maximum improvement rounds"),
-      qualityThreshold: z.number().default(0.9).describe("Score threshold to stop"),
-      referenceContext: z.string().optional(),
-      requiredConcepts: z.array(z.string()).optional(),
-      delegatedResults: z.array(DelegatedResultArgSchema).optional()
-        .describe("Pre-computed per-round evaluations from the calling agent"),
-      rlmEnabled: z.boolean().optional().describe("Use REPL-loop mode for generation and revisions"),
-      rlmModel: z.string().optional().describe("Optional model override for REPL-loop mode"),
-      rlmMaxTurns: z.number().int().positive().optional(),
-      rlmMaxTokensPerTurn: z.number().int().positive().optional(),
-      rlmTemperature: z.number().min(0).max(2).optional(),
-      rlmMaxStdoutChars: z.number().int().positive().optional(),
-      rlmCodeTimeoutMs: z.number().int().positive().optional(),
-      rlmMemoryLimitMb: z.number().int().positive().optional(),
-    },
-    async (args: Record<string, unknown>) => {
+    RunImprovementLoopArgsSchema.shape,
+    async (args: RunImprovementLoopArgs) => {
       const delegatedJudge = Array.isArray(args.delegatedResults) && args.delegatedResults.length > 0
         ? internals.createSequentialDelegatedJudge(
-            args.delegatedResults as DelegatedResult[],
-            args.rubric as string,
+            args.delegatedResults,
+            args.rubric,
           )
         : undefined;
       const task = internals.createAgentTask({
-        taskPrompt: args.taskPrompt as string,
-        rubric: args.rubric as string,
+        taskPrompt: args.taskPrompt,
+        rubric: args.rubric,
         provider: opts.provider,
         model,
         delegatedJudge,
         rlm: {
-          enabled: (args.rlmEnabled as boolean | undefined) ?? false,
-          model: args.rlmModel as string | undefined,
-          maxTurns: args.rlmMaxTurns as number | undefined,
-          maxTokensPerTurn: args.rlmMaxTokensPerTurn as number | undefined,
-          temperature: args.rlmTemperature as number | undefined,
-          maxStdoutChars: args.rlmMaxStdoutChars as number | undefined,
-          codeTimeoutMs: args.rlmCodeTimeoutMs as number | undefined,
-          memoryLimitMb: args.rlmMemoryLimitMb as number | undefined,
+          enabled: args.rlmEnabled ?? false,
+          model: args.rlmModel,
+          maxTurns: args.rlmMaxTurns,
+          maxTokensPerTurn: args.rlmMaxTokensPerTurn,
+          temperature: args.rlmTemperature,
+          maxStdoutChars: args.rlmMaxStdoutChars,
+          codeTimeoutMs: args.rlmCodeTimeoutMs,
+          memoryLimitMb: args.rlmMemoryLimitMb,
         },
       });
       const initialOutput = typeof args.initialOutput === "string"
         ? args.initialOutput
         : await task.generateOutput({
-            referenceContext: args.referenceContext as string | undefined,
-            requiredConcepts: args.requiredConcepts as string[] | undefined,
+            referenceContext: args.referenceContext,
+            requiredConcepts: args.requiredConcepts,
           });
       const loop = internals.createImprovementLoop({
         task,
-        maxRounds: args.maxRounds as number,
-        qualityThreshold: args.qualityThreshold as number,
+        maxRounds: args.maxRounds,
+        qualityThreshold: args.qualityThreshold,
       });
       const result = await loop.run({
         initialOutput,
         state: {},
-        referenceContext: args.referenceContext as string | undefined,
-        requiredConcepts: args.requiredConcepts as string[] | undefined,
+        referenceContext: args.referenceContext,
+        requiredConcepts: args.requiredConcepts,
       });
       const rlmSessions = task.getRlmSessions();
 
@@ -333,22 +379,8 @@ export function registerCoreControlPlaneTools(
   server.tool(
     "run_repl_session",
     "Run a direct REPL-loop session for agent-task generation or revision",
-    {
-      taskPrompt: z.string().describe("The task prompt"),
-      rubric: z.string().describe("Evaluation rubric"),
-      phase: z.enum(["generate", "revise"]).default("generate"),
-      currentOutput: z.string().optional().describe("Current output when revising"),
-      referenceContext: z.string().optional(),
-      requiredConcepts: z.array(z.string()).optional(),
-      rlmModel: z.string().optional().describe("Optional model override for REPL-loop mode"),
-      rlmMaxTurns: z.number().int().positive().optional(),
-      rlmMaxTokensPerTurn: z.number().int().positive().optional(),
-      rlmTemperature: z.number().min(0).max(2).optional(),
-      rlmMaxStdoutChars: z.number().int().positive().optional(),
-      rlmCodeTimeoutMs: z.number().int().positive().optional(),
-      rlmMemoryLimitMb: z.number().int().positive().optional(),
-    },
-    async (args: Record<string, unknown>) => {
+    RunReplSessionArgsSchema.shape,
+    async (args: RunReplSessionArgs) => {
       if (args.phase === "revise" && !args.currentOutput) {
         return jsonText({ error: "currentOutput is required when phase=revise" }, 2);
       }
@@ -358,20 +390,20 @@ export function registerCoreControlPlaneTools(
         model,
         config: {
           enabled: true,
-          model: args.rlmModel as string | undefined,
-          maxTurns: (args.rlmMaxTurns as number | undefined) ?? 6,
-          maxTokensPerTurn: (args.rlmMaxTokensPerTurn as number | undefined) ?? 2048,
-          temperature: (args.rlmTemperature as number | undefined) ?? 0.2,
-          maxStdoutChars: (args.rlmMaxStdoutChars as number | undefined) ?? 8192,
-          codeTimeoutMs: (args.rlmCodeTimeoutMs as number | undefined) ?? 10000,
-          memoryLimitMb: (args.rlmMemoryLimitMb as number | undefined) ?? 64,
+          model: args.rlmModel,
+          maxTurns: args.rlmMaxTurns ?? 6,
+          maxTokensPerTurn: args.rlmMaxTokensPerTurn ?? 2048,
+          temperature: args.rlmTemperature ?? 0.2,
+          maxStdoutChars: args.rlmMaxStdoutChars ?? 8192,
+          codeTimeoutMs: args.rlmCodeTimeoutMs ?? 10000,
+          memoryLimitMb: args.rlmMemoryLimitMb ?? 64,
         },
-        phase: args.phase as "generate" | "revise",
-        taskPrompt: args.taskPrompt as string,
-        rubric: args.rubric as string,
-        currentOutput: args.currentOutput as string | undefined,
-        referenceContext: args.referenceContext as string | undefined,
-        requiredConcepts: args.requiredConcepts as string[] | undefined,
+        phase: args.phase,
+        taskPrompt: args.taskPrompt,
+        rubric: args.rubric,
+        currentOutput: args.currentOutput,
+        referenceContext: args.referenceContext,
+        requiredConcepts: args.requiredConcepts,
       });
 
       return jsonText(result, 2);
@@ -381,41 +413,24 @@ export function registerCoreControlPlaneTools(
   server.tool(
     "queue_task",
     "Add a task to the background runner queue",
-    {
-      specName: z.string().describe("Task spec name / identifier"),
-      taskPrompt: z.string().optional(),
-      rubric: z.string().optional(),
-      initialOutput: z.string().optional(),
-      delegatedResults: z.array(DelegatedResultArgSchema).optional(),
-      maxRounds: z.number().int().optional(),
-      qualityThreshold: z.number().optional(),
-      priority: z.number().int().default(0),
-      rlmEnabled: z.boolean().optional(),
-      rlmModel: z.string().optional(),
-      rlmMaxTurns: z.number().int().positive().optional(),
-      rlmMaxTokensPerTurn: z.number().int().positive().optional(),
-      rlmTemperature: z.number().min(0).max(2).optional(),
-      rlmMaxStdoutChars: z.number().int().positive().optional(),
-      rlmCodeTimeoutMs: z.number().int().positive().optional(),
-      rlmMemoryLimitMb: z.number().int().positive().optional(),
-    },
-    async (args: Record<string, unknown>) => {
-      const taskId = internals.enqueueTask(opts.store as SQLiteStore, args.specName as string, {
-        taskPrompt: args.taskPrompt as string | undefined,
-        rubric: args.rubric as string | undefined,
-        initialOutput: args.initialOutput as string | undefined,
-        delegatedResults: args.delegatedResults as DelegatedResult[] | undefined,
-        maxRounds: args.maxRounds as number | undefined,
-        qualityThreshold: args.qualityThreshold as number | undefined,
-        priority: args.priority as number,
-        rlmEnabled: args.rlmEnabled as boolean | undefined,
-        rlmModel: args.rlmModel as string | undefined,
-        rlmMaxTurns: args.rlmMaxTurns as number | undefined,
-        rlmMaxTokensPerTurn: args.rlmMaxTokensPerTurn as number | undefined,
-        rlmTemperature: args.rlmTemperature as number | undefined,
-        rlmMaxStdoutChars: args.rlmMaxStdoutChars as number | undefined,
-        rlmCodeTimeoutMs: args.rlmCodeTimeoutMs as number | undefined,
-        rlmMemoryLimitMb: args.rlmMemoryLimitMb as number | undefined,
+    QueueTaskArgsSchema.shape,
+    async (args: QueueTaskArgs) => {
+      const taskId = internals.enqueueTask(opts.store, args.specName, {
+        taskPrompt: args.taskPrompt,
+        rubric: args.rubric,
+        initialOutput: args.initialOutput,
+        delegatedResults: args.delegatedResults,
+        maxRounds: args.maxRounds,
+        qualityThreshold: args.qualityThreshold,
+        priority: args.priority,
+        rlmEnabled: args.rlmEnabled,
+        rlmModel: args.rlmModel,
+        rlmMaxTurns: args.rlmMaxTurns,
+        rlmMaxTokensPerTurn: args.rlmMaxTokensPerTurn,
+        rlmTemperature: args.rlmTemperature,
+        rlmMaxStdoutChars: args.rlmMaxStdoutChars,
+        rlmCodeTimeoutMs: args.rlmCodeTimeoutMs,
+        rlmMemoryLimitMb: args.rlmMemoryLimitMb,
       });
       return jsonText({ taskId, specName: args.specName, status: "queued" });
     },
@@ -431,11 +446,9 @@ export function registerCoreControlPlaneTools(
   server.tool(
     "get_task_result",
     "Get the result of a queued task by ID",
-    {
-      taskId: z.string().describe("Task ID to look up"),
-    },
-    async (args: Record<string, unknown>) => {
-      const task = opts.store.getTask(args.taskId as string);
+    GetTaskResultArgsSchema.shape,
+    async (args: GetTaskResultArgs) => {
+      const task = opts.store.getTask(args.taskId);
       if (!task) {
         return jsonText({ error: "Task not found" });
       }

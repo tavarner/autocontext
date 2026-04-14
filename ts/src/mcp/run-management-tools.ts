@@ -5,7 +5,7 @@ import { ArtifactStore } from "../knowledge/artifact-store.js";
 import { GenerationRunner } from "../loop/generation-runner.js";
 import { assertFamilyContract } from "../scenarios/family-interfaces.js";
 import { SCENARIO_REGISTRY } from "../scenarios/registry.js";
-import type { SQLiteStore } from "../storage/index.js";
+import type { AgentOutputRow, GenerationRow, SQLiteStore } from "../storage/index.js";
 
 interface JsonToolResponse {
   content: Array<{
@@ -21,16 +21,6 @@ type McpToolRegistrar = {
 type ScenarioLike = object;
 type ScenarioConstructor = new () => ScenarioLike;
 type ScenarioRegistry = Record<string, ScenarioConstructor>;
-
-interface GenerationLike {
-  generation_index: number;
-  [key: string]: unknown;
-}
-
-interface AgentOutputLike {
-  role: string;
-  content: string;
-}
 
 interface RunControlSettings {
   maxRetries: number;
@@ -116,6 +106,36 @@ function jsonText(payload: unknown, indent?: number): JsonToolResponse {
   };
 }
 
+const ListRunsArgsSchema = z.object({
+  limit: z.number().int().default(50).describe("Max runs to return"),
+  scenario: z.string().optional().describe("Filter by scenario name"),
+});
+type ListRunsArgs = z.infer<typeof ListRunsArgsSchema>;
+
+const RunIdArgsSchema = z.object({
+  runId: z.string().describe("Run ID"),
+});
+type RunIdArgs = z.infer<typeof RunIdArgsSchema>;
+
+const GetPlaybookArgsSchema = z.object({
+  scenario: z.string().describe("Scenario name"),
+});
+type GetPlaybookArgs = z.infer<typeof GetPlaybookArgsSchema>;
+
+const RunScenarioArgsSchema = z.object({
+  scenario: z.string().describe("Scenario name"),
+  generations: z.number().int().default(1).describe("Number of generations"),
+  runId: z.string().optional().describe("Custom run ID"),
+  matchesPerGeneration: z.number().int().default(3).describe("Matches per generation"),
+});
+type RunScenarioArgs = z.infer<typeof RunScenarioArgsSchema>;
+
+const GenerationDetailArgsSchema = z.object({
+  runId: z.string().describe("Run ID"),
+  generation: z.number().int().describe("Generation index"),
+});
+type GenerationDetailArgs = z.infer<typeof GenerationDetailArgsSchema>;
+
 export function buildRunNotFoundPayload(): { error: string } {
   return { error: "Run not found" };
 }
@@ -147,14 +167,11 @@ export function registerRunManagementTools(
   server.tool(
     "list_runs",
     "List recent runs with optional filters",
-    {
-      limit: z.number().int().default(50).describe("Max runs to return"),
-      scenario: z.string().optional().describe("Filter by scenario name"),
-    },
-    async (args: Record<string, unknown>) =>
+    ListRunsArgsSchema.shape,
+    async (args: ListRunsArgs) =>
       jsonText(
         {
-          runs: opts.store.listRuns(args.limit as number, args.scenario as string | undefined),
+          runs: opts.store.listRuns(args.limit, args.scenario),
         },
         2,
       ),
@@ -163,11 +180,9 @@ export function registerRunManagementTools(
   server.tool(
     "get_run_status",
     "Get run progress, scores, and generation details",
-    {
-      runId: z.string().describe("Run ID"),
-    },
-    async (args: Record<string, unknown>) => {
-      const run = opts.store.getRun(args.runId as string);
+    RunIdArgsSchema.shape,
+    async (args: RunIdArgs) => {
+      const run = opts.store.getRun(args.runId);
       if (!run) {
         return jsonText(buildRunNotFoundPayload());
       }
@@ -175,7 +190,7 @@ export function registerRunManagementTools(
       return jsonText(
         {
           ...run,
-          generations: opts.store.getGenerations(args.runId as string),
+          generations: opts.store.getGenerations(args.runId),
         },
         2,
       );
@@ -185,10 +200,8 @@ export function registerRunManagementTools(
   server.tool(
     "get_playbook",
     "Read the accumulated playbook for a scenario",
-    {
-      scenario: z.string().describe("Scenario name"),
-    },
-    async (args: Record<string, unknown>) => {
+    GetPlaybookArgsSchema.shape,
+    async (args: GetPlaybookArgs) => {
       const artifacts = internals.createArtifactStore({
         runsRoot: opts.runsRoot,
         knowledgeRoot: opts.knowledgeRoot,
@@ -197,7 +210,7 @@ export function registerRunManagementTools(
       return jsonText(
         {
           scenario: args.scenario,
-          content: artifacts.readPlaybook(args.scenario as string),
+          content: artifacts.readPlaybook(args.scenario),
         },
         2,
       );
@@ -207,33 +220,28 @@ export function registerRunManagementTools(
   server.tool(
     "run_scenario",
     "Kick off a scenario run with configuration options",
-    {
-      scenario: z.string().describe("Scenario name"),
-      generations: z.number().int().default(1).describe("Number of generations"),
-      runId: z.string().optional().describe("Custom run ID"),
-      matchesPerGeneration: z.number().int().default(3).describe("Matches per generation"),
-    },
-    async (args: Record<string, unknown>) => {
+    RunScenarioArgsSchema.shape,
+    async (args: RunScenarioArgs) => {
       const registry = internals.loadScenarioRegistry();
-      const ScenarioClass = registry[args.scenario as string];
+      const ScenarioClass = registry[args.scenario];
       if (!ScenarioClass) {
-        return jsonText(buildRunScenarioUnknownPayload(args.scenario as string));
+        return jsonText(buildRunScenarioUnknownPayload(args.scenario));
       }
 
-      const runId = (args.runId as string | undefined) ?? internals.createRunId();
+      const runId = args.runId ?? internals.createRunId();
       const scenario = new ScenarioClass();
-      internals.assertFamilyContract(scenario, "game", `scenario '${args.scenario as string}'`);
+      internals.assertFamilyContract(scenario, "game", `scenario '${args.scenario}'`);
       const runner = internals.createRunner({
         provider: opts.provider,
         scenario,
         store: opts.store,
         runsRoot: opts.runsRoot,
         knowledgeRoot: opts.knowledgeRoot,
-        matchesPerGeneration: args.matchesPerGeneration as number,
+        matchesPerGeneration: args.matchesPerGeneration,
         settings: opts.settings,
       });
 
-      runner.run(runId, args.generations as number).catch(() => {});
+      runner.run(runId, args.generations).catch(() => {});
 
       return jsonText({
         runId,
@@ -247,26 +255,23 @@ export function registerRunManagementTools(
   server.tool(
     "get_generation_detail",
     "Get detailed results for a specific generation",
-    {
-      runId: z.string().describe("Run ID"),
-      generation: z.number().int().describe("Generation index"),
-    },
-    async (args: Record<string, unknown>) => {
-      const generations = opts.store.getGenerations(args.runId as string) as unknown as GenerationLike[];
-      const generation = generations.find((entry) => entry.generation_index === (args.generation as number));
+    GenerationDetailArgsSchema.shape,
+    async (args: GenerationDetailArgs) => {
+      const generations: GenerationRow[] = opts.store.getGenerations(args.runId);
+      const generation = generations.find((entry) => entry.generation_index === args.generation);
       if (!generation) {
         return jsonText(buildGenerationNotFoundPayload());
       }
 
-      const agentOutputs = opts.store.getAgentOutputs(
-        args.runId as string,
-        args.generation as number,
-      ) as unknown as AgentOutputLike[];
+      const agentOutputs: AgentOutputRow[] = opts.store.getAgentOutputs(
+        args.runId,
+        args.generation,
+      );
 
       return jsonText(
         {
           generation,
-          matches: opts.store.getMatchesForGeneration(args.runId as string, args.generation as number),
+          matches: opts.store.getMatchesForGeneration(args.runId, args.generation),
           agentOutputs: agentOutputs.map((output) => ({
             role: output.role,
             contentPreview: output.content.slice(0, 500),

@@ -203,6 +203,10 @@ function formatFatalCliError(err: unknown): string {
   return String(err);
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function parsePositiveInteger(raw: string | undefined, label: string): number {
   const parsed = Number.parseInt(raw ?? "", 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -506,7 +510,7 @@ async function cmdRun(dbPath: string): Promise<void> {
       parsePositiveInteger,
     );
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -519,7 +523,7 @@ async function cmdRun(dbPath: string): Promise<void> {
   try {
     ScenarioClass = resolveRunScenario(plan.scenarioName, SCENARIO_REGISTRY);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -669,7 +673,7 @@ async function cmdJudge(_dbPath: string): Promise<void> {
       console.log(renderJudgeResult(parseDelegatedJudgeInput(input)));
       process.exit(0);
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
   }
@@ -688,7 +692,7 @@ async function cmdJudge(_dbPath: string): Promise<void> {
   try {
     plan = planJudgeCommand(values, savedScenario);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -762,7 +766,7 @@ async function cmdImprove(_dbPath: string): Promise<void> {
   try {
     plan = planImproveCommand(values, savedScenario, parsePositiveInteger);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -841,7 +845,7 @@ async function cmdRepl(_dbPath: string): Promise<void> {
   try {
     plan = planReplCommand(values, savedScenario);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1093,7 +1097,7 @@ async function cmdReplay(_dbPath: string): Promise<void> {
   try {
     plan = planReplayCommand(values);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1113,7 +1117,7 @@ async function cmdReplay(_dbPath: string): Promise<void> {
     console.error(replay.stderr);
     console.log(replay.stdout);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 }
@@ -1208,7 +1212,7 @@ async function cmdExport(dbPath: string): Promise<void> {
   try {
     plan = await planExportCommand(values, resolveScenarioOption);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1274,7 +1278,7 @@ async function cmdExportTrainingData(dbPath: string): Promise<void> {
   try {
     plan = planExportTrainingDataCommand(values);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1339,7 +1343,7 @@ async function cmdImportPackage(_dbPath: string): Promise<void> {
   try {
     plan = planImportPackageCommand(values);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1430,7 +1434,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
         }),
       );
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
     return;
@@ -1444,7 +1448,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
     try {
       spec = JSON.parse(readFileSync(values["from-spec"], "utf-8"));
     } catch (err) {
-      console.error(`Error reading spec file: ${(err as Error).message}`);
+      console.error(`Error reading spec file: ${errorMessage(err)}`);
       process.exit(1);
     }
     const settings = loadSettings();
@@ -1461,7 +1465,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
         }),
       );
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
     return;
@@ -1496,7 +1500,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
         }),
       );
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
     return;
@@ -1511,7 +1515,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
         errorMessage: "Error: --description is required with --prompt-only",
       });
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
     const prompt = buildScenarioCreationPrompt(description);
@@ -1528,7 +1532,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
         "Error: --list, --template, --description, --from-spec, --from-stdin, or --prompt-only is required",
     });
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1557,7 +1561,7 @@ async function cmdNewScenario(_dbPath: string): Promise<void> {
       }),
     );
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 }
@@ -1607,7 +1611,7 @@ async function cmdInit(): Promise<void> {
       parsePositiveInteger,
     });
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1682,7 +1686,7 @@ async function cmdLogin(): Promise<void> {
       env: process.env,
     });
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -1903,7 +1907,7 @@ async function cmdMission(dbPath: string): Promise<void> {
         try {
           plan = planMissionCreate(values, resolve);
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
 
@@ -2178,7 +2182,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
         try {
           plan = planCampaignCreate(values, parseCampaignPositiveInteger);
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         console.log(
@@ -2205,7 +2209,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
             "Usage: autoctx campaign status --id <campaign-id>",
           );
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         requireCampaign(id);
@@ -2232,7 +2236,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
         try {
           status = parseCampaignStatus(values.status);
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         console.log(
@@ -2261,7 +2265,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
         try {
           plan = planCampaignAddMission(values, parseCampaignPositiveInteger);
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         requireCampaign(plan.campaignId);
@@ -2290,7 +2294,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
             "Usage: autoctx campaign progress --id <campaign-id>",
           );
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         requireCampaign(id);
@@ -2321,7 +2325,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
             `Usage: autoctx campaign ${subcommand} --id <campaign-id>`,
           );
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         requireCampaign(id);
@@ -2343,7 +2347,7 @@ async function cmdCampaign(dbPath: string): Promise<void> {
             ),
           );
         } catch (error) {
-          console.error((error as Error).message);
+          console.error(errorMessage(error));
           process.exit(1);
         }
         break;
@@ -2410,7 +2414,7 @@ async function cmdSimulate(): Promise<void> {
   try {
     plan = planSimulateCommand(values);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -2434,7 +2438,7 @@ async function cmdSimulate(): Promise<void> {
         }),
       );
     } catch (error) {
-      console.error((error as Error).message);
+      console.error(errorMessage(error));
       process.exit(1);
     }
     return;
@@ -2504,7 +2508,7 @@ async function cmdSimulate(): Promise<void> {
     sweep = inputPlan.sweep;
     variables = inputPlan.variables;
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -2577,7 +2581,7 @@ async function cmdInvestigate(): Promise<void> {
   try {
     result = await executeInvestigateCommandWorkflow({ values, engine });
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -2742,7 +2746,7 @@ async function cmdTrain(): Promise<void> {
   try {
     plan = planTrainCommand(values, settings.runsRoot, resolve);
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -2754,7 +2758,7 @@ async function cmdTrain(): Promise<void> {
       createRunner: () => new TrainingRunner(),
     });
   } catch (error) {
-    console.error((error as Error).message);
+    console.error(errorMessage(error));
     process.exit(1);
   }
 
@@ -2842,7 +2846,7 @@ async function cmdBlob(): Promise<void> {
         }
         console.log(result.stdout);
       } catch (error) {
-        console.error((error as Error).message);
+        console.error(errorMessage(error));
         process.exit(1);
       }
       break;
@@ -2873,7 +2877,7 @@ async function cmdBlob(): Promise<void> {
           console.log(result.stdout);
         }
       } catch (error) {
-        console.error((error as Error).message);
+        console.error(errorMessage(error));
         process.exit(1);
       }
       break;

@@ -6,7 +6,12 @@ import { ArtifactStore } from "../knowledge/artifact-store.js";
 import { exportStrategyPackage } from "../knowledge/package.js";
 import { ScoreTrajectoryBuilder, type TrajectoryRow } from "../knowledge/trajectory.js";
 import { extractDelimitedSection } from "../agents/roles.js";
-import type { SQLiteStore } from "../storage/index.js";
+import type {
+  AgentOutputRow,
+  GenerationRow,
+  RunRow,
+  SQLiteStore,
+} from "../storage/index.js";
 
 interface JsonToolResponse {
   content: Array<{
@@ -17,21 +22,6 @@ interface JsonToolResponse {
 
 type McpToolRegistrar = {
   tool: (...args: any[]) => unknown;
-};
-
-type AgentOutputRow = {
-  role: string;
-  content: string;
-};
-
-type GenerationRow = {
-  generation_index: number;
-  best_score: number;
-};
-
-type RunRow = {
-  run_id: string;
-  scenario: string;
 };
 
 interface KnowledgeReadbackInternals {
@@ -63,6 +53,24 @@ function jsonText(payload: unknown, indent?: number): JsonToolResponse {
   };
 }
 
+const ReadTrajectoryArgsSchema = z.object({ runId: z.string() });
+type ReadTrajectoryArgs = z.infer<typeof ReadTrajectoryArgsSchema>;
+
+const ScenarioArgsSchema = z.object({ scenario: z.string() });
+type ScenarioArgs = z.infer<typeof ScenarioArgsSchema>;
+
+const ReadAnalysisArgsSchema = z.object({
+  runId: z.string(),
+  generation: z.number().int(),
+});
+type ReadAnalysisArgs = z.infer<typeof ReadAnalysisArgsSchema>;
+
+const SearchStrategiesArgsSchema = z.object({
+  query: z.string(),
+  limit: z.number().int().default(5),
+});
+type SearchStrategiesArgs = z.infer<typeof SearchStrategiesArgsSchema>;
+
 export function registerKnowledgeReadbackTools(
   server: McpToolRegistrar,
   opts: {
@@ -84,9 +92,9 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "read_trajectory",
     "Read the score trajectory for a run as markdown",
-    { runId: z.string() },
-    async (args: Record<string, unknown>) => {
-      const trajectory = opts.store.getScoreTrajectory(args.runId as string) as TrajectoryRow[];
+    ReadTrajectoryArgsSchema.shape,
+    async (args: ReadTrajectoryArgs) => {
+      const trajectory = opts.store.getScoreTrajectory(args.runId);
       const markdown = internals.buildTrajectory(trajectory);
       return {
         content: [{ type: "text", text: markdown || "No trajectory data." }],
@@ -97,13 +105,13 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "read_hints",
     "Read competitor hints for a scenario",
-    { scenario: z.string() },
-    async (args: Record<string, unknown>) => {
+    ScenarioArgsSchema.shape,
+    async (args: ScenarioArgs) => {
       const artifacts = internals.createArtifactStore({
         runsRoot: opts.runsRoot,
         knowledgeRoot: opts.knowledgeRoot,
       });
-      const playbook = artifacts.readPlaybook(args.scenario as string);
+      const playbook = artifacts.readPlaybook(args.scenario);
       const hints = internals.extractDelimitedSection(
         playbook,
         "<!-- COMPETITOR_HINTS_START -->",
@@ -118,12 +126,12 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "read_analysis",
     "Read the analyst output for a specific generation",
-    { runId: z.string(), generation: z.number().int() },
-    async (args: Record<string, unknown>) => {
+    ReadAnalysisArgsSchema.shape,
+    async (args: ReadAnalysisArgs) => {
       const outputs = opts.store.getAgentOutputs(
-        args.runId as string,
-        args.generation as number,
-      ) as AgentOutputRow[];
+        args.runId,
+        args.generation,
+      );
       const analyst = outputs.find((output) => output.role === "analyst");
       return {
         content: [{ type: "text", text: analyst?.content ?? "No analysis found." }],
@@ -134,9 +142,9 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "read_tools",
     "Read architect-generated tools for a scenario",
-    { scenario: z.string() },
-    async (args: Record<string, unknown>) => {
-      const toolsDir = join(opts.knowledgeRoot, args.scenario as string, "tools");
+    ScenarioArgsSchema.shape,
+    async (args: ScenarioArgs) => {
+      const toolsDir = join(opts.knowledgeRoot, args.scenario, "tools");
       if (!existsSync(toolsDir)) {
         return { content: [{ type: "text", text: "No tools directory." }] };
       }
@@ -153,9 +161,9 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "read_skills",
     "Read skill notes for a scenario",
-    { scenario: z.string() },
-    async (args: Record<string, unknown>) => {
-      const skillPath = join(opts.knowledgeRoot, args.scenario as string, "SKILL.md");
+    ScenarioArgsSchema.shape,
+    async (args: ScenarioArgs) => {
+      const skillPath = join(opts.knowledgeRoot, args.scenario, "SKILL.md");
       return {
         content: [{
           type: "text",
@@ -170,9 +178,9 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "export_skill",
     "Export a portable skill package with markdown for agent install",
-    { scenario: z.string() },
-    async (args: Record<string, unknown>) => {
-      const scenarioName = args.scenario as string;
+    ScenarioArgsSchema.shape,
+    async (args: ScenarioArgs) => {
+      const scenarioName = args.scenario;
       const artifacts = new ArtifactStore({
         runsRoot: opts.runsRoot,
         knowledgeRoot: opts.knowledgeRoot,
@@ -216,11 +224,11 @@ export function registerKnowledgeReadbackTools(
   server.tool(
     "search_strategies",
     "Search past strategies by keyword",
-    { query: z.string(), limit: z.number().int().default(5) },
-    async (args: Record<string, unknown>) => {
-      const queryLower = (args.query as string).toLowerCase();
-      const limit = args.limit as number;
-      const runs = opts.store.listRuns(100) as RunRow[];
+    SearchStrategiesArgsSchema.shape,
+    async (args: SearchStrategiesArgs) => {
+      const queryLower = args.query.toLowerCase();
+      const limit = args.limit;
+      const runs = opts.store.listRuns(100);
       const results: Array<{
         runId: string;
         scenario: string;
@@ -230,12 +238,12 @@ export function registerKnowledgeReadbackTools(
       }> = [];
 
       for (const run of runs) {
-        const generations = opts.store.getGenerations(run.run_id) as GenerationRow[];
+        const generations: GenerationRow[] = opts.store.getGenerations(run.run_id);
         for (const generation of generations) {
           const outputs = opts.store.getAgentOutputs(
             run.run_id,
             generation.generation_index,
-          ) as AgentOutputRow[];
+          );
           const competitor = outputs.find((output) => output.role === "competitor");
           if (competitor && competitor.content.toLowerCase().includes(queryLower)) {
             results.push({
