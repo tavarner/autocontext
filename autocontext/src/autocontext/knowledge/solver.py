@@ -8,7 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from autocontext.agents.types import LlmFn
 from autocontext.config.settings import AppSettings
@@ -16,6 +16,10 @@ from autocontext.knowledge.export import SkillPackage, export_skill_package
 from autocontext.mcp.tools import MtsToolContext
 
 logger = logging.getLogger(__name__)
+
+
+class _NamedScenario(Protocol):
+    name: str
 
 
 @dataclass
@@ -63,25 +67,25 @@ class SolveScenarioBuilder:
         family = route_to_family(classification)
 
         if family.name == "game":
-            creator = ScenarioCreator(
+            game_creator = ScenarioCreator(
                 runtime=self._runtime,
                 model=self._model,
                 knowledge_root=self._knowledge_root,
             )
-            spec = creator.generate_spec(description)
-            build = creator.build_and_validate(spec)
+            spec = game_creator.generate_spec(description)
+            build = game_creator.build_and_validate(spec)
             SCENARIO_REGISTRY[spec.name] = build.scenario_class
             return SolveScenarioBuildResult(
                 scenario_name=spec.name,
                 family_name=family.name,
             )
 
-        creator = AgentTaskCreator(
+        family_creator = AgentTaskCreator(
             llm_fn=self._llm_fn,
             knowledge_root=self._knowledge_root,
         )
-        scenario = creator.create(description)
-        scenario_name = str(cast(Any, scenario).name)
+        scenario = family_creator.create(description)
+        scenario_name = str(cast(_NamedScenario, scenario).name)
         SCENARIO_REGISTRY[scenario_name] = scenario.__class__
         return SolveScenarioBuildResult(
             scenario_name=scenario_name,
@@ -98,7 +102,10 @@ def _llm_fn_from_client(client: Any, model: str) -> LlmFn:
             temperature=0.3,
             role="scenario_designer",
         )
-        return response.text.strip()
+        response_text: object = getattr(response, "text", "")
+        if not isinstance(response_text, str):
+            response_text = str(response_text)
+        return response_text.strip()
 
     return llm_fn
 

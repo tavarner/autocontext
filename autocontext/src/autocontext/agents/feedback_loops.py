@@ -19,7 +19,7 @@ import json
 import statistics
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 # ---------------------------------------------------------------------------
 # AC-336: Analyst quality scoring
@@ -40,19 +40,23 @@ class AnalystRating(BaseModel):
     def overall(self) -> float:
         return round(statistics.mean([self.actionability, self.specificity, self.correctness]), 2)
 
+    @field_validator("rationale", mode="before")
+    @classmethod
+    def _coerce_rationale(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict | list):
+            return json.dumps(value, sort_keys=True)
+        return str(value)
+
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalystRating:
-        payload = dict(data)
-        rationale = payload.get("rationale", "")
-        if not isinstance(rationale, str):
-            if isinstance(rationale, dict | list):
-                payload["rationale"] = json.dumps(rationale, sort_keys=True)
-            else:
-                payload["rationale"] = str(rationale)
-        return cls.model_validate(payload)
+        return cls.model_validate(data)
 
 
 def format_analyst_feedback(rating: AnalystRating | None) -> str:
