@@ -16,6 +16,14 @@ export interface RoleProviderSettings {
   analystProvider?: string;
   coachProvider?: string;
   architectProvider?: string;
+  competitorApiKey?: string;
+  competitorBaseUrl?: string;
+  analystApiKey?: string;
+  analystBaseUrl?: string;
+  coachApiKey?: string;
+  coachBaseUrl?: string;
+  architectApiKey?: string;
+  architectBaseUrl?: string;
   modelCompetitor?: string;
   modelAnalyst?: string;
   modelCoach?: string;
@@ -53,6 +61,41 @@ export function withRuntimeSettings(
   };
 }
 
+interface RoleConfigInput {
+  providerType?: string;
+  model?: string;
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+function normalizeOptionalOverride(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function resolveRoleConfig(
+  defaultConfig: ProviderConfig,
+  overrides: Partial<ProviderConfig>,
+  roleConfig: RoleConfigInput,
+): ProviderConfig {
+  const providerType = normalizeOptionalOverride(roleConfig.providerType);
+  const model = normalizeOptionalOverride(roleConfig.model);
+  const apiKey = normalizeOptionalOverride(roleConfig.apiKey);
+  const baseUrl = normalizeOptionalOverride(roleConfig.baseUrl);
+  return resolveProviderConfig({
+    ...overrides,
+    providerType: providerType ?? defaultConfig.providerType,
+    model: model ?? defaultConfig.model,
+    apiKey: apiKey ?? overrides.apiKey,
+    baseUrl: baseUrl ?? overrides.baseUrl,
+  }, {
+    preferProviderOverride: Boolean(providerType),
+    preferModelOverride: Boolean(model),
+    preferApiKeyOverride: Boolean(apiKey),
+    preferBaseUrlOverride: Boolean(baseUrl),
+  });
+}
+
 export function createConfiguredProvider(
   overrides: Partial<ProviderConfig> = {},
   settings: Partial<RoleProviderSettings> = {},
@@ -78,44 +121,32 @@ export function buildRoleProviderBundle(
   const defaultProvider = createProvider(withRuntimeSettings(defaultConfig, settings));
 
   const roleConfigs: Record<GenerationRole, ProviderConfig> = {
-    competitor: resolveProviderConfig({
-      ...overrides,
-      providerType: settings.competitorProvider || defaultConfig.providerType,
-      model: settings.modelCompetitor ?? defaultConfig.model,
-    }, {
-      preferProviderOverride: Boolean(settings.competitorProvider),
-      preferModelOverride: Boolean(settings.modelCompetitor),
+    competitor: resolveRoleConfig(defaultConfig, overrides, {
+      providerType: settings.competitorProvider,
+      model: settings.modelCompetitor,
+      apiKey: settings.competitorApiKey,
+      baseUrl: settings.competitorBaseUrl,
     }),
-    analyst: resolveProviderConfig({
-      ...overrides,
-      providerType: settings.analystProvider || defaultConfig.providerType,
-      model: settings.modelAnalyst ?? defaultConfig.model,
-    }, {
-      preferProviderOverride: Boolean(settings.analystProvider),
-      preferModelOverride: Boolean(settings.modelAnalyst),
+    analyst: resolveRoleConfig(defaultConfig, overrides, {
+      providerType: settings.analystProvider,
+      model: settings.modelAnalyst,
+      apiKey: settings.analystApiKey,
+      baseUrl: settings.analystBaseUrl,
     }),
-    coach: resolveProviderConfig({
-      ...overrides,
-      providerType: settings.coachProvider || defaultConfig.providerType,
-      model: settings.modelCoach ?? defaultConfig.model,
-    }, {
-      preferProviderOverride: Boolean(settings.coachProvider),
-      preferModelOverride: Boolean(settings.modelCoach),
+    coach: resolveRoleConfig(defaultConfig, overrides, {
+      providerType: settings.coachProvider,
+      model: settings.modelCoach,
+      apiKey: settings.coachApiKey,
+      baseUrl: settings.coachBaseUrl,
     }),
-    architect: resolveProviderConfig({
-      ...overrides,
-      providerType: settings.architectProvider || defaultConfig.providerType,
-      model: settings.modelArchitect ?? defaultConfig.model,
-    }, {
-      preferProviderOverride: Boolean(settings.architectProvider),
-      preferModelOverride: Boolean(settings.modelArchitect),
+    architect: resolveRoleConfig(defaultConfig, overrides, {
+      providerType: settings.architectProvider,
+      model: settings.modelArchitect,
+      apiKey: settings.architectApiKey,
+      baseUrl: settings.architectBaseUrl,
     }),
-    curator: resolveProviderConfig({
-      ...overrides,
-      providerType: defaultConfig.providerType,
-      model: settings.modelCurator ?? defaultConfig.model,
-    }, {
-      preferModelOverride: Boolean(settings.modelCurator),
+    curator: resolveRoleConfig(defaultConfig, overrides, {
+      model: settings.modelCurator,
     }),
   };
 
