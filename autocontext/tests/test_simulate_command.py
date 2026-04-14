@@ -257,6 +257,64 @@ class TestSimulationEngine:
         assert "Clarifications: 0" in result["summary"]["reasoning"]
         assert "Missed escalations: 0" in result["summary"]["reasoning"]
 
+    def test_operator_loop_run_uses_family_designer_and_counts_explicit_escalation_actions(
+        self,
+        tmp_knowledge: Path,
+    ) -> None:
+        from autocontext.scenarios.custom.operator_loop_designer import OPERATOR_LOOP_SPEC_END, OPERATOR_LOOP_SPEC_START
+        from autocontext.simulation.engine import SimulationEngine
+
+        operator_loop_spec = {
+            "description": "Support escalation requiring operator guidance before a response is sent.",
+            "environment_description": "A support agent must defer to a human operator before replying.",
+            "initial_state_description": "The customer is waiting on a high-risk account action.",
+            "escalation_policy": {"escalation_threshold": "high", "max_escalations": 3},
+            "success_criteria": ["human operator consulted", "response sent with operator guidance"],
+            "failure_modes": ["responding without operator approval"],
+            "max_steps": 4,
+            "actions": [
+                {
+                    "name": "escalate_to_human_operator",
+                    "description": "Escalate the case to a human operator for approval and guidance.",
+                    "parameters": {},
+                    "preconditions": [],
+                    "effects": ["operator_guidance_ready"],
+                },
+                {
+                    "name": "continue_with_operator_guidance",
+                    "description": "Continue handling the case after the operator responds.",
+                    "parameters": {},
+                    "preconditions": ["escalate_to_human_operator"],
+                    "effects": ["case_resolved"],
+                },
+            ],
+        }
+        prompt_capture: dict[str, str] = {}
+
+        def operator_loop_llm(system: str, user: str) -> str:
+            prompt_capture["system"] = system
+            prompt_capture["user"] = user
+            return (
+                f"{OPERATOR_LOOP_SPEC_START}\n"
+                f"{json.dumps(operator_loop_spec)}\n"
+                f"{OPERATOR_LOOP_SPEC_END}"
+            )
+
+        engine = SimulationEngine(llm_fn=operator_loop_llm, knowledge_root=tmp_knowledge)
+        result = engine.run(
+            description=(
+                "simulate a customer support escalation where the AI agent must escalate "
+                "to a human operator, wait for operator input, then continue with the operator's guidance"
+            )
+        )
+
+        assert "OperatorLoopSpec JSON" in prompt_capture["system"]
+        assert result["family"] == "operator_loop"
+        assert result["status"] == "completed"
+        assert result["summary"]["escalation_count"] == 1
+        assert "Escalations: 1" in result["summary"]["reasoning"]
+        assert result.get("missing_signals") is None
+
     def test_operator_loop_multi_run_preserves_contract_signal_counts(self, tmp_knowledge: Path) -> None:
         from autocontext.simulation.engine import SimulationEngine
 

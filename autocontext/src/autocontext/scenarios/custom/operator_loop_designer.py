@@ -32,15 +32,15 @@ OPERATOR_LOOP_DESIGNER_SYSTEM = (
     "- keep the scenario neutral and capability-oriented\n"
     "- do not anchor the scenario to a canned domain, action set, or scoring pattern\n"
     "- avoid prescriptive examples that imply a preferred escalation workflow\n"
+    "- if the request requires escalation, include an explicit escalation action whose name begins with escalate_\n"
+    "- if work continues after operator input, include a follow-up action "
+    "whose preconditions reference the escalation action name\n"
+    "- preconditions must reference prior action names, not effect labels\n"
 )
 
 
 def parse_operator_loop_spec(text: str) -> OperatorLoopSpec:
-    pattern = (
-        re.escape(OPERATOR_LOOP_SPEC_START)
-        + r"\s*(.*?)\s*"
-        + re.escape(OPERATOR_LOOP_SPEC_END)
-    )
+    pattern = re.escape(OPERATOR_LOOP_SPEC_START) + r"\s*(.*?)\s*" + re.escape(OPERATOR_LOOP_SPEC_END)
     match = re.search(pattern, text, re.DOTALL)
     if not match:
         raise ValueError("response does not contain OPERATOR_LOOP_SPEC delimiters")
@@ -66,9 +66,5 @@ def parse_operator_loop_spec(text: str) -> OperatorLoopSpec:
     )
 
 
-def design_operator_loop(
-    description: str, llm_fn: LlmFn
-) -> OperatorLoopSpec:
-    return parse_operator_loop_spec(
-        llm_fn(OPERATOR_LOOP_DESIGNER_SYSTEM, f"User description:\n{description}")
-    )
+def design_operator_loop(description: str, llm_fn: LlmFn) -> OperatorLoopSpec:
+    return parse_operator_loop_spec(llm_fn(OPERATOR_LOOP_DESIGNER_SYSTEM, f"User description:\n{description}"))

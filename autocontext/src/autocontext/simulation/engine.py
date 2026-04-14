@@ -300,6 +300,18 @@ class SimulationEngine:
     # ------------------------------------------------------------------
 
     def _build_spec(self, description: str, family: str) -> dict[str, Any]:
+        if family == "operator_loop":
+            from autocontext.scenarios.custom.generic_creator import spec_to_plain_data
+            from autocontext.scenarios.custom.operator_loop_designer import design_operator_loop
+
+            try:
+                designed = design_operator_loop(description, self.llm_fn)
+                plain = spec_to_plain_data(designed)
+                if isinstance(plain, dict):
+                    return plain
+            except Exception:
+                logger.debug("simulation.engine: operator_loop designer fallback", exc_info=True)
+
         system = (
             f"You are a simulation designer. Produce a {family} spec as JSON.\n"
             "Required: description, environment_description, initial_state_description, "
@@ -337,6 +349,7 @@ class SimulationEngine:
             from autocontext.scenarios.custom.operator_loop_codegen import generate_operator_loop_class
             from autocontext.scenarios.custom.operator_loop_spec import OperatorLoopSpec
             from autocontext.scenarios.custom.simulation_spec import parse_simulation_actions
+
             ol_spec = OperatorLoopSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
@@ -351,6 +364,7 @@ class SimulationEngine:
         else:
             from autocontext.scenarios.custom.simulation_codegen import generate_simulation_class
             from autocontext.scenarios.custom.simulation_spec import SimulationSpec, parse_simulation_actions
+
             sim_spec = SimulationSpec(
                 description=spec.get("description", ""),
                 environment_description=spec.get("environment_description", ""),
@@ -456,8 +470,6 @@ class SimulationEngine:
         limit = max_steps or getattr(instance, "max_steps", lambda: 20)()
         records: list[dict[str, Any]] = []
         step_num = 0
-        escalation_count = 0
-        clarification_count = 0
 
         for _ in range(limit):
             if instance.is_terminal(state):
@@ -482,8 +494,6 @@ class SimulationEngine:
 
             if action_to_run is None and blocked_action is not None:
                 state = self._operator_loop_intervene(instance, state, blocked_action, blocked_reason)
-                escalation_count += 1
-                clarification_count += 1
                 continue
 
             if action_to_run is None:
@@ -519,8 +529,8 @@ class SimulationEngine:
             "score": round(eval_result.score, 4),
             "reasoning": eval_result.reasoning,
             "dimension_scores": eval_result.dimension_scores,
-            "escalation_count": escalation_count,
-            "clarification_count": clarification_count,
+            "escalation_count": len(instance.get_escalation_log(state)),
+            "clarification_count": len(instance.get_clarification_log(state)),
         }
 
     def _operator_loop_intervene(
