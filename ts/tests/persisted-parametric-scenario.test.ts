@@ -178,6 +178,54 @@ describe("persisted parametric scenario", () => {
     expect(result.summary).toContain("Linear Outage Escalation");
   });
 
+  it("preserves camelCase finalScoreWeights when scoring saved TS-style specs", () => {
+    const ScenarioClass = createPersistedParametricScenarioClass("camel_weighted_scenario", {
+      name: "camel_weighted_scenario",
+      displayName: "Camel Weighted Scenario",
+      description: "Score a TS-style parametric spec with camelCase keys.",
+      strategyInterfaceDescription: "Return JSON with signal in [0,1].",
+      evaluationCriteria: "Reward higher signal.",
+      strategyParams: [
+        {
+          name: "signal",
+          description: "Signal strength.",
+          minValue: 0,
+          maxValue: 1,
+          defaultValue: 0.5,
+        },
+      ],
+      constraints: [],
+      environmentVariables: [],
+      scoringComponents: [
+        {
+          name: "coverage",
+          description: "Coverage from signal.",
+          formulaTerms: {
+            signal: 1,
+          },
+          noiseRange: [0, 0],
+        },
+      ],
+      finalScoreWeights: {
+        coverage: 1,
+      },
+      winThreshold: 0.5,
+      observationConstraints: [],
+    });
+
+    const scenario = new ScenarioClass();
+    const result = scenario.executeMatch({ signal: 0.75 }, 1);
+
+    expect(result.score).toBe(0.75);
+    expect(scenario.scoringDimensions()).toEqual([
+      {
+        name: "coverage",
+        weight: 1,
+        description: "Coverage from signal.",
+      },
+    ]);
+  });
+
   it("resolves saved parametric scenarios by name for run and benchmark", () => {
     const dir = makeTempDir();
     tempDirs.push(dir);

@@ -181,6 +181,19 @@ function normalizeObservationConstraints(raw: Record<string, unknown>): string[]
   return items.filter((item): item is string => typeof item === "string");
 }
 
+function normalizeFinalScoreWeights(raw: Record<string, unknown>): Record<string, number> {
+  const items = raw.final_score_weights ?? raw.finalScoreWeights;
+  if (!items || typeof items !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(items as Record<string, unknown>).map(([key, value]) => [
+      key,
+      readNumber(value, 0),
+    ]),
+  );
+}
+
 export function normalizePersistedParametricScenarioSpec(
   name: string,
   raw: Record<string, unknown>,
@@ -197,14 +210,7 @@ export function normalizePersistedParametricScenarioSpec(
     constraints: normalizeConstraints(raw),
     environmentVariables: normalizeEnvironmentVariables(raw),
     scoringComponents: normalizeScoringComponents(raw),
-    finalScoreWeights:
-      raw.final_score_weights && typeof raw.final_score_weights === "object"
-        ? Object.fromEntries(
-            Object.entries(raw.final_score_weights as Record<string, unknown>).map(
-              ([key, value]) => [key, readNumber(value, 0)],
-            ),
-          )
-        : {},
+    finalScoreWeights: normalizeFinalScoreWeights(raw),
     winThreshold: readNumber(raw.win_threshold ?? raw.winThreshold, 0.55),
     observationConstraints: normalizeObservationConstraints(raw),
   };
