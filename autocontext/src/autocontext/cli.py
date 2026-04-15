@@ -221,16 +221,6 @@ def _wrap_role_client_as_provider(
     return CallableProvider(_llm_fn, model_name=resolved_model), resolved_model
 
 
-def _apply_simulation_runtime_overrides(
-    settings: AppSettings,
-    *,
-    provider_name: str = "",
-) -> AppSettings:
-    if not provider_name:
-        return settings
-    return settings.model_copy(update={"agent_provider": provider_name, "architect_provider": provider_name})
-
-
 def _resolve_simulation_runtime(settings: AppSettings) -> tuple[LLMProvider, str]:
     """Resolve the architect-style runtime used for simulation spec generation.
 
@@ -1110,10 +1100,11 @@ def simulate(
     """Run a plain-language simulation with sweeps and analysis."""
     from autocontext.simulation.engine import SimulationEngine
 
-    settings = _apply_simulation_runtime_overrides(
-        load_settings(),
-        provider_name=provider_override,
-    )
+    settings = load_settings()
+    if provider_override:
+        settings = settings.model_copy(
+            update={"agent_provider": provider_override, "architect_provider": provider_override},
+        )
 
     if bool(compare_left) != bool(compare_right):
         console.print("[red]--compare-left and --compare-right must be provided together[/red]")
