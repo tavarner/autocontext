@@ -221,36 +221,61 @@ def _wrap_role_client_as_provider(
     return CallableProvider(_llm_fn, model_name=resolved_model), resolved_model
 
 
+def _role_default_model(settings: AppSettings, role: str) -> str:
+    role_models = {
+        "competitor": settings.model_competitor,
+        "analyst": settings.model_analyst,
+        "architect": settings.model_architect,
+        "coach": settings.model_coach,
+        "curator": settings.model_curator,
+        "translator": settings.model_translator,
+    }
+    return role_models.get(role) or settings.agent_default_model
+
+
+def _resolve_role_runtime(
+    settings: AppSettings,
+    *,
+    role: str,
+    scenario_name: str = "",
+) -> tuple[LLMProvider, str]:
+    sqlite = _sqlite_from_settings(settings)
+    artifacts = _artifacts_from_settings(settings)
+    orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
+    client, model = orchestrator.resolve_role_execution(
+        role,
+        generation=1,
+        scenario_name=scenario_name,
+    )
+    resolved_model = model or _role_default_model(settings, role)
+    return _wrap_role_client_as_provider(client, resolved_model, role=role)
+
+
 def _resolve_simulation_runtime(settings: AppSettings) -> tuple[LLMProvider, str]:
     """Resolve the architect-style runtime used for simulation spec generation.
 
     Simulations are authoring/spec-generation tasks, so they should follow the
     configured architect runtime surface rather than the judge provider.
     """
-    sqlite = _sqlite_from_settings(settings)
-    artifacts = _artifacts_from_settings(settings)
-    orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
-    client, model = orchestrator.resolve_role_execution(
-        "architect",
-        generation=1,
-        scenario_name="",
-    )
-    resolved_model = model or settings.model_architect or settings.agent_default_model
-    return _wrap_role_client_as_provider(client, resolved_model, role="architect")
+    return _resolve_role_runtime(settings, role="architect")
+
+
+def _resolve_investigation_runtime(
+    settings: AppSettings,
+    *,
+    role: str,
+) -> tuple[LLMProvider, str]:
+    """Resolve investigation runtimes through role routing.
+
+    Investigation spec synthesis is an architect-style authoring task, while
+    hypothesis generation is an analyst-style interpretation task.
+    """
+    return _resolve_role_runtime(settings, role=role)
 
 
 def _resolve_agent_task_runtime(settings: AppSettings, scenario_name: str) -> tuple[LLMProvider, str]:
     """Resolve the effective competitor runtime for direct agent-task execution."""
-    sqlite = _sqlite_from_settings(settings)
-    artifacts = _artifacts_from_settings(settings)
-    orchestrator = AgentOrchestrator.from_settings(settings, artifacts=artifacts, sqlite=sqlite)
-    client, model = orchestrator.resolve_role_execution(
-        "competitor",
-        generation=1,
-        scenario_name=scenario_name,
-    )
-    resolved_model = model or settings.model_competitor or settings.agent_default_model
-    return _wrap_role_client_as_provider(client, resolved_model, role="competitor")
+    return _resolve_role_runtime(settings, role="competitor", scenario_name=scenario_name)
 
 
 def _run_agent_task(
@@ -1230,6 +1255,83 @@ def simulate(
         for w in result.get("warnings", []):
             console.print(f"  ⚠ {w}")
         console.print(f"\nArtifacts: {result['artifacts']['scenario_dir']}")
+
+
+@app.command()
+def investigate(
+    description: str = typer.Option("", "--description", "-d", help="Plain-language problem to investigate"),
+    max_steps: int = typer.Option(8, "--max-steps", min=1, help="Maximum investigation steps"),
+    hypotheses: int = typer.Option(5, "--hypotheses", min=1, help="Maximum hypotheses to generate"),
+    save_as: str = typer.Option("", "--save-as", help="Name for the saved investigation"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Run a plain-language investigation with evidence and hypotheses."""
+    from autocontext.investigation.engine import InvestigationEngine, InvestigationRequest
+
+    if not description:
+        message = "--description is required. Run 'autoctx investigate --help' for usage."
+        if json_output:
+            _write_json_stderr(message)
+        else:
+            console.print(f"[red]{message}[/red]")
+        raise typer.Exit(code=1)
+
+    settings = load_settings()
+    spec_provider, spec_model = _resolve_investigation_runtime(settings, role="architect")
+    analysis_provider, analysis_model = _resolve_investigation_runtime(settings, role="analyst")
+
+    def _spec_llm_fn(system: str, user: str) -> str:
+        result = spec_provider.complete(system, user, model=spec_model)
+        return result.text
+
+    def _analysis_llm_fn(system: str, user: str) -> str:
+        result = analysis_provider.complete(system, user, model=analysis_model)
+        return result.text
+
+    engine = InvestigationEngine(
+        spec_llm_fn=_spec_llm_fn,
+        analysis_llm_fn=_analysis_llm_fn,
+        knowledge_root=settings.knowledge_root,
+    )
+    result = engine.run(
+        InvestigationRequest(
+            description=description,
+            max_steps=max_steps,
+            max_hypotheses=hypotheses,
+            save_as=save_as or None,
+        )
+    )
+    payload = result.to_dict()
+
+    if json_output:
+        _write_json_stdout(payload)
+        _check_json_exit(payload)
+        return
+
+    if result.status == "failed":
+        console.print(f"[red]Investigation failed:[/red] {result.error or 'unknown error'}")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Investigation:[/bold] {result.name}")
+    console.print(f"Question: {result.question}")
+    console.print("\n[dim]Hypotheses:[/dim]")
+    for hypothesis in result.hypotheses:
+        icon = "✓" if hypothesis.status == "supported" else "✗" if hypothesis.status == "contradicted" else "?"
+        console.print(
+            f"  {icon} {hypothesis.statement} "
+            f"(confidence: {hypothesis.confidence:.2f}, {hypothesis.status})"
+        )
+    console.print(f"\nConclusion: {result.conclusion.best_explanation}")
+    console.print(f"Confidence: {result.conclusion.confidence:.2f}")
+    if result.unknowns:
+        console.print("\n[dim]Unknowns:[/dim]")
+        for unknown in result.unknowns:
+            console.print(f"  - {unknown}")
+    if result.recommended_next_steps:
+        console.print("\n[dim]Next steps:[/dim]")
+        for step in result.recommended_next_steps:
+            console.print(f"  → {step}")
+    console.print(f"\nArtifacts: {result.artifacts.investigation_dir}")
 
 
 @app.command()
