@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from autocontext.scenarios.custom.registry import load_all_custom_scenarios
+from autocontext.scenarios.custom.registry import (
+    ScenarioLoadError,
+    ScenarioRegistryLoadResult,
+    load_all_custom_scenarios,
+    load_custom_scenarios_detailed,
+)
 
 
 def _write_valid_parametric_spec(knowledge_root: Path, name: str = "good_scenario") -> Path:
@@ -182,3 +187,42 @@ class TestRegistryIsolation:
         assert "banana_scenario" in message
         assert "unknown scenario_type marker" in message
         assert "banana" in message
+
+    def test_malformed_spec_is_reported_in_detailed_result(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_valid_parametric_spec(knowledge_root, name="good_scenario")
+        _write_malformed_spec(knowledge_root, name="regression_probe")
+
+        result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert isinstance(result, ScenarioRegistryLoadResult)
+        assert "good_scenario" in result.loaded
+        assert "regression_probe" not in result.loaded
+        assert len(result.skipped) == 1
+        entry = result.skipped[0]
+        assert isinstance(entry, ScenarioLoadError)
+        assert entry.name == "regression_probe"
+        assert entry.spec_path == (
+            knowledge_root / "_custom_scenarios" / "regression_probe" / "spec.json"
+        )
+        assert "evaluation_criteria" in entry.reason
+        assert entry.marker == "parametric"
+
+    def test_skipped_tuple_is_immutable(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_malformed_spec(knowledge_root)
+
+        result = load_custom_scenarios_detailed(knowledge_root)
+
+        with pytest.raises((TypeError, AttributeError)):
+            result.skipped.append(  # type: ignore[attr-defined]
+                ScenarioLoadError(
+                    name="x", spec_path=Path("x"), reason="x", marker="x"
+                )
+            )
