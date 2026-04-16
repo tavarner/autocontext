@@ -9,6 +9,7 @@
 autocontext runs LLM agents through structured scenarios, evaluates their outputs, and accumulates the knowledge that improved results — so repeated runs get better, not just different. Point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
 
 <!-- autocontext-whats-new:start -->
+
 ## What's New
 
 - All 11 scenario families executable in both Python and TypeScript
@@ -183,7 +184,7 @@ AUTOCONTEXT_CLAUDE_TIMEOUT=300 \
 uv run autoctx solve --description "improve customer-support replies for billing disputes" --gens 3
 ```
 
-For longer `autoctx judge` / `autoctx improve` prompts on `claude-cli`, use `--timeout <seconds>` or set `AUTOCONTEXT_CLAUDE_TIMEOUT`.
+For longer live prompts, `autoctx solve`, `autoctx judge`, and `autoctx improve` all accept `--timeout <seconds>`. `autoctx solve` also accepts `--generation-time-budget <seconds>` to cap per-generation solve runtime. You can still use provider env vars such as `AUTOCONTEXT_CLAUDE_TIMEOUT` or `AUTOCONTEXT_PI_TIMEOUT`.
 
 Run with Codex CLI:
 

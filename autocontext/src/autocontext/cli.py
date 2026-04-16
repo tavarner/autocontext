@@ -23,7 +23,9 @@ from autocontext.cli_queue import register_queue_command
 from autocontext.cli_role_runtime import resolve_role_runtime
 from autocontext.cli_runtime_overrides import (
     apply_judge_runtime_overrides,
+    apply_solve_runtime_overrides,
     format_runtime_provider_error,
+    solve_primary_runtime_provider,
 )
 from autocontext.config import load_settings
 from autocontext.config.presets import VALID_PRESET_NAMES
@@ -68,6 +70,7 @@ class SolveRunSummary:
     progress: int
     output_path: str | None
     result: dict[str, Any] | None
+
 
 app = typer.Typer(help="autocontext control-plane CLI", invoke_without_command=True)
 console = Console()
@@ -550,16 +553,18 @@ def status(
     if json_output:
         generations = []
         for row in rows:
-            generations.append({
-                "generation": row["generation_index"],
-                "mean_score": row["mean_score"],
-                "best_score": row["best_score"],
-                "elo": row["elo"],
-                "wins": row["wins"],
-                "losses": row["losses"],
-                "gate_decision": row["gate_decision"],
-                "status": row["status"],
-            })
+            generations.append(
+                {
+                    "generation": row["generation_index"],
+                    "mean_score": row["mean_score"],
+                    "best_score": row["best_score"],
+                    "elo": row["elo"],
+                    "wins": row["wins"],
+                    "losses": row["losses"],
+                    "gate_decision": row["gate_decision"],
+                    "status": row["status"],
+                }
+            )
         sys.stdout.write(json.dumps({"run_id": run_id, "generations": generations}) + "\n")
     else:
         table = Table(title=f"Run Status: {run_id}")
@@ -692,10 +697,14 @@ def tui(
 def ab_test(
     scenario: str = typer.Option("grid_ctf", "--scenario", help="Scenario to test"),
     baseline: str = typer.Option(
-        "AUTOCONTEXT_RLM_ENABLED=false", "--baseline", help="Comma-separated KEY=VALUE env overrides for baseline",
+        "AUTOCONTEXT_RLM_ENABLED=false",
+        "--baseline",
+        help="Comma-separated KEY=VALUE env overrides for baseline",
     ),
     treatment: str = typer.Option(
-        "AUTOCONTEXT_RLM_ENABLED=true", "--treatment", help="Comma-separated KEY=VALUE env overrides for treatment",
+        "AUTOCONTEXT_RLM_ENABLED=true",
+        "--treatment",
+        help="Comma-separated KEY=VALUE env overrides for treatment",
     ),
     runs: int = typer.Option(5, "--runs", min=1, help="Runs per condition"),
     gens: int = typer.Option(3, "--gens", min=1, help="Generations per run"),
@@ -833,15 +842,17 @@ def train(
         raise typer.Exit(code=1) from exc
 
     if json_output:
-        _write_json_stdout({
-            "scenario": result.scenario,
-            "total_experiments": result.total_experiments,
-            "kept_count": result.kept_count,
-            "discarded_count": result.discarded_count,
-            "best_score": result.best_score,
-            "checkpoint_path": str(result.checkpoint_path) if result.checkpoint_path else None,
-            "published_model_id": result.published_model_id,
-        })
+        _write_json_stdout(
+            {
+                "scenario": result.scenario,
+                "total_experiments": result.total_experiments,
+                "kept_count": result.kept_count,
+                "discarded_count": result.discarded_count,
+                "best_score": result.best_score,
+                "checkpoint_path": str(result.checkpoint_path) if result.checkpoint_path else None,
+                "published_model_id": result.published_model_id,
+            }
+        )
     else:
         # Summary
         table = Table(title="Training Summary")
@@ -1012,6 +1023,7 @@ def export_cmd(
     """Export a portable strategy package for a scenario."""
     from autocontext.knowledge.export import export_strategy_package
     from autocontext.mcp.tools import MtsToolContext
+
     settings = load_settings()
     resolved_db = Path(db_path) if db_path is not None else settings.db_path
     resolved_runs, resolved_knowledge, resolved_skills, resolved_claude = _resolve_export_artifact_roots(
@@ -1051,13 +1063,15 @@ def export_cmd(
     pkg.to_file(output_path)
 
     if json_output:
-        _write_json_stdout({
-            "scenario": scenario,
-            "output_path": str(output_path),
-            "best_score": pkg.best_score,
-            "lessons_count": len(pkg.lessons),
-            "harness_count": len(pkg.harness),
-        })
+        _write_json_stdout(
+            {
+                "scenario": scenario,
+                "output_path": str(output_path),
+                "best_score": pkg.best_score,
+                "lessons_count": len(pkg.lessons),
+                "harness_count": len(pkg.harness),
+            }
+        )
     else:
         console.print(f"[green]Exported {scenario} package to {output_path}[/green]")
         console.print(f"[dim]best_score={pkg.best_score:.4f} lessons={len(pkg.lessons)} harness={len(pkg.harness)}[/dim]")
@@ -1133,6 +1147,7 @@ def simulate(
     # Export mode
     if export_id:
         from autocontext.simulation.export import export_simulation
+
         result = export_simulation(id=export_id, knowledge_root=settings.knowledge_root, format=export_format)
         if json_output:
             _write_json_stdout(result)
@@ -1242,13 +1257,29 @@ def investigate(
 def solve(
     description: str = typer.Option(..., "--description", help="Natural-language scenario/problem description"),
     gens: int = typer.Option(5, "--gens", min=1, max=50, help="Generations to run for the solve"),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        min=1.0,
+        help="Provider timeout override in seconds for solve creation/execution runtimes",
+    ),
+    generation_time_budget: int | None = typer.Option(
+        None,
+        "--generation-time-budget",
+        min=0,
+        help="Soft per-generation time budget in seconds for solve runs (0 = unlimited)",
+    ),
     output: str = typer.Option("", "--output", help="Optional JSON file path for the solved package"),
     json_output: bool = typer.Option(False, "--json", help="Output structured JSON"),
 ) -> None:
     """Create a scenario on demand, run it, and export the solved package."""
     from autocontext.knowledge.solver import SolveManager
 
-    settings = load_settings()
+    settings = apply_solve_runtime_overrides(
+        load_settings(),
+        timeout=timeout,
+        generation_time_budget_seconds=generation_time_budget,
+    )
     manager = SolveManager(settings)
 
     try:
@@ -1269,6 +1300,12 @@ def solve(
 
     if job.status != "completed" or job.result is None:
         message = job.error or "solve did not complete successfully"
+        if "timeout" in message.lower():
+            message = format_runtime_provider_error(
+                ProviderError(message),
+                provider_name=solve_primary_runtime_provider(settings),
+                settings=settings,
+            )
         if json_output:
             _write_json_stderr(message)
         else:
@@ -1323,6 +1360,7 @@ def import_package_cmd(
 ) -> None:
     """Import a strategy package into scenario knowledge."""
     from autocontext.knowledge.package import ConflictPolicy, StrategyPackage, import_strategy_package
+
     pkg_path = Path(package_file)
     if not pkg_path.exists():
         if json_output:
@@ -1368,15 +1406,17 @@ def import_package_cmd(
     result = import_strategy_package(artifacts, pkg, sqlite=sqlite, conflict_policy=policy)
 
     if json_output:
-        _write_json_stdout({
-            "scenario_name": result.scenario_name,
-            "playbook_written": result.playbook_written,
-            "hints_written": result.hints_written,
-            "skill_written": result.skill_written,
-            "harness_written": result.harness_written,
-            "harness_skipped": result.harness_skipped,
-            "conflict_policy": result.conflict_policy,
-        })
+        _write_json_stdout(
+            {
+                "scenario_name": result.scenario_name,
+                "playbook_written": result.playbook_written,
+                "hints_written": result.hints_written,
+                "skill_written": result.skill_written,
+                "harness_written": result.harness_written,
+                "harness_skipped": result.harness_skipped,
+                "conflict_policy": result.conflict_policy,
+            }
+        )
     else:
         table = Table(title=f"Import: {result.scenario_name}")
         table.add_column("Item", style="bold")
@@ -1425,21 +1465,25 @@ def wait(
 
     if fired:
         if json_output:
-            _write_json_stdout({
-                "fired": True,
-                "condition_id": condition_id,
-                "alert": alert,
-            })
+            _write_json_stdout(
+                {
+                    "fired": True,
+                    "condition_id": condition_id,
+                    "alert": alert,
+                }
+            )
         else:
             detail = alert.get("detail", "") if alert else ""
             console.print(f"[green]Alert fired:[/green] {detail}")
     else:
         if json_output:
-            _write_json_stdout({
-                "fired": False,
-                "condition_id": condition_id,
-                "timeout_seconds": timeout,
-            })
+            _write_json_stdout(
+                {
+                    "fired": False,
+                    "condition_id": condition_id,
+                    "timeout_seconds": timeout,
+                }
+            )
         else:
             console.print(f"[yellow]Timed out after {timeout}s waiting for condition {condition_id}[/yellow]")
         raise typer.Exit(code=1)
@@ -1494,11 +1538,13 @@ def judge(
         )
 
     if json_output:
-        _write_json_stdout({
-            "score": result.score,
-            "reasoning": result.reasoning,
-            "dimension_scores": result.dimension_scores,
-        })
+        _write_json_stdout(
+            {
+                "score": result.score,
+                "reasoning": result.reasoning,
+                "dimension_scores": result.dimension_scores,
+            }
+        )
     else:
         console.print(f"[bold]Score:[/bold] {result.score:.4f}")
         console.print(f"[bold]Reasoning:[/bold] {result.reasoning}")
@@ -1560,17 +1606,20 @@ def improve(
         )
 
     if json_output:
-        _write_json_stdout({
-            "best_score": result.best_score,
-            "best_round": result.best_round,
-            "total_rounds": result.total_rounds,
-            "met_threshold": result.met_threshold,
-            "best_output": result.best_output,
-        })
+        _write_json_stdout(
+            {
+                "best_score": result.best_score,
+                "best_round": result.best_round,
+                "total_rounds": result.total_rounds,
+                "met_threshold": result.met_threshold,
+                "best_output": result.best_output,
+            }
+        )
     else:
         console.print(f"[bold]Best score:[/bold] {result.best_score:.4f} (round {result.best_round})")
         console.print(f"[bold]Rounds:[/bold] {result.total_rounds}")
         console.print(f"[bold]Met threshold:[/bold] {result.met_threshold}")
+
 
 register_queue_command(app, console=console)
 

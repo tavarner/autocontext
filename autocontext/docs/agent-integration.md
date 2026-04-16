@@ -506,7 +506,7 @@ autoctx solve \
   --json | jq .
 ```
 
-`autoctx solve` is a synchronous CLI wrapper around the solve-on-demand pipeline. Use the server or MCP solve APIs if you need background job submission and later result retrieval from a long-lived process.
+`autoctx solve` is a synchronous CLI wrapper around the solve-on-demand pipeline. Use `--timeout <seconds>` when richer live prompts need a longer provider runtime window, and `--generation-time-budget <seconds>` when you want to cap per-generation solve runtime. Use the server or MCP solve APIs if you need background job submission and later result retrieval from a long-lived process.
 
 #### When to use which integration path
 
