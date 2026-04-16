@@ -121,3 +121,19 @@ class TestRegistryIsolation:
         assert "\n" not in message, f"warning must be a single line, got:\n{message!r}"
         assert "regression_probe" in message
         assert "spec.json" in message
+
+    def test_reason_summarizes_pydantic_validation_error(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_malformed_spec(knowledge_root, name="regression_probe")
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            load_all_custom_scenarios(knowledge_root)
+
+        message = caplog.records[0].getMessage()
+        assert "evaluation_criteria" in message, message
+        assert "Traceback" not in message, message
+        assert 'File "' not in message, message
