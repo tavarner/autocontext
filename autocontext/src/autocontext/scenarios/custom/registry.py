@@ -103,6 +103,30 @@ def _load_family_class(custom_dir: Path, name: str, marker: str) -> type[Any]:
     return cls
 
 
+def _summarize_load_failure(exc: BaseException, marker: str) -> str:
+    """Render a single-line, user-friendly reason string for a load failure.
+
+    Best-effort: never raises. Falls back to ``str(exc)`` if rendering fails.
+    """
+    try:
+        from pydantic import ValidationError
+
+        if isinstance(exc, ValidationError):
+            errors = exc.errors()
+            if errors:
+                first = errors[0]
+                loc = ".".join(str(part) for part in first.get("loc", ()))
+                msg = first.get("msg", "invalid")
+                return f"spec.json validation failed: {loc}: {msg}"
+            return "spec.json validation failed"
+        if isinstance(exc, KeyError):
+            return f"unknown scenario_type marker {marker!r}"
+        text = str(exc) or exc.__class__.__name__
+        return text.splitlines()[0][:200]
+    except Exception:
+        return exc.__class__.__name__
+
+
 def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
     custom_dir = knowledge_root / CUSTOM_SCENARIOS_DIR
     if not custom_dir.is_dir():
@@ -119,10 +143,23 @@ def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
             cls = _load_family_class(custom_dir, name, marker)
             loaded[name] = cls
         except FileNotFoundError:
+            # Spec-only directories without compiled source are Failure B territory
+            # (AC-563). Preserve today's silent-skip behavior here.
             continue
-        except KeyError:
-            logger.warning("failed to load custom scenario '%s': unknown marker '%s'", name, marker)
-        except Exception:
-            logger.warning("failed to load custom scenario '%s'", name, exc_info=True)
+        except Exception as exc:
+            spec_path = entry / "spec.json"
+            reason = _summarize_load_failure(exc, marker)
+            logger.warning(
+                "custom scenario %r skipped (%s): %s",
+                name,
+                spec_path,
+                reason,
+            )
+            logger.debug(
+                "custom scenario %r skipped (%s): full traceback",
+                name,
+                spec_path,
+                exc_info=True,
+            )
 
     return loaded

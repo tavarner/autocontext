@@ -6,7 +6,10 @@ scenarios, and must not dump a traceback into stderr for unrelated commands.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+import pytest
 
 from autocontext.scenarios.custom.registry import load_all_custom_scenarios
 
@@ -95,3 +98,26 @@ class TestRegistryIsolation:
 
         assert "good_scenario" in loaded
         assert "regression_probe" not in loaded
+
+    def test_warning_logged_at_warning_level_without_traceback(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_malformed_spec(knowledge_root, name="regression_probe")
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            load_all_custom_scenarios(knowledge_root)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, (
+            f"expected exactly one warning, got {[r.message for r in warnings]}"
+        )
+        record = warnings[0]
+
+        assert record.exc_text is None, "warning must not carry a traceback"
+        message = record.getMessage()
+        assert "\n" not in message, f"warning must be a single line, got:\n{message!r}"
+        assert "regression_probe" in message
+        assert "spec.json" in message
