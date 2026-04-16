@@ -226,3 +226,57 @@ class TestRegistryIsolation:
                     name="x", spec_path=Path("x"), reason="x", marker="x"
                 )
             )
+
+    def test_empty_knowledge_root_returns_empty_result(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"  # does not exist
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert result.loaded == {}
+        assert result.skipped == ()
+        assert caplog.records == []
+
+    def test_file_not_found_is_not_reported_as_skipped(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Failure B boundary: spec-less scenario dirs remain silently skipped.
+
+        A scenario directory that declares marker 'agent_task' but has no
+        agent_task.py raises FileNotFoundError. That pathway is handled by
+        Failure B — preserve today's silent behavior here to avoid double-
+        counting.
+        """
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = knowledge_root / "_custom_scenarios" / "spec_only_task"
+        scenario_dir.mkdir(parents=True, exist_ok=True)
+        (scenario_dir / "scenario_type.txt").write_text("agent_task", encoding="utf-8")
+        # Deliberately no agent_task.py and no spec.json
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert "spec_only_task" not in result.loaded
+        assert all(e.name != "spec_only_task" for e in result.skipped)
+        assert caplog.records == []
+
+    def test_non_directory_entries_are_ignored(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        custom_dir = knowledge_root / "_custom_scenarios"
+        custom_dir.mkdir(parents=True, exist_ok=True)
+        (custom_dir / "README.md").write_text("not a scenario", encoding="utf-8")
+        _write_valid_parametric_spec(knowledge_root, name="real_scenario")
+
+        result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert "real_scenario" in result.loaded
+        assert result.skipped == ()
