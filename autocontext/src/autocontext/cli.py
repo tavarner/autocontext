@@ -19,7 +19,7 @@ from rich.table import Table
 
 from autocontext.agents.orchestrator import AgentOrchestrator
 from autocontext.cli_investigate import run_investigate_command
-from autocontext.cli_queue import run_queue_command
+from autocontext.cli_queue import register_queue_command
 from autocontext.cli_role_runtime import resolve_role_runtime
 from autocontext.cli_runtime_overrides import (
     apply_judge_runtime_overrides,
@@ -1572,45 +1572,7 @@ def improve(
         console.print(f"[bold]Rounds:[/bold] {result.total_rounds}")
         console.print(f"[bold]Met threshold:[/bold] {result.met_threshold}")
 
-
-@app.command()
-def queue(
-    action: str = typer.Argument("add"),
-    spec: str = typer.Option("", "--spec", "-s", help="Task spec name"),
-    task_prompt: str = typer.Option("", "--task-prompt", "--prompt", "-p", help="The queued task prompt"),
-    rubric: str = typer.Option("", "--rubric", "-r", help="Evaluation rubric"),
-    max_rounds: int = typer.Option(5, "--rounds", "-n", min=1, help="Maximum improvement rounds"),
-    threshold: float = typer.Option(0.9, "--threshold", "-t", help="Quality threshold to stop"),
-    min_rounds: int = typer.Option(1, "--min-rounds", min=1, help="Minimum rounds before threshold stops"),
-    priority: int = typer.Option(0, "--priority", help="Task priority"),
-    provider: str = typer.Option(
-        "",
-        "--provider",
-        help="Provider override accepted for queue-script compatibility; queued execution still follows the worker provider",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output structured JSON"),
-) -> None:
-    """Add a task to the background runner queue."""
-    from autocontext.execution.task_runner import enqueue_task
-
-    run_queue_command(
-        action=action,
-        spec=spec,
-        task_prompt=task_prompt,
-        rubric=rubric,
-        max_rounds=max_rounds,
-        threshold=threshold,
-        min_rounds=min_rounds,
-        priority=priority,
-        provider=provider,
-        json_output=json_output,
-        console=console,
-        load_settings_fn=load_settings,
-        sqlite_from_settings=_sqlite_from_settings,
-        enqueue_task_fn=enqueue_task,
-        write_json_stdout=_write_json_stdout,
-        write_json_stderr=_write_json_stderr,
-    )
+register_queue_command(app, console=console)
 
 
 if __name__ == "__main__":

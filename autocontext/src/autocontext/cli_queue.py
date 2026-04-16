@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import typer
 
@@ -26,6 +27,10 @@ class QueueEnqueuer(Protocol):
         min_rounds: int = 1,
         priority: int = 0,
     ) -> str: ...
+
+
+def _cli_attr(dependency_module: str, name: str) -> Any:
+    return getattr(importlib.import_module(dependency_module), name)
 
 
 def derive_queue_spec_name(task_prompt: str) -> str:
@@ -121,3 +126,45 @@ def run_queue_command(
         write_json_stdout(payload)
     else:
         console.print(f"Queued task {task_id} for spec '{resolved_spec_name}' (priority {priority})")
+
+
+def register_queue_command(
+    app: typer.Typer,
+    *,
+    console: Console,
+    dependency_module: str = "autocontext.cli",
+) -> None:
+    @app.command()
+    def queue(
+        action: str = typer.Argument("add"),
+        spec: str = typer.Option("", "--spec", "-s", help="Task spec name"),
+        task_prompt: str = typer.Option("", "--task-prompt", "--prompt", "-p", help="The queued task prompt"),
+        rubric: str = typer.Option("", "--rubric", "-r", help="Evaluation rubric"),
+        max_rounds: int = typer.Option(5, "--rounds", "-n", min=1, help="Maximum improvement rounds"),
+        threshold: float = typer.Option(0.9, "--threshold", "-t", help="Quality threshold to stop"),
+        min_rounds: int = typer.Option(1, "--min-rounds", min=1, help="Minimum rounds before threshold stops"),
+        priority: int = typer.Option(0, "--priority", help="Task priority"),
+        provider: str = typer.Option("", "--provider", help="Provider override accepted for queue-script compatibility"),
+        json_output: bool = typer.Option(False, "--json", help="Output structured JSON"),
+    ) -> None:
+        """Add a task to the background runner queue."""
+        from autocontext.execution.task_runner import enqueue_task
+
+        run_queue_command(
+            action=action,
+            spec=spec,
+            task_prompt=task_prompt,
+            rubric=rubric,
+            max_rounds=max_rounds,
+            threshold=threshold,
+            min_rounds=min_rounds,
+            priority=priority,
+            provider=provider,
+            json_output=json_output,
+            console=console,
+            load_settings_fn=_cli_attr(dependency_module, "load_settings"),
+            sqlite_from_settings=_cli_attr(dependency_module, "_sqlite_from_settings"),
+            enqueue_task_fn=enqueue_task,
+            write_json_stdout=_cli_attr(dependency_module, "_write_json_stdout"),
+            write_json_stderr=_cli_attr(dependency_module, "_write_json_stderr"),
+        )
