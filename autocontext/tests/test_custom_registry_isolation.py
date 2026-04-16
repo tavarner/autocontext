@@ -64,6 +64,17 @@ def _write_valid_parametric_spec(knowledge_root: Path, name: str = "good_scenari
     return scenario_dir
 
 
+def _write_unknown_marker_scenario(knowledge_root: Path, name: str = "banana_scenario") -> Path:
+    """Write a scenario dir that claims an unknown family marker."""
+    scenario_dir = knowledge_root / "_custom_scenarios" / name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario_type.txt").write_text("banana", encoding="utf-8")
+    (scenario_dir / "spec.json").write_text(
+        json.dumps({"name": name, "scenario_type": "banana"}), encoding="utf-8"
+    )
+    return scenario_dir
+
+
 def _write_malformed_spec(knowledge_root: Path, name: str = "regression_probe") -> Path:
     """Write a ``spec.json`` that is missing a required pydantic field."""
     scenario_dir = knowledge_root / "_custom_scenarios" / name
@@ -153,3 +164,21 @@ class TestRegistryIsolation:
         assert any(r.exc_text for r in debug_records), (
             "at DEBUG level the full traceback must be available via exc_info"
         )
+
+    def test_reason_identifies_unknown_marker(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_unknown_marker_scenario(knowledge_root, name="banana_scenario")
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            load_all_custom_scenarios(knowledge_root)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "banana_scenario" in message
+        assert "unknown scenario_type marker" in message
+        assert "banana" in message
