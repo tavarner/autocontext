@@ -152,12 +152,22 @@ def _summarize_load_failure(exc: BaseException, marker: str) -> str:
         return exc.__class__.__name__
 
 
-def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
+def load_custom_scenarios_detailed(knowledge_root: Path) -> ScenarioRegistryLoadResult:
+    """Load all custom scenarios under ``knowledge_root``.
+
+    Returns both successfully-loaded scenarios and a tuple of
+    :class:`ScenarioLoadError` for any directory that could not be loaded.
+
+    Malformed directories never prevent other scenarios from loading, and
+    never emit a traceback at WARNING level. The full traceback is available
+    at DEBUG level for forensics.
+    """
     custom_dir = knowledge_root / CUSTOM_SCENARIOS_DIR
     if not custom_dir.is_dir():
-        return {}
+        return ScenarioRegistryLoadResult(loaded={}, skipped=())
 
     loaded: dict[str, type[Any]] = {}
+    skipped: list[ScenarioLoadError] = []
     for entry in sorted(custom_dir.iterdir()):
         if not entry.is_dir():
             continue
@@ -168,12 +178,20 @@ def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
             cls = _load_family_class(custom_dir, name, marker)
             loaded[name] = cls
         except FileNotFoundError:
-            # Spec-only directories without compiled source are Failure B territory
-            # (AC-563). Preserve today's silent-skip behavior here.
+            # Spec-only directories without compiled source are Failure B
+            # territory (AC-563). Preserve today's silent-skip behavior here.
             continue
         except Exception as exc:
             spec_path = entry / "spec.json"
             reason = _summarize_load_failure(exc, marker)
+            skipped.append(
+                ScenarioLoadError(
+                    name=name,
+                    spec_path=spec_path,
+                    reason=reason,
+                    marker=marker,
+                )
+            )
             logger.warning(
                 "custom scenario %r skipped (%s): %s",
                 name,
@@ -187,4 +205,12 @@ def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
                 exc_info=True,
             )
 
-    return loaded
+    return ScenarioRegistryLoadResult(
+        loaded=loaded,
+        skipped=tuple(skipped),
+    )
+
+
+def load_all_custom_scenarios(knowledge_root: Path) -> dict[str, type[Any]]:
+    """Backwards-compatible entry point — returns only the successful loads."""
+    return dict(load_custom_scenarios_detailed(knowledge_root).loaded)
