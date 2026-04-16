@@ -9,6 +9,7 @@
 autocontext runs LLM agents through structured scenarios, evaluates their outputs, and accumulates the knowledge that improved results — so repeated runs get better, not just different. Point the harness at a real task in plain language, let it work the problem, and then inspect the traces, reports, artifacts, datasets, playbooks, and optional distilled model it produces.
 
 <!-- autocontext-whats-new:start -->
+
 ## What's New
 
 - All 11 scenario families executable in both Python and TypeScript
@@ -239,6 +240,7 @@ The Python package exposes the full `autoctx` control-plane CLI for scenario exe
 - Run and improve a saved scenario: `uv run autoctx run --scenario support_triage --gens 3`
 - Inspect or replay outputs: `uv run autoctx list`, `uv run autoctx status <run_id>`
 - Run an investigation from Python: `uv run autoctx investigate -d "why did conversion drop after Tuesday's release"`
+- Enqueue an ad hoc queued task from Python: `uv run autoctx queue add --task-prompt "Write a 1-line fact about primes" --rubric "correct" --threshold 0.8 --rounds 2`
 - Override the simulation provider per call: `uv run autoctx simulate -d "simulate deploying a web service with rollback" --provider claude-cli`
 - Scaffold a custom scenario: `uv run autoctx new-scenario --template prompt-optimization --name my-task`
 - Export training data: `uv run autoctx export-training-data --scenario support_triage --all-runs --output training/support_triage.jsonl`
