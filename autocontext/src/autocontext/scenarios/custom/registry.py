@@ -4,6 +4,8 @@ import importlib.util
 import json
 import logging
 import sys
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,29 @@ from autocontext.scenarios.families import detect_family, get_family_by_marker
 logger = logging.getLogger(__name__)
 
 CUSTOM_SCENARIOS_DIR = "_custom_scenarios"
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioLoadError:
+    """A single custom-scenario directory that could not be loaded.
+
+    Part of the AC-563 domain model. Emitted by
+    :func:`load_custom_scenarios_detailed` so callers can surface skipped
+    scenarios in a UI without parsing stderr.
+    """
+
+    name: str
+    spec_path: Path
+    reason: str
+    marker: str
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioRegistryLoadResult:
+    """Aggregate result of attempting to load all custom scenarios."""
+
+    loaded: Mapping[str, type[Any]]
+    skipped: tuple[ScenarioLoadError, ...]
 
 
 def _load_agent_task_class(custom_dir: Path, name: str) -> type[Any]:
