@@ -34,6 +34,7 @@ class PiRPCConfig:
     model: str = ""
     timeout: float = 120.0
     session_persistence: bool = True
+    no_context_files: bool = False
     branch_on_retry: bool = True
     extra_args: list[str] = field(default_factory=list)
 
@@ -60,6 +61,8 @@ class PiRPCRuntime(AgentRuntime):
         args = [pi, "--mode", "rpc"]
         if self._config.model:
             args.extend(["--model", self._config.model])
+        if self._config.no_context_files:
+            args.append("--no-context-files")
         if not self._config.session_persistence:
             args.append("--no-session")
         args.extend(self._config.extra_args)

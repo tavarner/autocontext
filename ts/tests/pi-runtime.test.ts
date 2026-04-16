@@ -25,6 +25,7 @@ describe("Pi config in AppSettingsSchema", () => {
     expect(settings.piTimeout).toBe(120.0);
     expect(settings.piWorkspace).toBe("");
     expect(settings.piModel).toBe("");
+    expect(settings.piNoContextFiles).toBe(false);
   });
 
   it("includes Pi RPC settings with defaults", async () => {
@@ -165,6 +166,7 @@ describe("PiCLIRuntime", () => {
         piTimeout: 33,
         piWorkspace: "/tmp/pi-workspace",
         piModel: "pi-checkpoint",
+        piNoContextFiles: true,
       },
     );
 
@@ -176,15 +178,15 @@ describe("PiCLIRuntime", () => {
     expect(result.text).toBe("pi output");
     expect(execFileSyncMock).toHaveBeenCalledWith(
       "pi-local",
-      ["--print", "--model", "pi-checkpoint", "--workspace", "/tmp/pi-workspace"],
+      ["--print", "--model", "pi-checkpoint", "--no-context-files"],
       expect.objectContaining({
         input: "system prompt\n\ntask prompt",
         timeout: 33_000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
+        cwd: "/tmp/pi-workspace",
       }),
     );
-    expect(execFileSyncMock.mock.calls[0]?.[2]).not.toHaveProperty("cwd");
   });
 
   it("buildRoleProviderBundle threads Pi CLI settings into run providers", async () => {
@@ -198,6 +200,7 @@ describe("PiCLIRuntime", () => {
       piTimeout: 12,
       piWorkspace: "/tmp/pi-bundle-workspace",
       piModel: "pi-bundle-model",
+      piNoContextFiles: true,
     });
 
     const result = await bundle.defaultProvider.complete({
@@ -208,10 +211,11 @@ describe("PiCLIRuntime", () => {
     expect(result.text).toBe("bundle output");
     expect(execFileSyncMock).toHaveBeenCalledWith(
       "pi-bundle",
-      ["--print", "--model", "pi-bundle-model", "--workspace", "/tmp/pi-bundle-workspace"],
+      ["--print", "--model", "pi-bundle-model", "--no-context-files"],
       expect.objectContaining({
         input: "bundle task",
         timeout: 12_000,
+        cwd: "/tmp/pi-bundle-workspace",
       }),
     );
   });
@@ -230,8 +234,10 @@ describe("PiRPCRuntime", () => {
   it("has correct defaults", async () => {
     const { PiRPCConfig } = await import("../src/runtimes/pi-rpc.js");
     const config = new PiRPCConfig();
-    expect(config.endpoint).toBe("http://localhost:3284");
+    expect(config.piCommand).toBe("pi");
+    expect(config.timeout).toBe(120.0);
     expect(config.sessionPersistence).toBe(true);
+    expect(config.noContextFiles).toBe(false);
   });
 
   it("creates isolated sessions per role", async () => {
@@ -245,18 +251,18 @@ describe("PiRPCRuntime", () => {
     expect(rt2.currentSessionId).toBeNull();
   });
 
-  it("createConfiguredProvider uses Python-compatible Pi RPC endpoint and settings", async () => {
+  it("createConfiguredProvider uses subprocess Pi RPC JSONL instead of HTTP", async () => {
     vi.resetModules();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ text: "first", session_id: "sess-1" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ text: "second", session_id: "sess-2" }),
-      });
+    execFileSyncMock.mockReturnValue(
+      [
+        JSON.stringify({ type: "response", command: "prompt", success: true }),
+        JSON.stringify({
+          type: "agent_end",
+          messages: [{ role: "assistant", content: "first" }],
+        }),
+      ].join("\n") as never,
+    );
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const { createConfiguredProvider } = await import("../src/providers/index.js");
@@ -264,40 +270,38 @@ describe("PiRPCRuntime", () => {
       { providerType: "pi-rpc" },
       {
         agentProvider: "pi-rpc",
+        piCommand: "pi-rpc-local",
+        piTimeout: 45,
         piRpcEndpoint: "http://rpc.local:3284",
         piRpcApiKey: "rpc-key",
         piRpcSessionPersistence: false,
+        piNoContextFiles: true,
       },
     );
 
-    const first = await provider.complete({
+    const result = await provider.complete({
       systemPrompt: "rpc system",
       userPrompt: "first prompt",
     });
-    const second = await provider.complete({
-      systemPrompt: "rpc system",
-      userPrompt: "second prompt",
-    });
 
-    expect(first.text).toBe("first");
-    expect(second.text).toBe("second");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://rpc.local:3284/v1/generate");
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer rpc-key",
-      },
+    expect(result.text).toBe("first");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      "pi-rpc-local",
+      ["--mode", "rpc", "--no-context-files", "--no-session"],
+      expect.objectContaining({
+        timeout: 45_000,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }),
+    );
+
+    const input = String(execFileSyncMock.mock.calls[0]?.[2]?.input ?? "");
+    expect(JSON.parse(input.trim())).toMatchObject({
+      type: "prompt",
+      message: "rpc system\n\nfirst prompt",
     });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      prompt: "first prompt",
-      system: "rpc system",
-    });
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      prompt: "second prompt",
-      system: "rpc system",
-    });
+    expect(input.endsWith("\n")).toBe(true);
   });
 });
 

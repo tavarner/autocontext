@@ -19,6 +19,7 @@ from autocontext.config.settings import AppSettings
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _settings(**overrides: object) -> AppSettings:
     """Build an AppSettings with sensible defaults and overrides."""
     defaults = {
@@ -32,6 +33,7 @@ def _settings(**overrides: object) -> AppSettings:
 # ---------------------------------------------------------------------------
 # Pi CLI happy path
 # ---------------------------------------------------------------------------
+
 
 class TestPiCLIProvider:
     def test_build_client_accepts_pi_provider(self) -> None:
@@ -49,6 +51,7 @@ class TestPiCLIProvider:
             MockRuntime.return_value = MagicMock()
             client = build_client_from_settings(settings)
         from autocontext.agents.provider_bridge import RuntimeBridgeClient
+
         assert isinstance(client, RuntimeBridgeClient)
 
     def test_pi_passes_config_from_settings(self) -> None:
@@ -59,6 +62,7 @@ class TestPiCLIProvider:
             pi_timeout=60.0,
             pi_workspace="/my/workspace",
             pi_model="local-model",
+            pi_no_context_files=True,
         )
         with patch("autocontext.runtimes.pi_cli.PiCLIRuntime") as MockRuntime:
             MockRuntime.return_value = MagicMock()
@@ -68,6 +72,7 @@ class TestPiCLIProvider:
         assert config.pi_command == "/usr/local/bin/pi"
         assert config.timeout == 60.0
         assert config.workspace == "/my/workspace"
+        assert config.no_context_files is True
 
     def test_pi_resolves_scenario_model_handoff(self) -> None:
         """Scenario-aware Pi clients should resolve the active checkpoint via the registry."""
@@ -93,6 +98,7 @@ class TestPiCLIProvider:
 # Pi RPC happy path
 # ---------------------------------------------------------------------------
 
+
 class TestPiRPCProvider:
     def test_build_client_accepts_pi_rpc_provider(self) -> None:
         """``AUTOCONTEXT_AGENT_PROVIDER=pi-rpc`` should construct a valid client."""
@@ -115,6 +121,7 @@ class TestPiRPCProvider:
             MockRuntime.return_value = MagicMock()
             client = build_client_from_settings(settings)
         from autocontext.agents.provider_bridge import RuntimeBridgeClient
+
         assert isinstance(client, RuntimeBridgeClient)
 
     def test_pi_rpc_passes_config_from_settings(self) -> None:
@@ -123,6 +130,7 @@ class TestPiRPCProvider:
             agent_provider="pi-rpc",
             pi_timeout=90.0,
             pi_rpc_session_persistence=False,
+            pi_no_context_files=True,
         )
         with patch("autocontext.runtimes.pi_rpc.PiRPCRuntime") as MockRuntime:
             MockRuntime.return_value = MagicMock()
@@ -131,12 +139,14 @@ class TestPiRPCProvider:
         config = call_args[0][0] if call_args[0] else call_args[1].get("config")
         assert config.timeout == 90.0
         assert config.session_persistence is False
+        assert config.no_context_files is True
         assert config.pi_command == "pi"
 
 
 # ---------------------------------------------------------------------------
 # Misconfiguration
 # ---------------------------------------------------------------------------
+
 
 class TestPiMisconfiguration:
     def test_unknown_provider_still_raises(self) -> None:

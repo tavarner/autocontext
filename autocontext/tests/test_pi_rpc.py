@@ -18,17 +18,20 @@ from autocontext.runtimes.pi_rpc import PiRPCConfig, PiRPCRuntime
 # PiRPCConfig defaults
 # ---------------------------------------------------------------------------
 
+
 def test_config_defaults() -> None:
     c = PiRPCConfig()
     assert c.pi_command == "pi"
     assert c.timeout == 120.0
     assert c.session_persistence is True
+    assert c.no_context_files is False
     assert c.branch_on_retry is True
 
 
 # ---------------------------------------------------------------------------
 # Settings fields
 # ---------------------------------------------------------------------------
+
 
 def test_settings_pi_rpc_fields() -> None:
     s = AppSettings()
@@ -40,6 +43,7 @@ def test_settings_pi_rpc_fields() -> None:
 # ---------------------------------------------------------------------------
 # PiRPCRuntime build_args
 # ---------------------------------------------------------------------------
+
 
 def test_build_args_includes_mode_rpc() -> None:
     runtime = PiRPCRuntime()
@@ -61,17 +65,26 @@ def test_build_args_no_session() -> None:
     assert "--no-session" in args
 
 
+def test_build_args_no_context_files() -> None:
+    runtime = PiRPCRuntime(PiRPCConfig(no_context_files=True))
+    args = runtime._build_args()
+    assert "--no-context-files" in args
+
+
 # ---------------------------------------------------------------------------
 # PiRPCRuntime.generate() — mocked subprocess
 # ---------------------------------------------------------------------------
 
+
 def test_generate_success() -> None:
     """generate() sends JSONL command and parses response."""
     runtime = PiRPCRuntime()
-    rpc_response = json.dumps({
-        "type": "agent_end",
-        "messages": [{"role": "assistant", "content": "Strategy analysis complete."}],
-    })
+    rpc_response = json.dumps(
+        {
+            "type": "agent_end",
+            "messages": [{"role": "assistant", "content": "Strategy analysis complete."}],
+        }
+    )
     completed = MagicMock(returncode=0, stdout=rpc_response + "\n", stderr="")
     with patch("subprocess.run", return_value=completed) as mock_run:
         output = runtime.generate("Analyze this strategy")
@@ -96,12 +109,14 @@ def test_generate_timeout() -> None:
 def test_generate_rpc_error_response() -> None:
     """generate() surfaces Pi RPC error responses as errors, not model text."""
     runtime = PiRPCRuntime()
-    rpc_response = json.dumps({
-        "type": "response",
-        "command": "prompt",
-        "success": False,
-        "error": "bad payload",
-    })
+    rpc_response = json.dumps(
+        {
+            "type": "response",
+            "command": "prompt",
+            "success": False,
+            "error": "bad payload",
+        }
+    )
     completed = MagicMock(returncode=0, stdout=rpc_response + "\n", stderr="")
     with patch("subprocess.run", return_value=completed):
         output = runtime.generate("test")
@@ -126,10 +141,12 @@ def test_generate_nonzero_exit_without_stdout() -> None:
 def test_revise_success() -> None:
     """revise() sends a revision prompt through generate()."""
     runtime = PiRPCRuntime()
-    rpc_response = json.dumps({
-        "type": "agent_end",
-        "messages": [{"role": "assistant", "content": "Revised output."}],
-    })
+    rpc_response = json.dumps(
+        {
+            "type": "agent_end",
+            "messages": [{"role": "assistant", "content": "Revised output."}],
+        }
+    )
     completed = MagicMock(returncode=0, stdout=rpc_response + "\n", stderr="")
     with patch("subprocess.run", return_value=completed):
         output = runtime.revise("original", "prev output", "feedback")
@@ -139,6 +156,7 @@ def test_revise_success() -> None:
 # ---------------------------------------------------------------------------
 # create_role_client integration
 # ---------------------------------------------------------------------------
+
 
 def test_create_role_client_pi_rpc() -> None:
     """create_role_client('pi-rpc') should return a RuntimeBridgeClient."""
