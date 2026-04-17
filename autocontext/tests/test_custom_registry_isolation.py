@@ -318,3 +318,39 @@ class TestRegistryIsolation:
         assert entry.name == "spec_only_task"
         assert "spec.json" in entry.reason
         assert "no compiled source" in entry.reason
+
+    def test_spec_only_dir_emits_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_spec_only_agent_task(knowledge_root, name="spec_only_task")
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            load_custom_scenarios_detailed(knowledge_root)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "spec_only_task" in message
+        assert "spec.json" in message
+        assert "no compiled source" in message
+        assert "new-scenario --from-spec" in message
+        assert "\n" not in message
+
+    def test_truly_empty_dir_remains_silent(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        empty_dir = knowledge_root / "_custom_scenarios" / "empty_scenario"
+        empty_dir.mkdir(parents=True, exist_ok=True)
+
+        with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.registry"):
+            result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert "empty_scenario" not in result.loaded
+        assert all(e.name != "empty_scenario" for e in result.skipped)
+        assert caplog.records == []
