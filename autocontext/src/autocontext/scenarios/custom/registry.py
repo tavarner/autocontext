@@ -194,7 +194,7 @@ def _reconstruct_family_spec(spec_cls: type, raw: dict[str, Any]) -> Any:
             elem_type = args[0]
             if isinstance(elem_type, type) and issubclass(elem_type, BaseModel):
                 value = [elem_type.model_validate(item) if isinstance(item, dict) else item for item in value]
-            elif dataclasses.is_dataclass(elem_type):
+            elif isinstance(elem_type, type) and dataclasses.is_dataclass(elem_type):
                 value = [_reconstruct_family_spec(elem_type, item) if isinstance(item, dict) else item for item in value]
         kwargs[f.name] = value
     return spec_cls(**kwargs)
