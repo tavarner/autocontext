@@ -18,6 +18,7 @@ class FamilyCreatorConfig:
     designer_fn_path: str  # module:function for lazy import
     codegen_fn_path: str  # module:function for lazy import
     interface_class_path: str  # module:class for lazy import
+    spec_class_path: str  # module:class for the family-specific spec dataclass
 
 
 def _lazy_import(dotted_path: str) -> Any:
@@ -37,54 +38,63 @@ FAMILY_CONFIGS: dict[str, FamilyCreatorConfig] = {
         designer_fn_path="autocontext.scenarios.custom.simulation_designer:design_simulation",
         codegen_fn_path="autocontext.scenarios.custom.simulation_codegen:generate_simulation_class",
         interface_class_path="autocontext.scenarios.simulation:SimulationInterface",
+        spec_class_path="autocontext.scenarios.custom.simulation_spec:SimulationSpec",
     ),
     "artifact_editing": FamilyCreatorConfig(
         family="artifact_editing",
         designer_fn_path="autocontext.scenarios.custom.artifact_editing_designer:design_artifact_editing",
         codegen_fn_path="autocontext.scenarios.custom.artifact_editing_codegen:generate_artifact_editing_class",
         interface_class_path="autocontext.scenarios.artifact_editing:ArtifactEditingInterface",
+        spec_class_path="autocontext.scenarios.custom.artifact_editing_spec:ArtifactEditingSpec",
     ),
     "investigation": FamilyCreatorConfig(
         family="investigation",
         designer_fn_path="autocontext.scenarios.custom.investigation_designer:design_investigation",
         codegen_fn_path="autocontext.scenarios.custom.investigation_codegen:generate_investigation_class",
         interface_class_path="autocontext.scenarios.investigation:InvestigationInterface",
+        spec_class_path="autocontext.scenarios.custom.investigation_spec:InvestigationSpec",
     ),
     "workflow": FamilyCreatorConfig(
         family="workflow",
         designer_fn_path="autocontext.scenarios.custom.workflow_designer:design_workflow",
         codegen_fn_path="autocontext.scenarios.custom.workflow_codegen:generate_workflow_class",
         interface_class_path="autocontext.scenarios.workflow:WorkflowInterface",
+        spec_class_path="autocontext.scenarios.custom.workflow_spec:WorkflowSpec",
     ),
     "schema_evolution": FamilyCreatorConfig(
         family="schema_evolution",
         designer_fn_path="autocontext.scenarios.custom.schema_evolution_designer:design_schema_evolution",
         codegen_fn_path="autocontext.scenarios.custom.schema_evolution_codegen:generate_schema_evolution_class",
         interface_class_path="autocontext.scenarios.schema_evolution:SchemaEvolutionInterface",
+        spec_class_path="autocontext.scenarios.custom.schema_evolution_spec:SchemaEvolutionSpec",
     ),
     "tool_fragility": FamilyCreatorConfig(
         family="tool_fragility",
         designer_fn_path="autocontext.scenarios.custom.tool_fragility_designer:design_tool_fragility",
         codegen_fn_path="autocontext.scenarios.custom.tool_fragility_codegen:generate_tool_fragility_class",
         interface_class_path="autocontext.scenarios.tool_fragility:ToolFragilityInterface",
+        spec_class_path="autocontext.scenarios.custom.tool_fragility_spec:ToolFragilitySpec",
     ),
     "negotiation": FamilyCreatorConfig(
         family="negotiation",
         designer_fn_path="autocontext.scenarios.custom.negotiation_designer:design_negotiation",
         codegen_fn_path="autocontext.scenarios.custom.negotiation_codegen:generate_negotiation_class",
         interface_class_path="autocontext.scenarios.negotiation:NegotiationInterface",
+        spec_class_path="autocontext.scenarios.custom.negotiation_spec:NegotiationSpec",
     ),
     "operator_loop": FamilyCreatorConfig(
         family="operator_loop",
         designer_fn_path="autocontext.scenarios.custom.operator_loop_designer:design_operator_loop",
         codegen_fn_path="autocontext.scenarios.custom.operator_loop_codegen:generate_operator_loop_class",
         interface_class_path="autocontext.scenarios.operator_loop:OperatorLoopInterface",
+        spec_class_path="autocontext.scenarios.custom.operator_loop_spec:OperatorLoopSpec",
     ),
     "coordination": FamilyCreatorConfig(
         family="coordination",
         designer_fn_path="autocontext.scenarios.custom.coordination_designer:design_coordination",
         codegen_fn_path="autocontext.scenarios.custom.coordination_codegen:generate_coordination_class",
         interface_class_path="autocontext.scenarios.coordination:CoordinationInterface",
+        spec_class_path="autocontext.scenarios.custom.coordination_spec:CoordinationSpec",
     ),
 }
 
