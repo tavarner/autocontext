@@ -7,10 +7,13 @@ import re
 import types
 from typing import Any
 
+# Only explicit human-oversight / clarification semantics should short-circuit to
+# operator_loop here. Broader escalation language belongs to the family classifier,
+# which can still route geopolitical and statecraft prompts to simulation.
 _OPERATOR_LOOP_FAMILY_TRIGGERS = re.compile(
     r"operator|human[- .]?in[- .]?the[- .]?loop|clarif|approval.required|"
-    r"ambiguous|incomplete.input|ask.*question|missing.information|gather.more.info|"
-    r"when.to.escalat|over-escalat|under-escalat|triage.judgment"
+    r"ambiguous.support|incomplete input|ask.*question|missing.information|gather.more.info|"
+    r"when.to.escalat|triage.judgment"
 )
 
 
