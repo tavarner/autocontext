@@ -116,8 +116,12 @@ def _load_family_class(custom_dir: Path, name: str, marker: str) -> type[Any]:
             raise FileNotFoundError(f"agent task source not found: {agent_task_file}")
         return _load_agent_task_class(custom_dir, name)
 
-    if marker == "parametric":
-        _materialize_parametric_scenario_source(custom_dir, name)
+    source_path = custom_dir / name / "scenario.py"
+    if not source_path.exists():
+        if marker == "parametric":
+            _materialize_parametric_scenario_source(custom_dir, name)
+        else:
+            _auto_materialize_family_source(custom_dir, name, family.name)
 
     cls = load_custom_scenario(custom_dir, name, family.interface_class)
     detected = detect_family(cls())
@@ -160,6 +164,73 @@ def _summarize_load_failure(exc: BaseException, marker: str) -> str:
         return text.splitlines()[0][:200]
     except Exception:
         return exc.__class__.__name__
+
+
+def _reconstruct_family_spec(spec_cls: type, raw: dict[str, Any]) -> Any:
+    """Reconstruct a family spec dataclass from a plain JSON dict.
+
+    Handles nested pydantic BaseModels (via ``model_validate``) and nested
+    dataclasses (recursive). Best-effort: raises on missing required fields.
+    """
+    import dataclasses
+    import typing
+
+    from pydantic import BaseModel
+
+    hints = typing.get_type_hints(spec_cls)
+    kwargs: dict[str, Any] = {}
+    for f in dataclasses.fields(spec_cls):
+        if f.name not in raw:
+            if f.default is not dataclasses.MISSING:
+                continue
+            if f.default_factory is not dataclasses.MISSING:
+                continue
+            raise ValueError(f"missing required field '{f.name}' for {spec_cls.__name__}")
+        value = raw[f.name]
+        hint = hints.get(f.name)
+        origin = typing.get_origin(hint)
+        args = typing.get_args(hint)
+        if origin is list and args and isinstance(value, list):
+            elem_type = args[0]
+            if isinstance(elem_type, type) and issubclass(elem_type, BaseModel):
+                value = [elem_type.model_validate(item) if isinstance(item, dict) else item for item in value]
+            elif isinstance(elem_type, type) and dataclasses.is_dataclass(elem_type):
+                value = [_reconstruct_family_spec(elem_type, item) if isinstance(item, dict) else item for item in value]
+        kwargs[f.name] = value
+    return spec_cls(**kwargs)
+
+
+def _auto_materialize_family_source(custom_dir: Path, name: str, family_name: str) -> None:
+    """Auto-generate ``scenario.py`` from ``spec.json`` for any registered family.
+
+    Uses ``FAMILY_CONFIGS`` from ``creator_registry`` to find the spec class and
+    codegen function. Falls through (raises) if reconstruction or codegen fails
+    — callers handle failures via the Failure A/B diagnostic handlers.
+    """
+    from autocontext.scenarios.custom.creator_registry import FAMILY_CONFIGS, _lazy_import
+
+    config = FAMILY_CONFIGS.get(family_name)
+    if config is None:
+        raise FileNotFoundError(f"no FAMILY_CONFIGS entry for family '{family_name}'")
+
+    scenario_dir = custom_dir / name
+    spec_path = scenario_dir / "spec.json"
+    raw = json.loads(spec_path.read_text(encoding="utf-8"))
+
+    spec_cls = _lazy_import(config.spec_class_path)
+    spec = _reconstruct_family_spec(spec_cls, raw)
+
+    codegen_fn = _lazy_import(config.codegen_fn_path)
+    source = codegen_fn(spec, name=name)
+
+    source_path = scenario_dir / "scenario.py"
+    source_path.write_text(source, encoding="utf-8")
+
+    type_file = scenario_dir / "scenario_type.txt"
+    if not type_file.exists():
+        type_file.write_text(family_name, encoding="utf-8")
+
+    logger.info("auto-materialized scenario.py for '%s' (family=%s)", name, family_name)
 
 
 def load_custom_scenarios_detailed(knowledge_root: Path) -> ScenarioRegistryLoadResult:

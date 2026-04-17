@@ -14,6 +14,7 @@ import pytest
 from autocontext.scenarios.custom.registry import (
     ScenarioLoadError,
     ScenarioRegistryLoadResult,
+    _reconstruct_family_spec,
     load_all_custom_scenarios,
     load_custom_scenarios_detailed,
 )
@@ -116,6 +117,85 @@ def _write_agent_task_with_import_file_not_found(
     (scenario_dir / "agent_task.py").write_text(
         "from pathlib import Path\n"
         "Path(__file__).with_name('missing-data.txt').read_text(encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return scenario_dir
+
+
+def _write_ts_simulation_spec(knowledge_root: Path, name: str = "ts_simulation") -> Path:
+    """Write a scenario dir that mimics TS new-scenario output for a simulation family."""
+    scenario_dir = knowledge_root / "_custom_scenarios" / name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario_type.txt").write_text("simulation", encoding="utf-8")
+    (scenario_dir / "scenario.js").write_text("// TS generated source", encoding="utf-8")
+    (scenario_dir / "spec.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "scenario_type": "simulation",
+                "family": "simulation",
+                "description": "A test simulation created by TS.",
+                "environment_description": "A simulated environment with two variables.",
+                "initial_state_description": "Both variables start at zero.",
+                "success_criteria": ["Variable A reaches 10"],
+                "failure_modes": ["Variable A goes negative"],
+                "actions": [
+                    {
+                        "name": "increment_a",
+                        "description": "Add 1 to variable A",
+                        "parameters": {},
+                        "preconditions": ["Variable A is below 10"],
+                        "effects": ["Variable A increases by 1"],
+                    },
+                    {
+                        "name": "reset_a",
+                        "description": "Reset variable A to zero",
+                        "parameters": {},
+                        "preconditions": [],
+                        "effects": ["Variable A becomes 0"],
+                    },
+                ],
+                "max_steps": 5,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return scenario_dir
+
+
+def _write_ts_investigation_spec(knowledge_root: Path, name: str = "ts_investigation") -> Path:
+    """Write a scenario dir that mimics TS new-scenario output for investigation family."""
+    scenario_dir = knowledge_root / "_custom_scenarios" / name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario_type.txt").write_text("investigation", encoding="utf-8")
+    (scenario_dir / "scenario.js").write_text("// TS generated source", encoding="utf-8")
+    (scenario_dir / "spec.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "scenario_type": "investigation",
+                "family": "investigation",
+                "description": "A test investigation created by TS.",
+                "environment_description": "A system with intermittent failures.",
+                "initial_state_description": "System is in degraded state.",
+                "evidence_pool_description": "Logs, metrics, and traces are available.",
+                "diagnosis_target": "Identify the root cause of the degraded state.",
+                "success_criteria": ["Root cause correctly identified"],
+                "failure_modes": ["Wrong diagnosis accepted"],
+                "actions": [
+                    {
+                        "name": "check_logs",
+                        "description": "Review system logs",
+                        "parameters": {},
+                        "preconditions": [],
+                        "effects": ["Log entries revealed"],
+                    },
+                ],
+                "max_steps": 5,
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return scenario_dir
@@ -398,3 +478,117 @@ class TestRegistryIsolation:
         assert any(r.exc_text for r in debug_records), (
             "import-time FileNotFoundError should retain DEBUG traceback"
         )
+
+    def test_ts_created_simulation_auto_materializes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = _write_ts_simulation_spec(knowledge_root, name="ts_simulation")
+
+        loaded = load_all_custom_scenarios(knowledge_root)
+
+        assert "ts_simulation" in loaded, (
+            f"expected ts_simulation in loaded, got {list(loaded.keys())}"
+        )
+        assert (scenario_dir / "scenario.py").is_file(), "scenario.py should have been generated"
+
+    def test_ts_created_investigation_auto_materializes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = _write_ts_investigation_spec(knowledge_root, name="ts_investigation")
+
+        loaded = load_all_custom_scenarios(knowledge_root)
+
+        assert "ts_investigation" in loaded
+        assert (scenario_dir / "scenario.py").is_file()
+
+    def test_auto_materialize_falls_back_on_bad_family_spec(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """spec.json exists for simulation family but is missing required fields."""
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = knowledge_root / "_custom_scenarios" / "bad_sim"
+        scenario_dir.mkdir(parents=True, exist_ok=True)
+        (scenario_dir / "scenario_type.txt").write_text("simulation", encoding="utf-8")
+        (scenario_dir / "spec.json").write_text(
+            json.dumps(
+                {
+                    "name": "bad_sim",
+                    "scenario_type": "simulation",
+                    # Missing required simulation fields: environment_description, actions, etc.
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert "bad_sim" not in result.loaded
+        assert len(result.skipped) == 1
+        assert result.skipped[0].name == "bad_sim"
+
+    def test_parametric_auto_materialize_still_works(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Existing parametric path must still work — regression guard for the refactor."""
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = _write_valid_parametric_spec(knowledge_root, name="parametric_regression")
+
+        loaded = load_all_custom_scenarios(knowledge_root)
+
+        assert "parametric_regression" in loaded
+        assert (scenario_dir / "scenario.py").is_file()
+        scenario = loaded["parametric_regression"]()
+        assert scenario.name == "parametric_regression"
+
+    def test_reconstruct_handles_nested_pydantic_models(self) -> None:
+        from autocontext.scenarios.custom.simulation_spec import SimulationSpec
+
+        raw = {
+            "description": "test",
+            "environment_description": "env",
+            "initial_state_description": "init",
+            "success_criteria": ["win"],
+            "failure_modes": ["lose"],
+            "actions": [
+                {
+                    "name": "act1",
+                    "description": "do thing",
+                    "parameters": {},
+                    "preconditions": ["ready"],
+                    "effects": ["done"],
+                },
+            ],
+            "max_steps": 3,
+        }
+
+        spec = _reconstruct_family_spec(SimulationSpec, raw)
+
+        assert isinstance(spec, SimulationSpec)
+        assert spec.description == "test"
+        assert len(spec.actions) == 1
+        assert spec.actions[0].name == "act1"
+        assert spec.max_steps == 3
+
+    def test_reconstruct_handles_missing_optional_fields(self) -> None:
+        from autocontext.scenarios.custom.simulation_spec import SimulationSpec
+
+        raw = {
+            "description": "test",
+            "environment_description": "env",
+            "initial_state_description": "init",
+            "success_criteria": ["win"],
+            "failure_modes": ["lose"],
+            "actions": [],
+            # max_steps omitted — has default of 10
+        }
+
+        spec = _reconstruct_family_spec(SimulationSpec, raw)
+
+        assert spec.max_steps == 10
