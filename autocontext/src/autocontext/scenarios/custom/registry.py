@@ -128,6 +128,12 @@ def _load_family_class(custom_dir: Path, name: str, marker: str) -> type[Any]:
     return cls
 
 
+def _expected_compiled_source_path(entry: Path, marker: str) -> Path:
+    if marker == "agent_task":
+        return entry / "agent_task.py"
+    return entry / "scenario.py"
+
+
 def _summarize_load_failure(exc: BaseException, marker: str) -> str:
     """Render a single-line, user-friendly reason string for a load failure.
 
@@ -146,6 +152,10 @@ def _summarize_load_failure(exc: BaseException, marker: str) -> str:
             return "spec.json validation failed"
         if isinstance(exc, KeyError):
             return f"unknown scenario_type marker {marker!r}"
+        if isinstance(exc, FileNotFoundError):
+            missing = getattr(exc, "filename", None)
+            if missing:
+                return f"file not found: {Path(missing).name}"
         text = str(exc) or exc.__class__.__name__
         return text.splitlines()[0][:200]
     except Exception:
@@ -177,9 +187,12 @@ def load_custom_scenarios_detailed(knowledge_root: Path) -> ScenarioRegistryLoad
         try:
             cls = _load_family_class(custom_dir, name, marker)
             loaded[name] = cls
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             spec_path = entry / "spec.json"
-            if spec_path.exists():
+            expected_source = _expected_compiled_source_path(entry, marker)
+            if not spec_path.exists() and not expected_source.exists():
+                continue
+            if spec_path.exists() and not expected_source.exists():
                 reason = (
                     f"has spec.json but no compiled source for this package"
                     f" — run autoctx new-scenario --from-spec {spec_path} to materialize"
@@ -199,7 +212,27 @@ def load_custom_scenarios_detailed(knowledge_root: Path) -> ScenarioRegistryLoad
                     reason,
                 )
             else:
-                continue
+                reason = _summarize_load_failure(exc, marker)
+                skipped.append(
+                    ScenarioLoadError(
+                        name=name,
+                        spec_path=spec_path,
+                        reason=reason,
+                        marker=marker,
+                    )
+                )
+                logger.warning(
+                    "custom scenario %r skipped (%s): %s",
+                    name,
+                    spec_path,
+                    reason,
+                )
+                logger.debug(
+                    "custom scenario %r skipped (%s): full traceback",
+                    name,
+                    spec_path,
+                    exc_info=True,
+                )
         except Exception as exc:
             spec_path = entry / "spec.json"
             reason = _summarize_load_failure(exc, marker)

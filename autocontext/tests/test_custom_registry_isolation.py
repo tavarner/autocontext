@@ -102,6 +102,25 @@ def _write_spec_only_agent_task(knowledge_root: Path, name: str = "spec_only_tas
     return scenario_dir
 
 
+def _write_agent_task_with_import_file_not_found(
+    knowledge_root: Path,
+    name: str = "broken_import_task",
+) -> Path:
+    """Write an agent_task source that raises FileNotFoundError while importing."""
+    scenario_dir = knowledge_root / "_custom_scenarios" / name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario_type.txt").write_text("agent_task", encoding="utf-8")
+    (scenario_dir / "spec.json").write_text(
+        json.dumps({"name": name, "scenario_type": "agent_task"}), encoding="utf-8"
+    )
+    (scenario_dir / "agent_task.py").write_text(
+        "from pathlib import Path\n"
+        "Path(__file__).with_name('missing-data.txt').read_text(encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return scenario_dir
+
+
 def _write_malformed_spec(knowledge_root: Path, name: str = "regression_probe") -> Path:
     """Write a ``spec.json`` that is missing a required pydantic field."""
     scenario_dir = knowledge_root / "_custom_scenarios" / name
@@ -354,3 +373,28 @@ class TestRegistryIsolation:
         assert "empty_scenario" not in result.loaded
         assert all(e.name != "empty_scenario" for e in result.skipped)
         assert caplog.records == []
+
+    def test_import_file_not_found_uses_real_failure_reason(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        _write_agent_task_with_import_file_not_found(
+            knowledge_root, name="broken_import_task"
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="autocontext.scenarios.custom.registry"):
+            result = load_custom_scenarios_detailed(knowledge_root)
+
+        assert "broken_import_task" not in result.loaded
+        assert len(result.skipped) == 1
+        entry = result.skipped[0]
+        assert entry.name == "broken_import_task"
+        assert "missing-data.txt" in entry.reason
+        assert "no compiled source" not in entry.reason
+
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(r.exc_text for r in debug_records), (
+            "import-time FileNotFoundError should retain DEBUG traceback"
+        )
