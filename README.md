@@ -183,7 +183,7 @@ AUTOCONTEXT_CLAUDE_TIMEOUT=300 \
 uv run autoctx solve --description "improve customer-support replies for billing disputes" --gens 3
 ```
 
-For longer `autoctx judge` / `autoctx improve` prompts on `claude-cli`, use `--timeout <seconds>` or set `AUTOCONTEXT_CLAUDE_TIMEOUT`.
+For longer live prompts, `autoctx solve`, `autoctx judge`, and `autoctx improve` all accept `--timeout <seconds>`. `autoctx solve` also accepts `--generation-time-budget <seconds>` to cap per-generation solve runtime. You can still use provider env vars such as `AUTOCONTEXT_CLAUDE_TIMEOUT` or `AUTOCONTEXT_PI_TIMEOUT`.
 
 Run with Codex CLI:
 
