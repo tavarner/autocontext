@@ -121,6 +121,48 @@ def _write_agent_task_with_import_file_not_found(
     return scenario_dir
 
 
+def _write_ts_simulation_spec(knowledge_root: Path, name: str = "ts_simulation") -> Path:
+    """Write a scenario dir that mimics TS new-scenario output for a simulation family."""
+    scenario_dir = knowledge_root / "_custom_scenarios" / name
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+    (scenario_dir / "scenario_type.txt").write_text("simulation", encoding="utf-8")
+    (scenario_dir / "scenario.js").write_text("// TS generated source", encoding="utf-8")
+    (scenario_dir / "spec.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "scenario_type": "simulation",
+                "family": "simulation",
+                "description": "A test simulation created by TS.",
+                "environment_description": "A simulated environment with two variables.",
+                "initial_state_description": "Both variables start at zero.",
+                "success_criteria": ["Variable A reaches 10"],
+                "failure_modes": ["Variable A goes negative"],
+                "actions": [
+                    {
+                        "name": "increment_a",
+                        "description": "Add 1 to variable A",
+                        "parameters": {},
+                        "preconditions": ["Variable A is below 10"],
+                        "effects": ["Variable A increases by 1"],
+                    },
+                    {
+                        "name": "reset_a",
+                        "description": "Reset variable A to zero",
+                        "parameters": {},
+                        "preconditions": [],
+                        "effects": ["Variable A becomes 0"],
+                    },
+                ],
+                "max_steps": 5,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return scenario_dir
+
+
 def _write_malformed_spec(knowledge_root: Path, name: str = "regression_probe") -> Path:
     """Write a ``spec.json`` that is missing a required pydantic field."""
     scenario_dir = knowledge_root / "_custom_scenarios" / name
@@ -398,3 +440,17 @@ class TestRegistryIsolation:
         assert any(r.exc_text for r in debug_records), (
             "import-time FileNotFoundError should retain DEBUG traceback"
         )
+
+    def test_ts_created_simulation_auto_materializes(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        knowledge_root = tmp_path / "knowledge"
+        scenario_dir = _write_ts_simulation_spec(knowledge_root, name="ts_simulation")
+
+        loaded = load_all_custom_scenarios(knowledge_root)
+
+        assert "ts_simulation" in loaded, (
+            f"expected ts_simulation in loaded, got {list(loaded.keys())}"
+        )
+        assert (scenario_dir / "scenario.py").is_file(), "scenario.py should have been generated"
