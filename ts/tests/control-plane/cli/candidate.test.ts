@@ -108,6 +108,28 @@ describe("candidate register", () => {
     );
     expect(r.exitCode).not.toBe(0);
   });
+
+  test("rejects malformed actuator payloads before saving the candidate", async () => {
+    const policyPayload = join(tmp, "bad-policy");
+    mkdirSync(policyPayload, { recursive: true });
+    writeFileSync(join(policyPayload, "policy.json"), JSON.stringify({ version: "2", tools: {} }));
+
+    const r = await runControlPlaneCommand(
+      [
+        "candidate",
+        "register",
+        "--scenario",
+        "grid_ctf",
+        "--actuator",
+        "tool-policy",
+        "--payload",
+        policyPayload,
+      ],
+      { cwd: tmp },
+    );
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toMatch(/Invalid tool-policy payload/);
+  });
 });
 
 describe("candidate list / show / lineage", () => {

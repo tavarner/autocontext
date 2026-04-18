@@ -8,7 +8,7 @@
 // argument; they never import it themselves (§3.2 import discipline).
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { EnvironmentTag, Scenario } from "../contract/branded-ids.js";
 
 export interface WorkspaceLayout {
@@ -40,6 +40,26 @@ type PartialOverrides = {
 function makeScenarioDir(template: string): (scenario: Scenario, env: EnvironmentTag) => string {
   return (scenario, env) =>
     template.replace(/\$\{scenario\}/g, scenario).replace(/\$\{env\}/g, env);
+}
+
+export function isSafeWorkspaceRelativePath(path: string): boolean {
+  if (path.length === 0) return false;
+  if (path.includes("\0") || path.includes("\\")) return false;
+  if (posix.isAbsolute(path)) return false;
+  return path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
+function assertSafeLayoutPath(name: keyof PartialOverrides, value: string): void {
+  if (!isSafeWorkspaceRelativePath(value)) {
+    throw new Error(
+      `loadWorkspaceLayout: ${name} must be a safe relative path without absolute paths or '..' segments`,
+    );
+  }
+}
+
+function assertSafeScenarioDirTemplate(template: string): void {
+  const sample = makeScenarioDir(template)("scenario" as Scenario, "production" as EnvironmentTag);
+  assertSafeLayoutPath("scenarioDirTemplate", sample);
 }
 
 export function defaultWorkspaceLayout(): WorkspaceLayout {
@@ -82,18 +102,29 @@ export function loadWorkspaceLayout(cwd: string): WorkspaceLayout {
     typeof overrides.scenarioDirTemplate === "string"
       ? overrides.scenarioDirTemplate
       : DEFAULTS.scenarioDirTemplate;
+  assertSafeScenarioDirTemplate(template);
+
+  const promptSubdir =
+    typeof overrides.promptSubdir === "string" ? overrides.promptSubdir : DEFAULTS.promptSubdir;
+  const policySubdir =
+    typeof overrides.policySubdir === "string" ? overrides.policySubdir : DEFAULTS.policySubdir;
+  const routingSubdir =
+    typeof overrides.routingSubdir === "string" ? overrides.routingSubdir : DEFAULTS.routingSubdir;
+  const modelPointerSubdir =
+    typeof overrides.modelPointerSubdir === "string"
+      ? overrides.modelPointerSubdir
+      : DEFAULTS.modelPointerSubdir;
+
+  assertSafeLayoutPath("promptSubdir", promptSubdir);
+  assertSafeLayoutPath("policySubdir", policySubdir);
+  assertSafeLayoutPath("routingSubdir", routingSubdir);
+  assertSafeLayoutPath("modelPointerSubdir", modelPointerSubdir);
 
   return {
     scenarioDir: makeScenarioDir(template),
-    promptSubdir:
-      typeof overrides.promptSubdir === "string" ? overrides.promptSubdir : DEFAULTS.promptSubdir,
-    policySubdir:
-      typeof overrides.policySubdir === "string" ? overrides.policySubdir : DEFAULTS.policySubdir,
-    routingSubdir:
-      typeof overrides.routingSubdir === "string" ? overrides.routingSubdir : DEFAULTS.routingSubdir,
-    modelPointerSubdir:
-      typeof overrides.modelPointerSubdir === "string"
-        ? overrides.modelPointerSubdir
-        : DEFAULTS.modelPointerSubdir,
+    promptSubdir,
+    policySubdir,
+    routingSubdir,
+    modelPointerSubdir,
   };
 }

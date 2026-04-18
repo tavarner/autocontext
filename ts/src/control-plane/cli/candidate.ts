@@ -23,6 +23,10 @@ import { openRegistry, type ListCandidatesFilter, type Registry } from "../regis
 import { validateLineageNoCycles } from "../contract/invariants.js";
 import { CascadeRollbackRequired } from "../actuators/errors.js";
 import { getActuator } from "../actuators/registry.js";
+import { PROMPT_PATCH_FILENAME } from "../actuators/prompt-patch/schema.js";
+import { TOOL_POLICY_FILENAME } from "../actuators/tool-policy/schema.js";
+import { ROUTING_RULE_FILENAME } from "../actuators/routing-rule/schema.js";
+import { FINE_TUNED_MODEL_FILENAME } from "../actuators/fine-tuned-model/schema.js";
 import { EXIT } from "./_shared/exit-codes.js";
 import { formatOutput, type OutputMode } from "./_shared/output-formatters.js";
 import type { CliResult, CliContext } from "./types.js";
@@ -33,6 +37,13 @@ const ACTUATOR_TYPES: readonly ActuatorType[] = [
   "routing-rule",
   "fine-tuned-model",
 ];
+
+const PAYLOAD_FILE_BY_ACTUATOR: Readonly<Record<ActuatorType, string>> = {
+  "prompt-patch": PROMPT_PATCH_FILENAME,
+  "tool-policy": TOOL_POLICY_FILENAME,
+  "routing-rule": ROUTING_RULE_FILENAME,
+  "fine-tuned-model": FINE_TUNED_MODEL_FILENAME,
+};
 
 export const CANDIDATE_HELP_TEXT = `autoctx candidate — manage control-plane candidate artifacts
 
@@ -120,6 +131,15 @@ async function runRegister(args: readonly string[], ctx: CliContext): Promise<Cl
       stdout: "",
       stderr: `Payload path does not exist or is not a directory: ${payloadAbs}`,
       exitCode: EXIT.IO_ERROR,
+    };
+  }
+
+  const payloadError = validateActuatorPayload(flags.actuator as ActuatorType, payloadAbs);
+  if (payloadError !== null) {
+    return {
+      stdout: "",
+      stderr: payloadError,
+      exitCode: EXIT.VALIDATION_FAILED,
     };
   }
 
@@ -516,4 +536,35 @@ function collectTree(root: string): TreeFile[] {
   }
   walk(root);
   return out;
+}
+
+function validateActuatorPayload(actuatorType: ActuatorType, payloadAbs: string): string | null {
+  const reg = getActuator(actuatorType);
+  if (reg === null) {
+    return `No actuator registered for type: ${actuatorType}`;
+  }
+  const fileName = PAYLOAD_FILE_BY_ACTUATOR[actuatorType];
+  const filePath = join(payloadAbs, fileName);
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    return `Payload for ${actuatorType} must include ${fileName}`;
+  }
+
+  let raw: unknown;
+  try {
+    if (actuatorType === "prompt-patch") {
+      raw = readFileSync(filePath, "utf-8");
+    } else {
+      raw = JSON.parse(readFileSync(filePath, "utf-8"));
+    }
+  } catch (err) {
+    return `Invalid ${actuatorType} payload in ${fileName}: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  try {
+    reg.actuator.parsePayload(raw);
+  } catch (err) {
+    return `Invalid ${actuatorType} payload in ${fileName}: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  return null;
 }

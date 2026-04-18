@@ -18,7 +18,7 @@ let tmp: string;
 async function registerPayload(content: string): Promise<string> {
   const d = join(tmp, "payload-" + Math.random().toString(36).slice(2));
   mkdirSync(d, { recursive: true });
-  writeFileSync(join(d, "f.txt"), content);
+  writeFileSync(join(d, "prompt.txt"), content);
   const r = await runControlPlaneCommand(
     ["candidate", "register", "--scenario", "grid_ctf", "--actuator", "prompt-patch", "--payload", d, "--output", "json"],
     { cwd: tmp },

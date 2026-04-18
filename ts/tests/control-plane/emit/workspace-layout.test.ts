@@ -90,4 +90,13 @@ describe("loadWorkspaceLayout", () => {
     writeFileSync(join(cwd, ".autocontext", "workspace.json"), "{not json");
     expect(() => loadWorkspaceLayout(cwd)).toThrow(/workspace\.json/);
   });
+
+  test("rejects traversal in workspace path overrides", () => {
+    mkdirSync(join(cwd, ".autocontext"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".autocontext", "workspace.json"),
+      JSON.stringify({ scenarioDirTemplate: "../escape/${scenario}" }),
+    );
+    expect(() => loadWorkspaceLayout(cwd)).toThrow(/safe relative path|scenarioDirTemplate/);
+  });
 });

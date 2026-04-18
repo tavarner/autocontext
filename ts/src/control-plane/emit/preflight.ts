@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import type { Artifact } from "../contract/types.js";
 import type { Registry } from "../registry/index.js";
-import type { WorkspaceLayout } from "./workspace-layout.js";
+import { isSafeWorkspaceRelativePath, type WorkspaceLayout } from "./workspace-layout.js";
 import { getActuator } from "../actuators/registry.js";
 
 export type PreflightMode = "patch-only" | "git" | "gh";
@@ -80,7 +80,12 @@ export function preflight(inputs: PreflightInputs): PreflightResult {
     // Resolve the target path and verify it syntactically matches the actuator's
     // allowed pattern. Pattern syntax is a simple glob with `**` and `*`.
     const target = reg.actuator.resolveTargetPath(candidate, inputs.layout);
-    if (!matchesGlob(target, reg.allowedTargetPattern)) {
+    if (!isSafeWorkspaceRelativePath(target)) {
+      issues.push({
+        code: 13,
+        message: `Resolved target path '${target}' must stay within the working tree.`,
+      });
+    } else if (!matchesGlob(target, reg.allowedTargetPattern)) {
       issues.push({
         code: 13,
         message: `Resolved target path '${target}' does not match allowed pattern '${reg.allowedTargetPattern}'.`,

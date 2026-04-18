@@ -12,6 +12,20 @@ import { validateEvalRun } from "../contract/validators.js";
 import { canonicalJsonStringify } from "../contract/canonical-json.js";
 
 const EVAL_RUNS_DIR = "eval-runs";
+const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+export function isPathSafeRunId(runId: string): boolean {
+  return RUN_ID_RE.test(runId);
+}
+
+function evalRunPath(artifactDir: string, runId: string): string {
+  if (!isPathSafeRunId(runId)) {
+    throw new Error(
+      `EvalRun runId must be a path-safe identifier matching ${RUN_ID_RE.source}`,
+    );
+  }
+  return join(artifactDir, EVAL_RUNS_DIR, `${runId}.json`);
+}
 
 /**
  * Persist an EvalRun under `<artifactDir>/eval-runs/<runId>.json`.
@@ -25,14 +39,14 @@ export function saveEvalRun(artifactDir: string, run: EvalRun): void {
   }
   const dir = join(artifactDir, EVAL_RUNS_DIR);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${run.runId}.json`), canonicalJsonStringify(run), "utf-8");
+  writeFileSync(evalRunPath(artifactDir, run.runId), canonicalJsonStringify(run), "utf-8");
 }
 
 /**
  * Read an EvalRun by runId. Throws if the file is missing or malformed.
  */
 export function loadEvalRun(artifactDir: string, runId: string): EvalRun {
-  const path = join(artifactDir, EVAL_RUNS_DIR, `${runId}.json`);
+  const path = evalRunPath(artifactDir, runId);
   if (!existsSync(path)) {
     throw new Error(`loadEvalRun: runId ${runId} not found at ${path}`);
   }

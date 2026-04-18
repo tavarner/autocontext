@@ -140,6 +140,31 @@ describe("preflight — unknown actuator type (exit 13)", () => {
   });
 });
 
+describe("preflight — unsafe target path (exit 13)", () => {
+  test("rejects layout targets that would escape the working tree", () => {
+    const { artifact, payloadDir } = mkArtifactWithPayload("grid_ctf");
+    const registry = openRegistry(tmp);
+    registry.saveArtifact(artifact, payloadDir);
+    attachSimpleEvalRun(artifact);
+    const reloaded = registry.loadArtifact(artifact.id);
+    const layout = {
+      ...defaultWorkspaceLayout(),
+      scenarioDir: () => "../escape/agents/grid_ctf",
+    };
+
+    const result = preflight({
+      registry,
+      candidate: reloaded,
+      mode: "patch-only",
+      cwd: tmp,
+      layout,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((i) => i.code)).toContain(13);
+    expect(result.issues.map((i) => i.message).join("\n")).toMatch(/working tree/);
+  });
+});
+
 describe("preflight — multiple issues aggregated", () => {
   test("returns every issue, not just the first", () => {
     const { artifact, payloadDir } = mkArtifactWithPayload("grid_ctf");

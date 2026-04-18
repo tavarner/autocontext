@@ -132,6 +132,16 @@ describe("attachEvalRun", () => {
     await expect(attachEvalRun(reg, bad)).rejects.toThrow(/safety|valid/i);
   });
 
+  test("rejects path-unsafe runIds before writing eval files", async () => {
+    const artifact = setupArtifact(registryRoot);
+    const reg = openRegistry(registryRoot);
+    const run = makeEvalRun(artifact.id, "../../../../outside-runid");
+
+    await expect(attachEvalRun(reg, run)).rejects.toThrow(/runId|path-safe|pattern/i);
+    expect(existsSync(join(registryRoot, "outside-runid.json"))).toBe(false);
+    expect(existsSync(join(artifactDirectory(registryRoot, artifact.id), "outside-runid.json"))).toBe(false);
+  });
+
   test("rejects unknown artifactId", async () => {
     setupArtifact(registryRoot);
     const reg = openRegistry(registryRoot);
