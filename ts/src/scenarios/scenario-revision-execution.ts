@@ -1,4 +1,5 @@
 import type { LLMProvider } from "../types/index.js";
+import { parseJsonObjectFromResponse } from "./llm-json-response.js";
 import { normalizeScenarioRevisionSpec } from "./revision-spec-normalizer.js";
 
 export interface ExecuteScenarioRevisionOpts {
@@ -16,27 +17,7 @@ export interface ExecutedScenarioRevisionResult {
   error?: string;
 }
 
-export function parseJsonFromLLMResponse(text: string): Record<string, unknown> | null {
-  const trimmed = text.trim();
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // continue
-  }
-
-  const jsonStart = trimmed.indexOf("{");
-  const jsonEnd = trimmed.lastIndexOf("}");
-  if (jsonStart !== -1 && jsonEnd > jsonStart) {
-    try {
-      return JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
-    } catch {
-      // continue
-    }
-  }
-
-  return null;
-}
+export const parseJsonFromLLMResponse = parseJsonObjectFromResponse;
 
 export async function executeScenarioRevision(
   opts: ExecuteScenarioRevisionOpts,

@@ -1,6 +1,7 @@
 import type { SchemaEvolutionSpec } from "./schema-evolution-spec.js";
 import { parseRawSchemaEvolutionSpec } from "./schema-evolution-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const SCHEMA_EVOLUTION_SPEC_START = "<!-- SCHEMA_EVOLUTION_SPEC_START -->";
 export const SCHEMA_EVOLUTION_SPEC_END = "<!-- SCHEMA_EVOLUTION_SPEC_END -->";
@@ -100,14 +101,16 @@ ${SCHEMA_EVOLUTION_SPEC_END}
 `;
 
 export function parseSchemaEvolutionSpec(text: string): SchemaEvolutionSpec {
-  const startIdx = text.indexOf(SCHEMA_EVOLUTION_SPEC_START);
-  const endIdx = text.indexOf(SCHEMA_EVOLUTION_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain SCHEMA_EVOLUTION_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + SCHEMA_EVOLUTION_SPEC_START.length, endIdx).trim();
   return parseRawSchemaEvolutionSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "schema_evolution"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: SCHEMA_EVOLUTION_SPEC_START,
+        endDelimiter: SCHEMA_EVOLUTION_SPEC_END,
+        missingDelimiterLabel: "SCHEMA_EVOLUTION_SPEC",
+      }),
+      "schema_evolution",
+    ),
   );
 }
 

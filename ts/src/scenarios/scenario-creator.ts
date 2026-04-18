@@ -57,6 +57,30 @@ type SimulationLikeCreatedSpecInput = {
   extras?: Record<string, unknown>;
 };
 
+const FAMILY_HEADER_REGEX = /^\*\*Family:\*\*\s*(.+)$/im;
+
+function resolveScenarioFamilyHint(description: string): ScenarioFamilyName | null {
+  const match = FAMILY_HEADER_REGEX.exec(description);
+  if (!match) {
+    return null;
+  }
+
+  const rawHint = match[1] ?? "";
+  for (const token of rawHint.split(/[\/,|]/)) {
+    const candidate = token
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-\s]/g, " ")
+      .trim()
+      .replace(/-/g, "_")
+      .replace(/\s+/g, "_");
+    if (isScenarioFamilyName(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Derive a snake_case scenario name from a description.
  */
@@ -86,6 +110,12 @@ export function deriveScenarioName(description: string): string {
  */
 export function detectScenarioFamily(description: string): ScenarioFamilyName {
   if (!description.trim()) return "agent_task";
+
+  const hintedFamily = resolveScenarioFamilyHint(description);
+  if (hintedFamily) {
+    return hintedFamily === "game" ? "agent_task" : hintedFamily;
+  }
+
   try {
     const family = routeToFamily(classifyScenarioFamily(description), 0.15);
     return family === "game" ? "agent_task" : family;
