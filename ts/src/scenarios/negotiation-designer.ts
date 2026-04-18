@@ -1,6 +1,7 @@
 import type { NegotiationSpec } from "./negotiation-spec.js";
 import { parseRawNegotiationSpec } from "./negotiation-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const NEGOTIATION_SPEC_START = "<!-- NEGOTIATION_SPEC_START -->";
 export const NEGOTIATION_SPEC_END = "<!-- NEGOTIATION_SPEC_END -->";
@@ -91,14 +92,16 @@ ${NEGOTIATION_SPEC_END}
 `;
 
 export function parseNegotiationSpec(text: string): NegotiationSpec {
-  const startIdx = text.indexOf(NEGOTIATION_SPEC_START);
-  const endIdx = text.indexOf(NEGOTIATION_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain NEGOTIATION_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + NEGOTIATION_SPEC_START.length, endIdx).trim();
   return parseRawNegotiationSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "negotiation"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: NEGOTIATION_SPEC_START,
+        endDelimiter: NEGOTIATION_SPEC_END,
+        missingDelimiterLabel: "NEGOTIATION_SPEC",
+      }),
+      "negotiation",
+    ),
   );
 }
 

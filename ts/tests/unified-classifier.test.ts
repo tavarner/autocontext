@@ -96,6 +96,20 @@ describe("detectScenarioFamily routes all custom-scenario families (AC-437)", ()
     expect(family).toBe("schema_evolution");
   });
 
+  it("routes the AC-277 portfolio regime-change stress prompt to schema_evolution", () => {
+    const family = detectScenarioFamily(
+      "Build and run a 10-generation portfolio construction simulation using SchemaEvolutionInterface and WorldState. Each generation, the agent receives macro indicators, volatility metrics, geopolitical signals, and the current portfolio. After generation 3 apply a breaking SchemaMutation for a rate-hike regime, and after generation 6 apply a breaking SchemaMutation for a crisis regime. The agent should maintain and evolve a playbook of regime-specific investment heuristics across mutations.",
+    );
+    expect(family).toBe("schema_evolution");
+  });
+
+  it("prefers a supported Family header from scenario proposal metadata", () => {
+    const family = detectScenarioFamily(
+      "## Scenario Proposal\n\n**Family:** coordination / adversarial_self_play\n\n### Description\n\nThree instances collaborate in role rotation to critique and revise the same artifact.",
+    );
+    expect(family).toBe("coordination");
+  });
+
   it("routes tool_fragility descriptions correctly", () => {
     const family = detectScenarioFamily(
       "Test agent behavior when tool drift causes API contract changes requiring adaptation",

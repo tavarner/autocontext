@@ -163,6 +163,8 @@ const SCHEMA_EVOLUTION_SIGNALS: Record<string, number> = {
   "schema evolv": 2.0,
   "schema evolution": 2.0,
   "schema-evolution": 2.0,
+  schemaevolutioninterface: 2.5,
+  schemamutation: 2.5,
   "stale context": 2.0,
   "schema migration": 2.0,
   "breaking change": 2.0,

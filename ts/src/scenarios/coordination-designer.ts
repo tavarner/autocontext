@@ -1,6 +1,7 @@
 import type { CoordinationSpec } from "./coordination-spec.js";
 import { parseRawCoordinationSpec } from "./coordination-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const COORDINATION_SPEC_START = "<!-- COORDINATION_SPEC_START -->";
 export const COORDINATION_SPEC_END = "<!-- COORDINATION_SPEC_END -->";
@@ -80,14 +81,16 @@ ${COORDINATION_SPEC_END}
 `;
 
 export function parseCoordinationSpec(text: string): CoordinationSpec {
-  const startIdx = text.indexOf(COORDINATION_SPEC_START);
-  const endIdx = text.indexOf(COORDINATION_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain COORDINATION_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + COORDINATION_SPEC_START.length, endIdx).trim();
   return parseRawCoordinationSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "coordination"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: COORDINATION_SPEC_START,
+        endDelimiter: COORDINATION_SPEC_END,
+        missingDelimiterLabel: "COORDINATION_SPEC",
+      }),
+      "coordination",
+    ),
   );
 }
 

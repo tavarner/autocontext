@@ -1,6 +1,7 @@
 import type { OperatorLoopSpec } from "./operator-loop-spec.js";
 import { parseRawOperatorLoopSpec } from "./operator-loop-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const OPERATOR_LOOP_SPEC_START = "<!-- OPERATOR_LOOP_SPEC_START -->";
 export const OPERATOR_LOOP_SPEC_END = "<!-- OPERATOR_LOOP_SPEC_END -->";
@@ -41,14 +42,16 @@ Rules:
 `;
 
 export function parseOperatorLoopSpec(text: string): OperatorLoopSpec {
-  const startIdx = text.indexOf(OPERATOR_LOOP_SPEC_START);
-  const endIdx = text.indexOf(OPERATOR_LOOP_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain OPERATOR_LOOP_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + OPERATOR_LOOP_SPEC_START.length, endIdx).trim();
   return parseRawOperatorLoopSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "operator_loop"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: OPERATOR_LOOP_SPEC_START,
+        endDelimiter: OPERATOR_LOOP_SPEC_END,
+        missingDelimiterLabel: "OPERATOR_LOOP_SPEC",
+      }),
+      "operator_loop",
+    ),
   );
 }
 

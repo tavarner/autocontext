@@ -1,6 +1,7 @@
 import type { WorkflowSpec } from "./workflow-spec.js";
 import { parseRawWorkflowSpec } from "./workflow-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const WORKFLOW_SPEC_START = "<!-- WORKFLOW_SPEC_START -->";
 export const WORKFLOW_SPEC_END = "<!-- WORKFLOW_SPEC_END -->";
@@ -112,14 +113,16 @@ ${WORKFLOW_SPEC_END}
 `;
 
 export function parseWorkflowSpec(text: string): WorkflowSpec {
-  const startIdx = text.indexOf(WORKFLOW_SPEC_START);
-  const endIdx = text.indexOf(WORKFLOW_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain WORKFLOW_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + WORKFLOW_SPEC_START.length, endIdx).trim();
   return parseRawWorkflowSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "workflow"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: WORKFLOW_SPEC_START,
+        endDelimiter: WORKFLOW_SPEC_END,
+        missingDelimiterLabel: "WORKFLOW_SPEC",
+      }),
+      "workflow",
+    ),
   );
 }
 

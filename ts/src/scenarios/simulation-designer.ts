@@ -1,6 +1,7 @@
 import type { SimulationSpec } from "./simulation-spec.js";
 import { parseRawSimulationSpec } from "./simulation-spec.js";
 import { healSpec } from "./spec-auto-heal.js";
+import { parseDelimitedJsonObject } from "./llm-json-response.js";
 
 export const SIM_SPEC_START = "<!-- SIMULATION_SPEC_START -->";
 export const SIM_SPEC_END = "<!-- SIMULATION_SPEC_END -->";
@@ -73,14 +74,16 @@ ${SIM_SPEC_END}
 `;
 
 export function parseSimulationSpec(text: string): SimulationSpec {
-  const startIdx = text.indexOf(SIM_SPEC_START);
-  const endIdx = text.indexOf(SIM_SPEC_END);
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error("response does not contain SIMULATION_SPEC delimiters");
-  }
-  const raw = text.slice(startIdx + SIM_SPEC_START.length, endIdx).trim();
   return parseRawSimulationSpec(
-    healSpec(JSON.parse(raw) as Record<string, unknown>, "simulation"),
+    healSpec(
+      parseDelimitedJsonObject({
+        text,
+        startDelimiter: SIM_SPEC_START,
+        endDelimiter: SIM_SPEC_END,
+        missingDelimiterLabel: "SIMULATION_SPEC",
+      }),
+      "simulation",
+    ),
   );
 }
 
