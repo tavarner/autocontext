@@ -50,6 +50,7 @@ _SOLVE_DESCRIPTION_SKIP_LINE_PREFIXES = (
     "**Generations to signal:**",
 )
 _SOLVE_FAMILY_ALIASES = {
+    "alignment_stress_test": "agent_task",
     "meta_learning": "agent_task",
     "capability_bootstrapping": "agent_task",
 }
@@ -58,6 +59,10 @@ _SIMULATION_INTERFACE_HINT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _AGENT_TASK_INTERFACE_HINT_RE = re.compile(r"\bagent[- ]task evaluation\b", re.IGNORECASE)
+_SOLVE_INLINE_EXAMPLE_PAREN_RE = re.compile(
+    r"\(\s*(?:e\.g\.,?|eg,?|for example,?)[^)]*\)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -309,7 +314,9 @@ def _build_solve_description_brief(description: str) -> str:
             lines.append(raw_line)
 
     brief = "\n".join(lines).strip()
+    brief = _SOLVE_INLINE_EXAMPLE_PAREN_RE.sub("", brief)
     brief = re.sub(r"\n{3,}", "\n\n", brief)
+    brief = re.sub(r"[ \t]{2,}", " ", brief)
     return brief or description.strip()
 
 
