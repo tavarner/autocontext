@@ -57,6 +57,13 @@ Commands:
   mcp-serve        Start MCP server on stdio
   version          Show version
 
+Control plane (Layer 7-9):
+  candidate        Register/list/show/lineage/rollback control-plane artifacts
+  eval             Attach/list EvalRuns on artifacts
+  promotion        Decide/apply/history for promotion transitions
+  registry         Repair/validate/migrate the control-plane registry
+  emit-pr          Generate a promotion PR (or dry-run bundle) for a candidate
+
 Python-only commands (not supported in npm package):
   ecosystem, ab-test, resume, wait, trigger-distillation
 
@@ -184,6 +191,13 @@ async function main(): Promise<void> {
       break;
     case "blob":
       await cmdBlob();
+      break;
+    case "candidate":
+    case "eval":
+    case "promotion":
+    case "registry":
+    case "emit-pr":
+      await cmdControlPlane(command);
       break;
     default:
       console.error(`Unknown command: ${command}\n`);
@@ -2899,6 +2913,21 @@ async function cmdBlob(): Promise<void> {
       );
       process.exit(1);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Control-plane commands (Layer 8 — candidate / eval / promotion / registry)
+// ---------------------------------------------------------------------------
+
+async function cmdControlPlane(topCommand: string): Promise<void> {
+  const { runControlPlaneCommand } = await import(
+    "../control-plane/cli/index.js"
+  );
+  const subArgs = process.argv.slice(3);
+  const result = await runControlPlaneCommand([topCommand, ...subArgs]);
+  if (result.stdout) process.stdout.write(result.stdout + "\n");
+  if (result.stderr) process.stderr.write(result.stderr + "\n");
+  process.exit(result.exitCode);
 }
 
 main().catch((err) => {
