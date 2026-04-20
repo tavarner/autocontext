@@ -8,7 +8,10 @@ Release-validation helper: run every "Scenarios"-state Linear issue through
 - `jq` and Python 3.11+ on PATH.
 - `autoctx` CLI installed (either a published release `pip install autocontext==0.4.4`
   or run the checked-out source via `cd autocontext && uv run autoctx ...`).
-- `ANTHROPIC_API_KEY` (or the provider-specific equivalent) exported.
+- An agent provider. By default the harness uses `AUTOCONTEXT_AGENT_PROVIDER=claude-cli`,
+  which invokes the locally-authenticated `claude` binary (Anthropic subscription) — no
+  API key needed. Override with `AUTOCONTEXT_AGENT_PROVIDER=anthropic` (+ `ANTHROPIC_API_KEY`),
+  `agent_sdk`, `pi`, etc. if you want to exercise a different path.
 - Linear API key either in `$LINEAR_API_KEY` or at
   `~/.config/linear/credentials.toml` under a `greyhaven = "<key>"` entry.
 

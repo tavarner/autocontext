@@ -8,10 +8,20 @@
 # payload) and one <identifier>.meta.json with {identifier, exit_code,
 # elapsed_seconds}. A final <output_dir>/index.json lists all runs.
 #
-# Prerequisites: ANTHROPIC_API_KEY (or equivalent provider credential) must be
-# exported; autoctx must be on PATH (or run from the autocontext/ dir).
+# Provider: defaults to `claude-cli` (uses the authenticated `claude` binary
+# on PATH — no Anthropic API key needed). Override with
+# AUTOCONTEXT_AGENT_PROVIDER=... if you prefer `anthropic`, `agent_sdk`, etc.
+# Those modes need the provider-specific credential in the environment.
+#
+# Prerequisites:
+#   - `autoctx` on PATH (or run from the autocontext/ source dir)
+#   - For claude-cli provider: `claude` CLI installed and authenticated
+#   - For anthropic/agent_sdk: ANTHROPIC_API_KEY exported
 
 set -euo pipefail
+
+: "${AUTOCONTEXT_AGENT_PROVIDER:=claude-cli}"
+export AUTOCONTEXT_AGENT_PROVIDER
 
 if [[ $# -lt 2 ]]; then
   echo "usage: $0 <manifest.json> <output_dir> [--gens N] [--timeout SEC]" >&2
@@ -40,7 +50,8 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 COUNT=$(jq 'length' "$MANIFEST")
-echo "sweeping $COUNT scenarios from $MANIFEST → $OUTPUT_DIR (gens=$GENS timeout=${TIMEOUT}s)" >&2
+echo "sweeping $COUNT scenarios from $MANIFEST → $OUTPUT_DIR" >&2
+echo "  provider=$AUTOCONTEXT_AGENT_PROVIDER gens=$GENS timeout=${TIMEOUT}s" >&2
 
 INDEX=()
 for i in $(seq 0 $((COUNT - 1))); do
