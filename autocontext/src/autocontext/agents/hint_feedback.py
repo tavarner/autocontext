@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _HINT_REFLECTION_MAX_HINTS = 4
 _HINT_REFLECTION_MAX_HINT_CHARS = 72
 _HINT_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(.*\S)\s*$")
-_HINT_MARKUP_RE = re.compile(r"[*_`]+")
+_HINT_MARKUP_RE = re.compile(r"[*`]+")
 _HINT_WS_RE = re.compile(r"\s+")
 
 

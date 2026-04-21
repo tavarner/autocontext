@@ -142,6 +142,15 @@ class TestBuildHintReflectionPrompt:
         assert "helpful_hint_numbers" in prompt
         assert "Try aggression=0.60 with defense=0.55 for balanced scoring." not in prompt
 
+    def test_preserves_identifier_underscores_during_hint_sanitization(self) -> None:
+        from autocontext.agents.hint_feedback import prepare_hint_reflection_items
+
+        items = prepare_hint_reflection_items(
+            "- Keep `path_bias` between 0.50 and 0.60 for stability."
+        )
+
+        assert items == ["Keep path_bias between 0.50 and 0.60 for stability."]
+
     def test_empty_hints(self) -> None:
         from autocontext.agents.hint_feedback import build_hint_reflection_prompt
 
