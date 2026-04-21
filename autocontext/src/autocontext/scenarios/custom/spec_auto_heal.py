@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import replace
 from typing import Any
@@ -140,7 +141,44 @@ def heal_spec_quality_threshold(spec: AgentTaskSpec) -> AgentTaskSpec:
 
     Valid values pass through unchanged.
     """
-    qt = spec.quality_threshold
+    qt_raw = spec.quality_threshold
+    if isinstance(qt_raw, bool):
+        logger.warning(
+            "heal_spec_quality_threshold: invalid quality_threshold %r, falling back to default %s",
+            qt_raw,
+            _QUALITY_THRESHOLD_DEFAULT,
+        )
+        return replace(spec, quality_threshold=_QUALITY_THRESHOLD_DEFAULT)
+
+    if isinstance(qt_raw, str):
+        try:
+            qt = float(qt_raw.strip())
+        except ValueError:
+            logger.warning(
+                "heal_spec_quality_threshold: invalid quality_threshold %r, falling back to default %s",
+                qt_raw,
+                _QUALITY_THRESHOLD_DEFAULT,
+            )
+            return replace(spec, quality_threshold=_QUALITY_THRESHOLD_DEFAULT)
+    else:
+        try:
+            qt = float(qt_raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "heal_spec_quality_threshold: invalid quality_threshold %r, falling back to default %s",
+                qt_raw,
+                _QUALITY_THRESHOLD_DEFAULT,
+            )
+            return replace(spec, quality_threshold=_QUALITY_THRESHOLD_DEFAULT)
+
+    if not math.isfinite(qt):
+        logger.warning(
+            "heal_spec_quality_threshold: non-finite quality_threshold %r, falling back to default %s",
+            qt_raw,
+            _QUALITY_THRESHOLD_DEFAULT,
+        )
+        return replace(spec, quality_threshold=_QUALITY_THRESHOLD_DEFAULT)
+
     if qt > 1.0:
         logger.warning(
             "heal_spec_quality_threshold: clamping quality_threshold %s > 1.0 to 1.0", qt
@@ -153,6 +191,8 @@ def heal_spec_quality_threshold(spec: AgentTaskSpec) -> AgentTaskSpec:
             _QUALITY_THRESHOLD_DEFAULT,
         )
         return replace(spec, quality_threshold=_QUALITY_THRESHOLD_DEFAULT)
+    if qt != qt_raw:
+        return replace(spec, quality_threshold=qt)
     return spec
 
 

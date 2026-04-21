@@ -44,6 +44,14 @@ class TestHealSpecQualityThreshold:
         healed = heal_spec_quality_threshold(_spec(1.0))
         assert healed.quality_threshold == 1.0
 
+    def test_coerces_numeric_string_and_clamps(self) -> None:
+        healed = heal_spec_quality_threshold(_spec("1.5"))  # type: ignore[arg-type]
+        assert healed.quality_threshold == 1.0
+
+    def test_invalid_string_falls_back_to_default(self) -> None:
+        healed = heal_spec_quality_threshold(_spec("high"))  # type: ignore[arg-type]
+        assert healed.quality_threshold == 0.9
+
     def test_logs_warning_when_clamping(self, caplog) -> None:
         with caplog.at_level(logging.WARNING, logger="autocontext.scenarios.custom.spec_auto_heal"):
             heal_spec_quality_threshold(_spec(1.5))
