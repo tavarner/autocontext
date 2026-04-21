@@ -12,7 +12,7 @@ class TestDefaultJudgeProvider:
 
 
 class TestGetProviderAutoInheritance:
-    """When judge_provider='auto', get_provider picks a provider based on agent_provider."""
+    """When judge_provider='auto', get_provider picks a provider from the effective runtime path."""
 
     def _settings(self, tmp_path, *, agent_provider: str, judge_provider: str = "auto") -> AppSettings:
         return AppSettings(
@@ -42,6 +42,32 @@ class TestGetProviderAutoInheritance:
         from autocontext.providers.runtime_bridge import RuntimeBridgeProvider
 
         settings = self._settings(tmp_path, agent_provider="codex")
+        provider = get_provider(settings)
+        assert isinstance(provider, RuntimeBridgeProvider)
+
+    def test_auto_inherits_competitor_override_before_global_agent_provider(self, tmp_path) -> None:
+        from autocontext.providers.registry import get_provider
+        from autocontext.providers.runtime_bridge import RuntimeBridgeProvider
+
+        settings = AppSettings(
+            knowledge_root=tmp_path / "k",
+            agent_provider="anthropic",
+            competitor_provider="claude-cli",
+            judge_provider="auto",
+        )
+        provider = get_provider(settings)
+        assert isinstance(provider, RuntimeBridgeProvider)
+
+    def test_auto_inherits_architect_override_when_global_agent_provider_is_not_runtime_bridged(self, tmp_path) -> None:
+        from autocontext.providers.registry import get_provider
+        from autocontext.providers.runtime_bridge import RuntimeBridgeProvider
+
+        settings = AppSettings(
+            knowledge_root=tmp_path / "k",
+            agent_provider="anthropic",
+            architect_provider="pi",
+            judge_provider="auto",
+        )
         provider = get_provider(settings)
         assert isinstance(provider, RuntimeBridgeProvider)
 
