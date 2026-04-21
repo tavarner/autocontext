@@ -31,8 +31,12 @@ bash scripts/escalation-sweep/run_sweep.sh \
 python scripts/escalation-sweep/summarize.py .sweep/0.4.4/results
 ```
 
-Expect ~5-10 min per scenario. Runs serially by design (autocontext shares a
-sqlite store).
+Expect ~5-10 min per scenario. Runs serially by design.
+
+Each scenario runs inside its own isolated workspace under
+`.sweep/<release>/workspaces/<identifier>/`, with dedicated database, runs,
+knowledge, and skills roots. The summarized solve JSON stays in
+`.sweep/<release>/results/`.
 
 ## Failure buckets
 
@@ -54,4 +58,7 @@ Successes are split into:
 | `success`            | Completed via the keyword classifier path           |
 | `llm_fallback_fired` | Succeeded, AC-580 LLM fallback classified the family |
 
-Artifacts persist in `.sweep/<release>/results/` for follow-up diagnosis.
+Artifacts persist in:
+
+- `.sweep/<release>/results/` for per-scenario solve output, metadata, and summary
+- `.sweep/<release>/workspaces/<identifier>/` for the isolated run workspace used by that scenario

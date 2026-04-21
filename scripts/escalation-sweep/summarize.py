@@ -11,7 +11,7 @@ failure buckets:
     designer_intent_drift         — validate_intent rejected the spec
     claude_cli_timeout            — subprocess or provider timeout
     scenario_execution_failed     — generations errored after scenario built
-    llm_fallback_fired            — (INFO-only detection; success cases only)
+    llm_fallback_fired            — solve succeeded after AC-580 LLM family fallback
     unknown                       — didn't match any known pattern
 
 Usage:
@@ -74,7 +74,7 @@ def main(argv: list[str]) -> int:
         if exit_code == 0:
             bucket = "success"
             detail = out_payload.get("scenario_name", "")
-            if "LLM classifier fallback:" in out_text:
+            if out_payload.get("llm_classifier_fallback_used") is True:
                 bucket = "llm_fallback_fired"
         else:
             message = ""
