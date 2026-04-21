@@ -1,8 +1,6 @@
 """AC-586 — judge_provider='auto' inherits from agent_provider."""
 from __future__ import annotations
 
-import pytest
-
 from autocontext.config.settings import AppSettings
 
 
