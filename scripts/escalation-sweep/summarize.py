@@ -3,15 +3,22 @@
 
 Reads `<output_dir>/index.json` (list of identifiers) produced by run_sweep.sh
 and the per-scenario .out.json / .meta.json pairs, then tallies into known
-failure buckets:
+failure buckets. The authoritative signal is the structured JSON object
+emitted by the CLI. For current and historical sweep captures, `.out.json`
+may contain extra stderr chatter around that object, so this script scans
+bottom-up for the last JSON object and classifies from that payload.
 
+Buckets:
     success                       — solve completed, generations executed
+    llm_fallback_fired            — success + AC-580 LLM fallback engaged
+    spec_quality_threshold        — AC-585: quality_threshold outside (0, 1]
+    judge_auth_failure            — AC-586: judge couldn't resolve provider auth
     classifier_low_confidence     — LowConfidenceError raised
-    designer_parse_failure        — spec JSON parse / validation failures
     designer_intent_drift         — validate_intent rejected the spec
+    designer_parse_exhausted      — AC-575 retry window exhausted
+    spec_validation_other         — spec/source/execution validation (non-qt)
     claude_cli_timeout            — subprocess or provider timeout
     scenario_execution_failed     — generations errored after scenario built
-    llm_fallback_fired            — solve succeeded after AC-580 LLM family fallback
     unknown                       — didn't match any known pattern
 
 Usage:
@@ -24,10 +31,20 @@ import re
 import sys
 from pathlib import Path
 
+# Order matters: first match wins, so put more-specific patterns first.
 BUCKET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("spec_quality_threshold", re.compile(r"quality_threshold must be between", re.I)),
+    (
+        "judge_auth_failure",
+        re.compile(
+            r"could not resolve authentication method|expected either api_key or auth_token",
+            re.I,
+        ),
+    ),
     ("classifier_low_confidence", re.compile(r"LowConfidenceError|family.*confidence.*<.*threshold", re.I)),
     ("designer_intent_drift", re.compile(r"intent validation failed", re.I)),
-    ("designer_parse_failure", re.compile(r"(spec|source|execution) validation failed|parse(?:_| )retry exhausted", re.I)),
+    ("designer_parse_exhausted", re.compile(r"parse(?:_| )retry exhausted|designer parse failed.*attempt 3/3", re.I)),
+    ("spec_validation_other", re.compile(r"(spec|source|execution) validation failed", re.I)),
     ("claude_cli_timeout", re.compile(r"timed? ?out|PiCLIRuntime failed:.*timeout|claude.?cli.*timeout", re.I)),
     ("scenario_execution_failed", re.compile(r"solve did not complete|generation.*fail|executor error", re.I)),
 ]
@@ -49,6 +66,36 @@ def read_json(path: Path) -> dict | None:
         return None
 
 
+def extract_structured_payload(out_path: Path) -> dict:
+    """Pull the CLI's structured JSON payload out of .out.json.
+
+    Current and historical sweep captures may merge stderr chatter into
+    `.out.json`. To stay resilient, scan bottom-up for the last JSON object.
+    """
+    if not out_path.exists():
+        return {}
+    raw = out_path.read_text().strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+    for line in reversed(raw.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
@@ -68,8 +115,7 @@ def main(argv: list[str]) -> int:
         exit_code = meta.get("exit_code", -1)
         elapsed = meta.get("elapsed_seconds", -1)
         out_path = output_dir / f"{ident}.out.json"
-        out_text = out_path.read_text() if out_path.exists() else ""
-        out_payload = read_json(out_path) or {}
+        out_payload = extract_structured_payload(out_path)
 
         if exit_code == 0:
             bucket = "success"
@@ -77,13 +123,12 @@ def main(argv: list[str]) -> int:
             if out_payload.get("llm_classifier_fallback_used") is True:
                 bucket = "llm_fallback_fired"
         else:
-            message = ""
-            if isinstance(out_payload, dict):
-                message = str(out_payload.get("error") or out_text)
-            else:
-                message = out_text
+            # Trust only the structured `error` field from the extracted JSON
+            # payload. This ignores stderr chatter like retry warnings that can
+            # otherwise cause misclassification.
+            message = str(out_payload.get("error", "")) if out_payload else ""
             bucket = classify_error(message)
-            detail = message.splitlines()[0][:140] if message else ""
+            detail = message.splitlines()[0][:140] if message else "(no error field)"
 
         rows.append(
             {
