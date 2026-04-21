@@ -225,6 +225,9 @@ class AgentTaskPipeline(FamilyPipeline):
             normalize_agent_task_runtime_fields,
         )
         from autocontext.scenarios.custom.agent_task_validator import validate_spec
+        from autocontext.scenarios.custom.spec_auto_heal import (
+            heal_spec_quality_threshold,
+        )
 
         errors = _check_required_fields(spec, self.required_spec_fields())
         if errors:
@@ -234,6 +237,7 @@ class AgentTaskPipeline(FamilyPipeline):
             spec_obj = normalize_agent_task_runtime_fields(AgentTaskSpec(**spec))
         except TypeError as exc:
             return [f"invalid agent_task spec: {exc}"]
+        spec_obj = heal_spec_quality_threshold(spec_obj)
         return validate_spec(spec_obj)
 
     def validate_source(self, source: str) -> list[str]:

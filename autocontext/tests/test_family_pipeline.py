@@ -213,6 +213,28 @@ class TestAgentTaskSpecValidation:
         assert "task_prompt" in fields
         assert "judge_rubric" in fields
 
+    def test_out_of_range_quality_threshold_is_auto_healed(self) -> None:
+        errors = validate_for_family(
+            "agent_task",
+            {
+                "task_prompt": "Do work",
+                "judge_rubric": "Judge it",
+                "quality_threshold": 1.5,
+            },
+        )
+        assert errors == []
+
+    def test_quoted_quality_threshold_is_auto_healed(self) -> None:
+        errors = validate_for_family(
+            "agent_task",
+            {
+                "task_prompt": "Do work",
+                "judge_rubric": "Judge it",
+                "quality_threshold": "1.5",
+            },
+        )
+        assert errors == []
+
 
 # ---------------------------------------------------------------------------
 # Simulation pipeline — spec validation
