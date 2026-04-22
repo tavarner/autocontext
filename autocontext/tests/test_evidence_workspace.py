@@ -236,6 +236,82 @@ class TestMaterializer:
         assert "report" in kinds  # playbook.md, dead_ends.md
         assert "tool" in kinds  # tools/validator.py
 
+    def test_reuses_cached_workspace_when_sources_are_unchanged(self, evidence_tmpdir: Path) -> None:
+        ws_dir = evidence_tmpdir / "workspace"
+        first = materialize_workspace(
+            knowledge_root=evidence_tmpdir / "knowledge",
+            runs_root=evidence_tmpdir / "runs",
+            source_run_ids=["run_001"],
+            workspace_dir=ws_dir,
+            scenario_name="test_scenario",
+        )
+
+        second = materialize_workspace(
+            knowledge_root=evidence_tmpdir / "knowledge",
+            runs_root=evidence_tmpdir / "runs",
+            source_run_ids=["run_001"],
+            workspace_dir=ws_dir,
+            scenario_name="test_scenario",
+        )
+
+        assert second.materialized_at == first.materialized_at
+
+    def test_cached_workspace_rescans_for_secrets_when_enabled(
+        self,
+        evidence_tmpdir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from autocontext.security.scanner import ScanFinding, ScanResult, SecretScanner
+
+        calls: list[str] = []
+        ws_dir = evidence_tmpdir / "workspace"
+
+        def clean_scan(_self: SecretScanner, directory: str) -> ScanResult:
+            calls.append("clean")
+            return ScanResult(findings=[], scanned_path=directory, scanner_available=False)
+
+        def dirty_scan(_self: SecretScanner, directory: str) -> ScanResult:
+            calls.append("dirty")
+            flagged_path = next(Path(directory).glob("*events.ndjson"))
+            return ScanResult(
+                findings=[
+                    ScanFinding(
+                        detector="GenericApiKey",
+                        file_path=str(flagged_path),
+                        verified=False,
+                        raw_preview="sk-...",
+                    )
+                ],
+                scanned_path=directory,
+                scanner_available=True,
+            )
+
+        monkeypatch.setattr(SecretScanner, "scan", clean_scan)
+        first = materialize_workspace(
+            knowledge_root=evidence_tmpdir / "knowledge",
+            runs_root=evidence_tmpdir / "runs",
+            source_run_ids=["run_001"],
+            workspace_dir=ws_dir,
+            scan_for_secrets=True,
+        )
+
+        assert first.artifacts
+
+        monkeypatch.setattr(SecretScanner, "scan", dirty_scan)
+        second = materialize_workspace(
+            knowledge_root=evidence_tmpdir / "knowledge",
+            runs_root=evidence_tmpdir / "runs",
+            source_run_ids=["run_001"],
+            workspace_dir=ws_dir,
+            scan_for_secrets=True,
+        )
+
+        assert calls == ["clean", "dirty"]
+        assert len(second.artifacts) < len(first.artifacts)
+        assert all(not artifact.path.endswith("events.ndjson") for artifact in second.artifacts)
+        manifest = json.loads((ws_dir / "manifest.json").read_text(encoding="utf-8"))
+        assert all(not artifact["path"].endswith("events.ndjson") for artifact in manifest["artifacts"])
+
 
 # ---------------------------------------------------------------------------
 # Manifest tests
@@ -266,11 +342,30 @@ class TestManifest:
         output = render_evidence_manifest(ws)
         assert "2 prior run" in output
 
+    def test_renders_evidence_cards_with_provenance(self) -> None:
+        artifacts = [
+            _make_artifact(
+                artifact_id="gate_abc123",
+                kind="gate_decision",
+                source_run_id="run_002",
+                generation=3,
+                source_path="/tmp/source/run_002/gate_decision.json",
+                path="gate_abc123_gate_decision.json",
+            ),
+        ]
+        ws = _make_workspace(artifacts=artifacts, source_runs=["run_002"])
+        output = render_evidence_manifest(ws, role="analyst")
+        assert "Top evidence cards" in output
+        assert "gate_abc123" in output
+        assert "run_002" in output
+        assert "gen 3" in output.lower()
+
     def test_render_artifact_detail_reads_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "test_file.md").write_text("Hello evidence!", encoding="utf-8")
-            artifact = _make_artifact(path="test_file.md")
+            artifact = _make_artifact(path="test_file.md", source_path="/tmp/source/test_file.md")
             result = render_artifact_detail(artifact, tmp)
+            assert "Source path" in result
             assert "Hello evidence!" in result
 
     def test_render_artifact_detail_handles_missing(self) -> None:
