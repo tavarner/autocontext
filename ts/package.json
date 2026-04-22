@@ -10,6 +10,7 @@
   ],
   "_sideEffects_false_subpaths": [
     "./production-traces/**",
+    "./integrations/_shared/**",
     "./integrations/openai/**"
   ],
   "files": [
@@ -43,6 +44,11 @@
       "types": "./dist/production-traces/sdk/index.d.ts",
       "import": "./dist/production-traces/sdk/index.js",
       "require": "./dist/cjs/production-traces/sdk/index.cjs"
+    },
+    "./integrations/_shared": {
+      "types": "./dist/integrations/_shared/index.d.ts",
+      "import": "./dist/integrations/_shared/index.js",
+      "require": "./dist/cjs/integrations/_shared/index.cjs"
     },
     "./integrations/openai": {
       "types": "./dist/integrations/openai/index.d.ts",
