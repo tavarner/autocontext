@@ -56,9 +56,7 @@ export function instrumentClient<T>(
           create: (kwargs: Record<string, unknown>) => {
             const normalizedMessages = (kwargs["messages"] as Array<Record<string, unknown>>) ??
               [{ role: "user", content: kwargs["input"] ?? "" }];
-            const kwargsForCreate = { ...kwargs };
-            delete kwargsForCreate["input"];
-            return proxy._invokeResponsesCreate(kwargsForCreate, normalizedMessages);
+            return proxy._invokeResponsesCreate({ ...kwargs }, normalizedMessages);
           },
         };
       }

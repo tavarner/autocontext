@@ -33,6 +33,6 @@
       }
     },
     "importsNeeded": [],
-    "statementSource": "# autocontext: configure the sink for this client — see docs/integrations/openai.md"
+    "statementSource": "# autocontext: configure the sink for this client — see https://github.com/greyhaven-ai/autocontext/tree/main/autocontext#openai-integration"
   }
 ]

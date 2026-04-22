@@ -61,6 +61,25 @@ function errorResponse(status: number, message: string): Response {
 }
 
 describe("responses.create", () => {
+  test("forwards input to the real responses.create call", async () => {
+    const { sink, cleanup } = makeSink();
+    let seenBody: Record<string, unknown> | null = null;
+    const fakeFetch = (_url: string, init: RequestInit) => {
+      seenBody = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
+      return Promise.resolve(jsonResponse(CANNED_RESPONSES_RESPONSE));
+    };
+    const inner = new OpenAI({ apiKey: "test-key", fetch: fakeFetch as typeof fetch });
+    const client = instrumentClient(inner, { sink, appId: "test-app", environmentTag: "test" });
+
+    await (client as unknown as { responses: { create: (k: unknown) => Promise<unknown> } })
+      .responses.create({ model: "gpt-4o", input: "hello" });
+
+    expect(seenBody).toMatchObject({ model: "gpt-4o", input: "hello" });
+
+    cleanup();
+    sink.close();
+  });
+
   test("success case emits trace with correct fields", async () => {
     const { sink, readTraces, cleanup } = makeSink();
     const fakeFetch = (_url: string, _init: RequestInit) =>

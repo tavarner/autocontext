@@ -21,6 +21,8 @@ import type {
 import { resolveLocalName } from "../../contract/plugin-interface.js";
 
 const PLUGIN_ID = "@autoctx/detector-openai-python";
+const OPENAI_QUICKSTART_URL =
+  "https://github.com/greyhaven-ai/autocontext/tree/main/autocontext#openai-integration";
 
 function rangeOfCaptureNode(node: { startIndex: number; endIndex: number }, bytes: Buffer): SourceRange {
   const startByte = node.startIndex;
@@ -77,7 +79,7 @@ function emitWrap(range: SourceRange, sourceFilePath: string): EditDescriptor[] 
       pluginId: PLUGIN_ID,
       sourceFilePath,
       anchor: { kind: "before", range },
-      statementSource: "# autocontext: configure the sink for this client — see docs/integrations/openai.md",
+      statementSource: `# autocontext: configure the sink for this client — see ${OPENAI_QUICKSTART_URL}`,
       importsNeeded: [],
     },
   ];
