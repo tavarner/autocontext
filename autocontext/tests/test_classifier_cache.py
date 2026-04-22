@@ -209,3 +209,75 @@ class TestLlmFallbackCacheIntegration:
         assert second.confidence == first.confidence
         assert second.rationale == first.rationale
         assert second.no_signals_matched is False
+
+    def test_solve_and_new_scenario_share_live_classifier_cache(self, tmp_path, monkeypatch) -> None:
+        from autocontext.agents.llm_client import DeterministicDevClient
+        from autocontext.agents.subagent_runtime import SubagentRuntime
+        from autocontext.knowledge.solver import SolveScenarioBuilder
+        from autocontext.scenarios.custom.agent_task_creator import AgentTaskCreator
+        from autocontext.scenarios.custom.classifier_cache import default_classifier_cache_path
+
+        llm_calls = {"count": 0}
+
+        def stub_llm(system: str, user: str) -> str:
+            del system, user
+            llm_calls["count"] += 1
+            return '{"family": "simulation", "confidence": 0.82, "rationale": "mocked"}'
+
+        description = (
+            "## Scenario Proposal\n\n"
+            "**Priority:** Week 4\n\n"
+            "### Description\n\n"
+            "xyz zzz qqq nonsense gibberish for a hidden family "
+            "(e.g., an essay-quality metric that rewards length).\n\n"
+            "## Implementation Guidance\n\n"
+            "This section should not affect family classification."
+        )
+
+        runtime = SubagentRuntime(DeterministicDevClient())
+        builder = SolveScenarioBuilder(
+            runtime=runtime,
+            llm_fn=stub_llm,
+            model="test-model",
+            knowledge_root=tmp_path,
+        )
+
+        class _BuiltScenario:
+            name = "cached_solver_fixture"
+
+        def _fake_builder_create(self, description: str, *, family_name: str = "") -> _BuiltScenario:
+            del self, description
+            assert family_name == "simulation"
+            return _BuiltScenario()
+
+        with monkeypatch.context() as m:
+            m.setattr(
+                "autocontext.scenarios.custom.agent_task_creator.AgentTaskCreator.create",
+                _fake_builder_create,
+            )
+            result = builder.build(description)
+
+        assert result.family_name == "simulation"
+        assert result.llm_classifier_fallback_used is True
+        assert llm_calls["count"] == 1
+        assert default_classifier_cache_path(tmp_path).exists()
+
+        class _FakeFamilyCreator:
+            def create(self, description: str, *, name: str):
+                del description, name
+                return object()
+
+        def _fake_create_for_family(family_name: str, llm_fn, knowledge_root):
+            del llm_fn, knowledge_root
+            assert family_name == "simulation"
+            return _FakeFamilyCreator()
+
+        monkeypatch.setattr(
+            "autocontext.scenarios.custom.agent_task_creator.create_for_family",
+            _fake_create_for_family,
+        )
+
+        creator = AgentTaskCreator(llm_fn=stub_llm, knowledge_root=tmp_path)
+        creator.create(description)
+
+        assert llm_calls["count"] == 1

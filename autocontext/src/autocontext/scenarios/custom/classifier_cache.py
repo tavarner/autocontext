@@ -4,7 +4,7 @@ The AC-580 fallback makes one LLM call per keyword miss. Many autocontext
 workflows re-classify the same natural-language description multiple times
 (e.g. ``autoctx solve`` followed by ``autoctx new-scenario`` on the same
 spec). This module persists the fallback's result keyed by a SHA-256 hash of
-the description so duplicate calls never re-invoke the LLM.
+the normalized classification input so duplicate calls never re-invoke the LLM.
 
 File format (``cache.json``)::
 
@@ -42,6 +42,11 @@ from typing import Any
 from autocontext.scenarios.custom.family_classifier import FamilyClassification
 
 logger = logging.getLogger(__name__)
+
+
+def default_classifier_cache_path(knowledge_root: Path) -> Path:
+    """Shared on-disk cache location for family-classification fallback results."""
+    return knowledge_root / "_shared" / "family_classifier_cache.json"
 
 
 def _schema_version(registered_families: list[str]) -> str:
