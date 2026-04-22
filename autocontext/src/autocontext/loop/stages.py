@@ -128,8 +128,8 @@ def _evidence_source_run_ids(ctx: GenerationContext, *, artifacts: ArtifactStore
         return []
 
 
-def _materialize_evidence_manifest(ctx: GenerationContext, *, artifacts: ArtifactStore) -> str:
-    """Build the evidence workspace and render its prompt-facing manifest."""
+def _materialize_evidence_manifests(ctx: GenerationContext, *, artifacts: ArtifactStore) -> dict[str, str]:
+    """Build the evidence workspace and render role-specific prompt manifests."""
     from autocontext.evidence import materialize_workspace, render_evidence_manifest
 
     workspace = materialize_workspace(
@@ -141,7 +141,10 @@ def _materialize_evidence_manifest(ctx: GenerationContext, *, artifacts: Artifac
         scenario_name=ctx.scenario_name,
         scan_for_secrets=True,
     )
-    return render_evidence_manifest(workspace)
+    return {
+        "analyst": render_evidence_manifest(workspace, role="analyst"),
+        "architect": render_evidence_manifest(workspace, role="architect"),
+    }
 
 
 class _ClientAsProvider(LLMProvider):
@@ -365,6 +368,7 @@ def stage_knowledge_setup(
     summary_text = f"best score so far: {ctx.previous_best:.4f}"
     strategy_interface = scenario.describe_strategy_interface()
     evidence_manifest = ""
+    evidence_manifests: dict[str, str] | None = None
     notebook_contexts: dict[str, str] | None = None
     active_harness_mutations = [] if ablation else load_active_harness_mutations(artifacts, ctx.scenario_name)
     if not ablation:
@@ -397,7 +401,8 @@ def stage_knowledge_setup(
         experiment_log = f"{experiment_log}\n\n{context_policy_block}".strip() if experiment_log else context_policy_block
     if not ablation and ctx.settings.evidence_workspace_enabled:
         try:
-            evidence_manifest = _materialize_evidence_manifest(ctx, artifacts=artifacts)
+            evidence_manifests = _materialize_evidence_manifests(ctx, artifacts=artifacts)
+            evidence_manifest = evidence_manifests.get("analyst", "")
         except Exception:
             logger.warning("failed to materialize evidence workspace for %s", ctx.scenario_name, exc_info=True)
 
@@ -428,6 +433,7 @@ def stage_knowledge_setup(
         notebook_contexts=notebook_contexts,
         environment_snapshot="" if ablation else ctx.environment_snapshot,
         evidence_manifest=evidence_manifest,
+        evidence_manifests=evidence_manifests,
     )
     prompts = apply_harness_mutations_to_prompts(prompts, active_harness_mutations)
 
