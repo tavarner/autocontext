@@ -381,6 +381,19 @@ class TestManifest:
             assert "line 4" not in result
             assert "request full artifact" in result.lower()
 
+    def test_render_artifact_detail_rejects_workspace_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace_dir = Path(tmp) / "workspace"
+            workspace_dir.mkdir()
+            outside_path = Path(tmp) / "outside.txt"
+            outside_path.write_text("secret outside workspace", encoding="utf-8")
+            artifact = _make_artifact(path="../../outside.txt", source_path=str(outside_path))
+
+            result = render_artifact_detail(artifact, str(workspace_dir))
+
+            assert "secret outside workspace" not in result
+            assert "not found" in result.lower()
+
     def test_render_artifact_detail_handles_missing(self) -> None:
         artifact = _make_artifact(path="nonexistent.md")
         result = render_artifact_detail(artifact, "/tmp/does_not_exist")

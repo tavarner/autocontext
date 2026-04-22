@@ -60,8 +60,8 @@ def render_artifact_detail(
     excerpt_lines: int | None = None,
 ) -> str:
     """Read and return the content of a specific artifact."""
-    path = Path(workspace_dir) / artifact.path
-    if not path.exists():
+    path = _resolve_workspace_path(Path(workspace_dir), artifact.path)
+    if path is None or not path.exists():
         return f"[Artifact {artifact.artifact_id} not found at {artifact.path}]"
     try:
         content = path.read_text(encoding="utf-8")
@@ -77,6 +77,16 @@ def render_artifact_detail(
         )
     except (OSError, UnicodeDecodeError):
         return f"[Could not read artifact {artifact.artifact_id}: binary or inaccessible]"
+
+
+def _resolve_workspace_path(workspace_dir: Path, rel_path: str) -> Path | None:
+    """Resolve a manifest path inside the workspace and reject directory escapes."""
+    candidate = (workspace_dir / rel_path).resolve()
+    try:
+        candidate.relative_to(workspace_dir.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def _excerpt_content(content: str, *, excerpt_lines: int) -> str:

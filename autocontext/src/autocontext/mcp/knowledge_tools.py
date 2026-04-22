@@ -420,5 +420,6 @@ def _load_evidence_workspace(
     except (KeyError, TypeError, ValueError) as exc:
         return None, json.dumps({"error": f"Evidence manifest is invalid: {exc}"})
 
+    workspace.workspace_dir = str(manifest_path.parent)
     workspace.accessed_artifacts = load_access_log(workspace.workspace_dir)
     return workspace, None

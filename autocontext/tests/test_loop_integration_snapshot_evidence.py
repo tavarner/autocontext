@@ -303,3 +303,42 @@ class TestMcpTools:
             result = get_evidence_artifact(ctx, "test_scenario", "missing")
 
             assert "not found" in result.lower()
+
+    def test_evidence_artifact_tool_ignores_manifest_workspace_dir(self) -> None:
+        from autocontext.mcp.knowledge_tools import get_evidence_artifact
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_dir = root / "test_scenario" / "_evidence"
+            evidence_dir.mkdir(parents=True)
+            outside_path = root / "outside.txt"
+            outside_path.write_text("top secret", encoding="utf-8")
+            (evidence_dir / "safe.md").write_text("safe evidence", encoding="utf-8")
+            manifest = {
+                "workspace_dir": str(root),
+                "source_runs": ["run_001"],
+                "artifacts": [
+                    {
+                        "artifact_id": "escape_abc123",
+                        "source_run_id": "run_001",
+                        "kind": "report",
+                        "path": "outside.txt",
+                        "summary": "outside file",
+                        "size_bytes": 10,
+                        "generation": 1,
+                        "source_path": str(outside_path),
+                    },
+                ],
+                "total_size_bytes": 10,
+                "materialized_at": "2026-04-22T00:00:00+00:00",
+            }
+            (evidence_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            ctx = MagicMock()
+            ctx.settings.knowledge_root = root
+
+            result = get_evidence_artifact(ctx, "test_scenario", "escape_abc123")
+
+            assert "top secret" not in result
+            assert "not found" in result.lower()
+            access_log = json.loads((evidence_dir / "evidence_access_log.json").read_text(encoding="utf-8"))
+            assert access_log["accessed"] == ["escape_abc123"]
