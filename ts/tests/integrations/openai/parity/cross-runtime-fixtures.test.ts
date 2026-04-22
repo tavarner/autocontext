@@ -18,6 +18,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveParityPython } from "../../../_helpers/python-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../../..");
@@ -53,14 +54,30 @@ function runTsDriver(fixtureName: string): string {
 }
 
 function runPyDriver(fixtureName: string): string {
-  const result = spawnSync(
-    "uv",
-    ["run", "python", PY_DRIVER, fixtureName],
-    { cwd: PYTHON_ROOT, encoding: "utf-8", timeout: 30_000 },
-  );
+  const uvProbe = spawnSync("uv", ["--version"], {
+    cwd: PYTHON_ROOT,
+    encoding: "utf-8",
+    timeout: 5_000,
+  });
+  const result = uvProbe.status === 0
+    ? spawnSync("uv", ["run", "python", PY_DRIVER, fixtureName], {
+        cwd: PYTHON_ROOT,
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+    : spawnSync(resolveParityPython(), [PY_DRIVER, fixtureName], {
+        cwd: PYTHON_ROOT,
+        encoding: "utf-8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          PYTHONPATH: join(PYTHON_ROOT, "src"),
+        },
+      });
   if (result.status !== 0) {
+    const details = result.error?.message || result.stderr || result.stdout || "unknown subprocess failure";
     throw new Error(
-      `Python driver failed for ${fixtureName}: ${result.stderr || result.stdout}`,
+      `Python driver failed for ${fixtureName}: ${details}`,
     );
   }
   return result.stdout.trim();

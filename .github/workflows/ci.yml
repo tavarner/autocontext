@@ -142,11 +142,21 @@ jobs:
       OPENAI_VERSION: ${{ matrix.openai-version }}
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: ts/package-lock.json
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install Python parity deps
+        working-directory: autocontext
+        run: uv sync --group dev
       - name: Install base deps
         run: npm ci
       - name: Pin openai to matrix version
