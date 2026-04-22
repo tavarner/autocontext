@@ -18,6 +18,7 @@ Need the canonical product/runtime vocabulary first? Start with [docs/concept-mo
 - **Evaluation**: one-shot judging, multi-round improvement loops, REPL-loop sessions
 - **Package management**: strategy package export/import, training data export
 - **Training hook surface**: dataset validation and executor-backed `train` entry point
+- **Production-traces emit SDK** at `autoctx/production-traces` — customer-facing emit APIs mirroring the Python SDK (A2-II-a)
 
 ## Install
 
@@ -36,6 +37,91 @@ cd ts
 npm install
 npm run build
 ```
+
+## Emit SDK: `autoctx/production-traces`
+
+Customer applications can emit production traces directly from their
+TypeScript code using the `autoctx/production-traces` subpath. This is the
+TS mirror of the Python `autocontext.production_traces` emit module;
+customers using both languages get one mental model, enforced at the byte
+level by cross-runtime property tests.
+
+```ts
+import {
+  buildTrace,
+  writeJsonl,
+  TraceBatch,
+  hashUserId,
+  loadInstallSalt,
+} from "autoctx/production-traces";
+
+// 1) Hash personally-identifying identifiers with the install salt.
+const salt = (await loadInstallSalt(process.cwd())) ?? "";
+const userIdHash = hashUserId(session.user.id, salt);
+
+// 2) Build and validate a ProductionTrace. Throws ValidationError on
+//    invalid input with per-field detail.
+const trace = buildTrace({
+  provider: "openai",
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "user", content: prompt, timestamp: new Date().toISOString() },
+  ],
+  timing: {
+    startedAt: "2026-04-17T12:00:00.000Z",
+    endedAt: "2026-04-17T12:00:01.250Z",
+    latencyMs: 1250,
+  },
+  usage: { tokensIn: 42, tokensOut: 88 },
+  env: { environmentTag: "production", appId: "my-app" },
+  session: { userIdHash },
+});
+
+// 3) Persist: one file per call, or batch across many calls.
+writeJsonl(trace);
+
+const batch = new TraceBatch();
+for (const event of stream) batch.add(buildTrace(/* ... */));
+batch.flush();  // writes accumulated traces as one file
+```
+
+Both ESM and CommonJS consumers are supported via the `"exports"` map:
+
+```ts
+// ESM
+import { buildTrace } from "autoctx/production-traces";
+
+// CJS
+const { buildTrace } = require("autoctx/production-traces");
+```
+
+### Zero telemetry
+
+**Traces go where you put them.** The SDK itself emits zero telemetry
+about its own usage. No analytics, no phone-home, no opt-out toggle
+needed. CI script `check:no-telemetry` greps the SDK source plus every
+transitive dep for suspicious network patterns on every PR.
+
+### Enterprise-discipline guarantees
+
+- **Bundle size**: ~48 kB gzipped at ship, enforced in CI at a
+  100 kB ceiling. Tree-shakable via `"sideEffects"` discipline.
+- **License compatibility**: every dep in the SDK's transitive closure
+  carries an MIT / Apache-2.0 / BSD / ISC / 0BSD license, enforced by
+  `check:license-compatibility`.
+- **No install scripts**: `autoctx` declares no `preinstall`,
+  `install`, or `postinstall` lifecycle hooks. Safe to deploy with
+  `npm install --ignore-scripts`.
+- **Dual ESM + CJS**: both `import` and `require()` work via the
+  `package.json` `"exports"` map.
+- **Cross-runtime parity**: TS `buildTrace` and Python `build_trace`
+  produce byte-identical canonical JSON, enforced at 50 property runs
+  plus 7 committed fixtures.
+
+See [`src/production-traces/sdk/STABILITY.md`](src/production-traces/sdk/STABILITY.md)
+for the API-stability commitment and
+[`src/production-traces/sdk/BUDGET.md`](src/production-traces/sdk/BUDGET.md)
+for the bundle-size budget details.
 
 ## CLI Commands
 
@@ -283,6 +369,88 @@ These workflows require infrastructure not available in the npm package:
 
 `train` is exposed in the TS CLI as a validation plus executor-hook surface, but the npm package does not bundle a real MLX/CUDA trainer. For end-to-end local training, use the Python package (`pip install autocontext`) or inject a real `TrainingRunner` executor from code.
 
+## OpenAI integration
+
+Autocontext ships a zero-configuration OpenAI instrumentation path that
+automatically wraps your existing `new OpenAI(...)` calls and emits structured
+traces to a sink of your choice.
+
+### 1. Register detectors
+
+Create `.autoctx.instrument.config.mjs` at the root of your repo:
+
+```js
+// .autoctx.instrument.config.mjs
+import { registerDetectorPlugin } from "autoctx/control-plane/instrument";
+import { plugin as openaiTsPlugin } from "autoctx/detectors/openai-ts";
+
+registerDetectorPlugin(openaiTsPlugin);
+```
+
+### 2. Run instrument
+
+Preview changes without touching any files:
+
+```bash
+autoctx instrument --dry-run
+```
+
+Apply changes on a new branch for review:
+
+```bash
+autoctx instrument --apply --branch autoctx/instrument
+```
+
+### 3. Review the PR
+
+The instrument command opens a branch. Open the PR and review the diff — you
+will see your `new OpenAI(...)` calls wrapped with `instrumentClient(...)`.
+Edit the generated TODO comment to point at your `FileSink`:
+
+```ts
+// Before (generated):
+const client = instrumentClient(new OpenAI(), { sink: /* TODO: pass your TraceSink here */ });
+
+// After (your edit):
+import { FileSink } from "autoctx/integrations/openai";
+const sink = new FileSink("./traces/openai.jsonl");
+const client = instrumentClient(new OpenAI(), { sink });
+```
+
+Merge the PR.
+
+### 4. Customer code emits traces
+
+Your code is unchanged beyond the wrap. Every `chat.completions.create` call
+now emits a JSONL trace line to your sink:
+
+```ts
+import OpenAI from "openai";
+import { instrumentClient, FileSink, autocontextSession } from "autoctx/integrations/openai";
+
+const sink = new FileSink("./traces/openai.jsonl");
+const client = instrumentClient(new OpenAI(), { sink });
+
+await autocontextSession({ userId: "u_123" }, async () => {
+  const res = await client.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: "Hello!" }],
+  });
+  console.log(res.choices[0].message.content);
+});
+
+await sink.close();
+```
+
+Emitted trace line (pretty-printed for readability):
+
+```jsonl
+{"schemaVersion":"1.0","traceId":"...","sessionContext":{"userId":"u_123"},"request":{"model":"gpt-4o","messages":[{"role":"user","content":"Hello!"}]},"response":{"id":"...","choices":[{"message":{"role":"assistant","content":"Hi! How can I help?"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":7,"total_tokens":16}},"durationMs":342,"errorReason":null}
+```
+
+For the Python equivalent, see
+`autocontext/src/autocontext/integrations/openai/STABILITY.md`.
+
 ## Development
 
 ```bash
@@ -291,4 +459,5 @@ npm install
 npm test              # vitest
 npm run lint          # tsc --noEmit
 npm run build         # tsc (outputs to dist/)
+npm run check:a2-ii-a-all  # enterprise discipline checks for the SDK subpath
 ```
