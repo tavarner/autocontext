@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import threading
 
-from autocontext.integrations.openai._session import (
+from autocontext.integrations._shared import (
     autocontext_session,
     current_session,
 )

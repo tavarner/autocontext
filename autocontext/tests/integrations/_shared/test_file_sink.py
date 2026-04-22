@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from autocontext.integrations.openai import FileSink, TraceSink
+from autocontext.integrations._shared import FileSink, TraceSink
 
 
 def _make_trace(n: int = 1) -> dict:
