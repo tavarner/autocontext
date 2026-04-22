@@ -9,7 +9,6 @@ from autocontext.scenarios.custom.family_classifier import (
     FamilyClassification,
 )
 
-
 FAMILIES_A = ["agent_task", "simulation", "game"]
 FAMILIES_B = ["agent_task", "simulation", "game", "operator_loop"]  # schema change
 
