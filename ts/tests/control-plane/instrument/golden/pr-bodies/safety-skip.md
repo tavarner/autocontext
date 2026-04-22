@@ -4,7 +4,7 @@ Command: `autoctx instrument --dry-run --exclude tests/** session=01HN0000000000
 Session: `01HN0000000000000000000009` · Generated at `2026-04-19T12:00:00.000Z` by `autocontext v0.0.0-golden`
 
 ### Summary by SDK
-- **openai**: 2 call sites wrapped
+- **openai**: 1 call site wrapped
 
 ### Files affected
 #### `src/clean.py` (+1 changes)

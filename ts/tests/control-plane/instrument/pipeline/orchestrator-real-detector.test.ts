@@ -84,8 +84,7 @@ describe("real openai-python plugin end-to-end through orchestrator", () => {
 
       // The real plugin must detect 1 file with a wrap edit.
       expect(result.filesAffected).toBe(1);
-      // Each detection emits 2 edits: wrap-expression + insert-statement.
-      expect(result.callSitesDetected).toBeGreaterThanOrEqual(2);
+      expect(result.callSitesDetected).toBe(1);
       expect(result.exitCode).toBe(0);
     },
     30_000,
@@ -119,7 +118,7 @@ describe("real openai-python plugin end-to-end through orchestrator", () => {
       });
 
       expect(result.filesAffected).toBe(1);
-      expect(result.callSitesDetected).toBeGreaterThanOrEqual(2);
+      expect(result.callSitesDetected).toBe(1);
     },
     30_000,
   );
@@ -184,7 +183,7 @@ describe("real openai-ts plugin end-to-end through orchestrator", () => {
       });
 
       expect(result.filesAffected).toBe(1);
-      expect(result.callSitesDetected).toBeGreaterThanOrEqual(2);
+      expect(result.callSitesDetected).toBe(1);
       expect(result.exitCode).toBe(0);
     },
     30_000,

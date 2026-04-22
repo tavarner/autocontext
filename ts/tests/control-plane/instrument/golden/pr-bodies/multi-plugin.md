@@ -5,7 +5,7 @@ Session: `01HN0000000000000000000009` · Generated at `2026-04-19T12:00:00.000Z`
 
 ### Summary by SDK
 - **anthropic**: 1 call site wrapped
-- **openai**: 2 call sites wrapped
+- **openai**: 1 call site wrapped
 
 ### Files affected
 #### `src/chat.py` (+1 changes)

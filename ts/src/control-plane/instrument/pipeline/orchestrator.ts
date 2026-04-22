@@ -288,6 +288,7 @@ export async function runInstrument(opts: InstrumentInputs): Promise<InstrumentR
   }
 
   const detailedEdits = buildDetailedEdits(composedByFile, editsByFile, filesByPath, registeredPlugins);
+  const callSitesDetected = countWrappedCallSites(composedByFile);
 
   const command = buildCommandLine(opts);
   // Collect all advisories from all files.
@@ -364,7 +365,7 @@ export async function runInstrument(opts: InstrumentInputs): Promise<InstrumentR
         mode: opts.mode,
         filesScanned: sourceFiles.length,
         filesAffected: affectedPatches.length,
-        callSitesDetected: detections.reduce((a, d) => a + d.editsProduced, 0),
+        callSitesDetected,
         filesSkipped,
         conflicts,
         exitCode: cleanCheck.exitCode,
@@ -433,7 +434,7 @@ export async function runInstrument(opts: InstrumentInputs): Promise<InstrumentR
     mode: opts.mode,
     filesScanned: sourceFiles.length,
     filesAffected: affectedPatches.length,
-    callSitesDetected: detections.reduce((a, d) => a + d.editsProduced, 0),
+    callSitesDetected,
     filesSkipped,
     conflicts,
     ...(applyResult ? { applyResult } : {}),
@@ -452,6 +453,10 @@ interface Detection {
   readonly filePath: string;
   readonly matchRange: { readonly startByte: number; readonly endByte: number };
   readonly editsProduced: number;
+}
+
+function isWrappedCallSiteKind(kind: EditDescriptor["kind"]): boolean {
+  return kind !== "insert-statement";
 }
 
 function sessionDirPath(cwd: string, sessionUlid: string): string {
@@ -793,8 +798,11 @@ function buildDetailedEdits(
     const sf = filesByPath.get(filePath);
     if (!sf) continue;
     const fileEdits = editsByFile.get(filePath) ?? [];
+    const wrappedFileEdits = fileEdits.filter((e) => isWrappedCallSiteKind(e.kind));
+    const wrappedPlan = result.plan.filter((e) => isWrappedCallSiteKind(e.kind));
     const sdkCounts = new Map<string, number>();
-    for (const e of fileEdits) {
+    for (let i = 0; i < wrappedPlan.length && i < wrappedFileEdits.length; i += 1) {
+      const e = wrappedFileEdits[i]!;
       const sdk = pluginToSdk.get(e.pluginId) ?? "unknown";
       sdkCounts.set(sdk, (sdkCounts.get(sdk) ?? 0) + 1);
     }
@@ -802,9 +810,9 @@ function buildDetailedEdits(
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([sdkName, count]) => ({ sdkName, count }));
     const edits: DetailedEditEntry[] = [];
-    for (let i = 0; i < fileEdits.length && i < result.plan.length; i += 1) {
-      const e = fileEdits[i]!;
-      const composed: ComposedEdit = result.plan[i]!;
+    for (let i = 0; i < wrappedPlan.length && i < wrappedFileEdits.length; i += 1) {
+      const e = wrappedFileEdits[i]!;
+      const composed: ComposedEdit = wrappedPlan[i]!;
       edits.push({
         edit: e,
         composed: {
@@ -824,6 +832,17 @@ function buildDetailedEdits(
     });
   }
   return detailed;
+}
+
+function countWrappedCallSites(composedByFile: ReadonlyMap<string, ComposeResult>): number {
+  let count = 0;
+  for (const result of composedByFile.values()) {
+    if (result.kind !== "patch") continue;
+    for (const composed of result.plan) {
+      if (isWrappedCallSiteKind(composed.kind)) count += 1;
+    }
+  }
+  return count;
 }
 
 function extractSnippet(text: string, startByte: number, endByte: number): string {
