@@ -1,0 +1,128 @@
+"""AC-581 — content-addressable cache for the AC-580 LLM classifier fallback."""
+from __future__ import annotations
+
+import json
+
+from autocontext.scenarios.custom.classifier_cache import ClassifierCache
+from autocontext.scenarios.custom.family_classifier import (
+    FamilyCandidate,
+    FamilyClassification,
+)
+
+
+FAMILIES_A = ["agent_task", "simulation", "game"]
+FAMILIES_B = ["agent_task", "simulation", "game", "operator_loop"]  # schema change
+
+
+def _classification(family: str = "simulation", confidence: float = 0.82) -> FamilyClassification:
+    return FamilyClassification(
+        family_name=family,
+        confidence=confidence,
+        rationale="mocked rationale",
+        alternatives=[
+            FamilyCandidate(family_name="agent_task", confidence=0.0, rationale="r"),
+        ],
+        no_signals_matched=False,
+    )
+
+
+class TestClassifierCacheGetPut:
+    def test_get_returns_none_when_file_missing(self, tmp_path) -> None:
+        cache = ClassifierCache(tmp_path / "cache.json")
+        result = cache.get("some description", FAMILIES_A)
+        assert result is None
+
+    def test_put_creates_file_and_get_returns_classification(self, tmp_path) -> None:
+        cache = ClassifierCache(tmp_path / "cache.json")
+        original = _classification()
+        cache.put("please classify me", FAMILIES_A, original)
+
+        fetched = cache.get("please classify me", FAMILIES_A)
+        assert fetched is not None
+        assert fetched.family_name == original.family_name
+        assert fetched.confidence == original.confidence
+        assert fetched.rationale == original.rationale
+
+    def test_get_miss_on_different_description(self, tmp_path) -> None:
+        cache = ClassifierCache(tmp_path / "cache.json")
+        cache.put("description one", FAMILIES_A, _classification())
+        assert cache.get("different description", FAMILIES_A) is None
+
+    def test_multiple_entries_coexist(self, tmp_path) -> None:
+        cache = ClassifierCache(tmp_path / "cache.json")
+        cache.put("desc one", FAMILIES_A, _classification("simulation", 0.8))
+        cache.put("desc two", FAMILIES_A, _classification("agent_task", 0.6))
+
+        assert cache.get("desc one", FAMILIES_A).family_name == "simulation"
+        assert cache.get("desc two", FAMILIES_A).family_name == "agent_task"
+
+
+class TestClassifierCacheSchemaInvalidation:
+    """When the registered family set changes, the cache is considered invalid."""
+
+    def test_get_returns_none_when_registry_changed(self, tmp_path) -> None:
+        cache = ClassifierCache(tmp_path / "cache.json")
+        cache.put("same description", FAMILIES_A, _classification())
+
+        # Different family list → schema mismatch → miss (don't return stale data).
+        assert cache.get("same description", FAMILIES_B) is None
+
+    def test_put_with_new_schema_overwrites_stale_entries(self, tmp_path) -> None:
+        path = tmp_path / "cache.json"
+        cache = ClassifierCache(path)
+
+        # Seed with old-schema data.
+        cache.put("shared description", FAMILIES_A, _classification("simulation", 0.8))
+
+        # Write under a new schema.
+        cache.put("shared description", FAMILIES_B, _classification("operator_loop", 0.9))
+
+        # Old schema entries are gone; new schema read works.
+        assert cache.get("shared description", FAMILIES_A) is None
+        assert cache.get("shared description", FAMILIES_B).family_name == "operator_loop"
+
+    def test_registered_family_order_does_not_affect_schema_version(self, tmp_path) -> None:
+        # Order of list_families() should not invalidate the cache.
+        cache = ClassifierCache(tmp_path / "cache.json")
+        cache.put("desc", FAMILIES_A, _classification())
+
+        reordered = list(reversed(FAMILIES_A))
+        assert cache.get("desc", reordered) is not None
+
+
+class TestClassifierCacheRobustness:
+    def test_corrupt_json_returns_none_without_raising(self, tmp_path) -> None:
+        path = tmp_path / "cache.json"
+        path.write_text("{not valid json", encoding="utf-8")
+
+        cache = ClassifierCache(path)
+        assert cache.get("anything", FAMILIES_A) is None
+
+    def test_corrupt_file_is_overwritten_by_put(self, tmp_path) -> None:
+        path = tmp_path / "cache.json"
+        path.write_text("{not valid json", encoding="utf-8")
+
+        cache = ClassifierCache(path)
+        cache.put("desc", FAMILIES_A, _classification())
+
+        assert cache.get("desc", FAMILIES_A) is not None
+
+    def test_put_creates_parent_directory(self, tmp_path) -> None:
+        # Deep path whose parent directory doesn't exist.
+        path = tmp_path / "nested" / "dirs" / "cache.json"
+        cache = ClassifierCache(path)
+        cache.put("desc", FAMILIES_A, _classification())
+        assert path.exists()
+        assert cache.get("desc", FAMILIES_A) is not None
+
+    def test_file_format_is_json_with_schema_version_and_entries(self, tmp_path) -> None:
+        path = tmp_path / "cache.json"
+        cache = ClassifierCache(path)
+        cache.put("desc", FAMILIES_A, _classification())
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert "schema_version" in data
+        assert "entries" in data
+        assert isinstance(data["entries"], dict)
+        # Entries are keyed by opaque content hashes — not the raw description.
+        assert "desc" not in data["entries"]
