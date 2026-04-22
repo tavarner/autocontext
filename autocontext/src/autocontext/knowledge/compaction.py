@@ -24,6 +24,14 @@ _DEFAULT_COMPONENT_TOKEN_LIMITS: dict[str, int] = {
     "evidence_manifest": 1200,
     "evidence_manifest_analyst": 1200,
     "evidence_manifest_architect": 1200,
+    "agent_task_playbook": 600,
+    "agent_task_best_output": 900,
+    "policy_refinement_rules": 1600,
+    "policy_refinement_interface": 1000,
+    "policy_refinement_criteria": 1000,
+    "policy_refinement_feedback": 1400,
+    "consultation_context": 400,
+    "consultation_strategy": 400,
 }
 
 _IMPORTANT_KEYWORDS = (
@@ -49,15 +57,18 @@ def compact_prompt_components(components: Mapping[str, str]) -> dict[str, str]:
     """Return a compacted copy of prompt-facing context components."""
     result: dict[str, str] = {}
     for key, value in components.items():
-        if not value:
-            result[key] = value
-            continue
-        limit = _DEFAULT_COMPONENT_TOKEN_LIMITS.get(key)
-        if limit is None:
-            result[key] = value
-            continue
-        result[key] = _compact_component(key, value, limit)
+        result[key] = compact_prompt_component(key, value)
     return result
+
+
+def compact_prompt_component(key: str, value: str) -> str:
+    """Compact a single prompt-facing component when a limit is configured."""
+    if not value:
+        return value
+    limit = _DEFAULT_COMPONENT_TOKEN_LIMITS.get(key)
+    if limit is None:
+        return value
+    return _compact_component(key, value, limit)
 
 
 def extract_promotable_lines(text: str, *, max_items: int = 3) -> list[str]:
@@ -99,14 +110,14 @@ def extract_promotable_lines(text: str, *, max_items: int = 3) -> list[str]:
 
 
 def _compact_component(key: str, text: str, max_tokens: int) -> str:
-    if key in {"experiment_log", "session_reports"}:
+    if key in {"experiment_log", "session_reports", "policy_refinement_feedback"}:
         needs_history_compaction = len(text.splitlines()) > 24 or len(_split_sections(text)) > 4
         if not needs_history_compaction and estimate_tokens(text) <= max_tokens:
             return text
     elif estimate_tokens(text) <= max_tokens:
         return text
 
-    if key in {"experiment_log", "session_reports"}:
+    if key in {"experiment_log", "session_reports", "policy_refinement_feedback"}:
         compacted = _compact_history(text, max_tokens=max_tokens)
     elif key == "trajectory":
         compacted = _compact_table(text, max_tokens=max_tokens)

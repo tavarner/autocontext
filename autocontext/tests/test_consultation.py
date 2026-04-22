@@ -371,6 +371,39 @@ class TestConsultationRunner:
         assert "3 consecutive rollbacks observed" in captured_user[0]
         assert "aggressive flag capture" in captured_user[0]
 
+    def test_user_prompt_compacts_verbose_context(self) -> None:
+        from autocontext.consultation.runner import ConsultationRunner
+        from autocontext.consultation.types import ConsultationRequest, ConsultationTrigger
+
+        provider = CallableProvider(lambda _system, _user: "## Critique\nDone", model_name="spy")
+        runner = ConsultationRunner(provider)
+        request = ConsultationRequest(
+            run_id="run-1",
+            generation=8,
+            trigger=ConsultationTrigger.STAGNATION,
+            context_summary=(
+                "## Context\n"
+                + ("repeated stall detail\n" * 180)
+                + "- Finding: retries happen after the same fragile opening.\n"
+                + "- Recommendation: preserve broader map control early.\n"
+            ),
+            current_strategy_summary=(
+                "## Current strategy\n"
+                + ("strategy filler\n" * 180)
+                + "- Root cause: the planner commits too early to a narrow route.\n"
+                + "- Mitigation: keep a fallback branch until the first checkpoint.\n"
+            ),
+            score_history=[0.52] * 16,
+            gate_history=["retry"] * 16,
+        )
+
+        prompt = runner._build_user_prompt(request)
+
+        assert "fragile opening" in prompt.lower()
+        assert "fallback branch" in prompt.lower()
+        assert "score history" in prompt.lower()
+        assert "condensed" in prompt.lower()
+
 
 # ===========================================================================
 # 4. SQLite Migration + Store Methods
