@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "eventId": "evt_1",
+  "sessionId": "session_1",
+  "actionId": "act_nav_1",
+  "kind": "action_result",
+  "allowed": true,
+  "timestamp": "2026-04-22T12:00:02Z",
+  "message": "navigation allowed",
+  "beforeUrl": "about:blank",
+  "afterUrl": "https://example.com/dashboard",
+  "artifacts": {
+    "htmlPath": null,
+    "screenshotPath": "runs/browser/shots/0001.png",
+    "downloadPath": null
+  }
+}
