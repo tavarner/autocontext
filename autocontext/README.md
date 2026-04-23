@@ -237,6 +237,7 @@ Common settings:
 - `AUTOCONTEXT_BROWSER_ALLOW_DOWNLOADS` and `AUTOCONTEXT_BROWSER_DOWNLOADS_ROOT`
 
 Browser exploration defaults to a secure disabled posture and uses the shared contract described in [../docs/browser-exploration-contract.md](../docs/browser-exploration-contract.md).
+The Python package includes a thin Chrome CDP backend that attaches to an existing debugger endpoint, enforces the browser allowlist, and stores browser evidence under run-local roots.
 
 See the repo-level [.env.example](../.env.example) for a working starting point.
 

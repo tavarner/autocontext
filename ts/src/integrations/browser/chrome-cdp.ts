@@ -195,17 +195,17 @@ export class ChromeCdpSession implements BrowserSessionPort {
     }
 
     await this.ensureDomainsEnabled();
+    const beforeUrl = this.currentUrl;
     const selector = this.selectorForRef(ref);
     await this.transport.send("Runtime.evaluate", {
       expression: buildClickExpression(selector),
       returnByValue: true,
       awaitPromise: true,
     });
-    return this.recordActionResult({
+    return this.recordInteractiveResult({
       action,
       decision,
-      beforeUrl: this.currentUrl,
-      afterUrl: this.currentUrl,
+      beforeUrl,
       message: "click allowed",
     });
   }
@@ -232,17 +232,17 @@ export class ChromeCdpSession implements BrowserSessionPort {
     }
 
     await this.ensureDomainsEnabled();
+    const beforeUrl = this.currentUrl;
     const selector = this.selectorForRef(ref);
     await this.transport.send("Runtime.evaluate", {
       expression: buildFillExpression(selector, text),
       returnByValue: true,
       awaitPromise: true,
     });
-    return this.recordActionResult({
+    return this.recordInteractiveResult({
       action,
       decision,
-      beforeUrl: this.currentUrl,
-      afterUrl: this.currentUrl,
+      beforeUrl,
       message: "fill allowed",
     });
   }
@@ -260,16 +260,16 @@ export class ChromeCdpSession implements BrowserSessionPort {
     }
 
     await this.ensureDomainsEnabled();
+    const beforeUrl = this.currentUrl;
     await this.transport.send("Runtime.evaluate", {
       expression: buildPressExpression(key),
       returnByValue: true,
       awaitPromise: true,
     });
-    return this.recordActionResult({
+    return this.recordInteractiveResult({
       action,
       decision,
-      beforeUrl: this.currentUrl,
-      afterUrl: this.currentUrl,
+      beforeUrl,
       message: "key press allowed",
     });
   }
@@ -359,6 +359,47 @@ export class ChromeCdpSession implements BrowserSessionPort {
 
   private selectorForRef(ref: string): string {
     return this.refSelectors.get(ref) ?? ref;
+  }
+
+  private async recordInteractiveResult(opts: {
+    readonly action: BrowserAction;
+    readonly decision: BrowserPolicyDecision;
+    readonly beforeUrl: string | null;
+    readonly message: string;
+  }): Promise<BrowserAuditEvent> {
+    const afterUrl = await this.readCurrentUrl();
+    this.currentUrl = afterUrl;
+    const afterDecision = evaluateNavigationUrlPolicy(this.config, afterUrl);
+    if (!afterDecision.allowed) {
+      return this.recordActionResult({
+        action: opts.action,
+        decision: afterDecision,
+        beforeUrl: opts.beforeUrl,
+        afterUrl,
+        message: "interaction navigated outside browser policy",
+      });
+    }
+    return this.recordActionResult({
+      action: opts.action,
+      decision: opts.decision,
+      beforeUrl: opts.beforeUrl,
+      afterUrl,
+      message: opts.message,
+    });
+  }
+
+  private async readCurrentUrl(): Promise<string> {
+    const response = await this.transport.send("Runtime.evaluate", {
+      expression: "(() => window.location.href)()",
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    const result = response.result;
+    if (!isRecord(result)) {
+      return this.currentUrl;
+    }
+    const value = result.value;
+    return typeof value === "string" && value.length > 0 ? value : this.currentUrl;
   }
 }
 
@@ -473,6 +514,20 @@ function emptyArtifacts(): BrowserArtifactPaths {
     screenshotPath: null,
     downloadPath: null,
   };
+}
+
+function evaluateNavigationUrlPolicy(
+  config: BrowserSessionConfig,
+  url: string,
+): BrowserPolicyDecision {
+  return evaluateBrowserActionPolicy(config, {
+    schemaVersion: BROWSER_CONTRACT_SCHEMA_VERSION,
+    actionId: "act_interaction_url_probe",
+    sessionId: "session_interaction_url_probe",
+    timestamp: new Date().toISOString(),
+    type: "navigate",
+    params: { url },
+  });
 }
 
 function newId(prefix: string): string {
