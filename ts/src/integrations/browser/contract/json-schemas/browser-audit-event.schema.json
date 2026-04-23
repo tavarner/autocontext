@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/browser-audit-event.json",
+  "title": "BrowserAuditEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "sessionId",
+    "actionId",
+    "kind",
+    "allowed",
+    "policyReason",
+    "timestamp",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+    },
+    "eventId": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/EventId"
+    },
+    "sessionId": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+    },
+    "actionId": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["action_result"]
+    },
+    "allowed": { "type": "boolean" },
+    "policyReason": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/PolicyReason"
+    },
+    "timestamp": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+    },
+    "message": {
+      "type": ["string", "null"]
+    },
+    "beforeUrl": {
+      "type": ["string", "null"]
+    },
+    "afterUrl": {
+      "type": ["string", "null"]
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["htmlPath", "screenshotPath", "downloadPath"],
+      "properties": {
+        "htmlPath": {
+          "type": ["string", "null"]
+        },
+        "screenshotPath": {
+          "type": ["string", "null"]
+        },
+        "downloadPath": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

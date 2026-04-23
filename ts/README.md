@@ -357,6 +357,12 @@ The TypeScript package includes the current 0.4.x operator-facing surfaces:
 
 For end-to-end local MLX/CUDA training, the Python package is still the canonical out-of-the-box runtime.
 
+## Browser Exploration Contract
+
+The TypeScript package exposes the shared browser exploration contract and policy helpers from the package root. Browser exploration is disabled by default and configured through `AUTOCONTEXT_BROWSER_*` settings such as `AUTOCONTEXT_BROWSER_ENABLED`, `AUTOCONTEXT_BROWSER_ALLOWED_DOMAINS`, and `AUTOCONTEXT_BROWSER_PROFILE_MODE`.
+
+Use `resolveBrowserSessionConfig(...)`, `evaluateBrowserActionPolicy(...)`, and the `validateBrowser*` helpers when integrating a browser backend or agent harness.
+
 ## Python-Only Commands
 
 These workflows require infrastructure not available in the npm package:

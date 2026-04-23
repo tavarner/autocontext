@@ -230,6 +230,13 @@ Common settings:
 - `AUTOCONTEXT_RLM_ENABLED`
 - `AUTOCONTEXT_HARNESS_PREFLIGHT_ENABLED`
 - `AUTOCONTEXT_STAGED_VALIDATION_ENABLED`
+- `AUTOCONTEXT_BROWSER_ENABLED`
+- `AUTOCONTEXT_BROWSER_ALLOWED_DOMAINS`
+- `AUTOCONTEXT_BROWSER_PROFILE_MODE`
+- `AUTOCONTEXT_BROWSER_ALLOW_AUTH`
+- `AUTOCONTEXT_BROWSER_ALLOW_DOWNLOADS` and `AUTOCONTEXT_BROWSER_DOWNLOADS_ROOT`
+
+Browser exploration defaults to a secure disabled posture and uses the shared contract described in [../docs/browser-exploration-contract.md](../docs/browser-exploration-contract.md).
 
 See the repo-level [.env.example](../.env.example) for a working starting point.
 

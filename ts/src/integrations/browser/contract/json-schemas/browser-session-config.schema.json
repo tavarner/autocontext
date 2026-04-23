@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/browser-session-config.json",
+  "title": "BrowserSessionConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profileMode",
+    "allowedDomains",
+    "allowAuth",
+    "allowUploads",
+    "allowDownloads",
+    "captureScreenshots",
+    "headless",
+    "downloadsRoot",
+    "uploadsRoot"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+    },
+    "profileMode": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ProfileMode"
+    },
+    "allowedDomains": {
+      "type": "array",
+      "items": {
+        "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/AllowedDomain"
+      }
+    },
+    "allowAuth": { "type": "boolean" },
+    "allowUploads": { "type": "boolean" },
+    "allowDownloads": { "type": "boolean" },
+    "captureScreenshots": { "type": "boolean" },
+    "headless": { "type": "boolean" },
+    "downloadsRoot": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "uploadsRoot": {
+      "type": ["string", "null"],
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "allowDownloads": { "const": true }
+        },
+        "required": ["allowDownloads"]
+      },
+      "then": {
+        "properties": {
+          "downloadsRoot": {
+            "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/PathString"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "allowUploads": { "const": true }
+        },
+        "required": ["allowUploads"]
+      },
+      "then": {
+        "properties": {
+          "uploadsRoot": {
+            "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/PathString"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profileMode": { "const": "user-profile" }
+        },
+        "required": ["profileMode"]
+      },
+      "then": {
+        "properties": {
+          "allowAuth": { "const": true }
+        }
+      }
+    }
+  ]
+}

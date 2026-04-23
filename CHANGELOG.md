@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 Changes in this section are on the branch/repo after `0.4.4` and are not part of the last published release until the next version is cut.
 
+### Added
+
+- Added a shared browser exploration contract and package-safe configuration surface across Python and TypeScript, including canonical schemas, validation helpers, secure `AUTOCONTEXT_BROWSER_*` defaults, and policy helpers.
+
 ## [0.4.4] - 2026-04-20
 
 ### Added

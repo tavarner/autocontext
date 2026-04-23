@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/browser-action.json",
+  "title": "BrowserAction",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "navigate" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url"],
+          "properties": {
+            "url": {
+              "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/UrlString"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "snapshot" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "captureHtml": { "type": "boolean" },
+            "captureScreenshot": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "click" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref"],
+          "properties": {
+            "ref": {
+              "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/RefId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "fill" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "text"],
+          "properties": {
+            "ref": {
+              "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/RefId"
+            },
+            "text": { "type": "string" },
+            "fieldKind": {
+              "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/FieldKind"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "press" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key"],
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "actionId", "sessionId", "timestamp", "type", "params"],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+        },
+        "actionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/ActionId"
+        },
+        "sessionId": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+        },
+        "timestamp": {
+          "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+        },
+        "type": { "const": "screenshot" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}
