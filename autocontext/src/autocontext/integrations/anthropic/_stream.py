@@ -51,7 +51,10 @@ class _Accumulator:
         if "stop_reason" in delta:
             self.stop_reason = delta["stop_reason"]
         if "usage" in ev:
-            self.usage.update(ev["usage"])
+            # Only update non-None values so that message_start input_tokens
+            # are not clobbered by message_delta's None-filled fields
+            # (Anthropic SDK model_dump() includes None for absent fields).
+            self.usage.update({k: v for k, v in ev["usage"].items() if v is not None})
 
     def handle_event(self, ev: dict[str, Any]) -> bool:
         """Returns True when message_stop is seen."""

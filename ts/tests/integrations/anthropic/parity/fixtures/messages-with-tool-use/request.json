@@ -1,0 +1,6 @@
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "messages": [{"role": "user", "content": "What is the weather in NYC?"}],
+  "max_tokens": 1024,
+  "tools": [{"name": "get_weather", "description": "Get weather", "input_schema": {"type": "object", "properties": {"location": {"type": "string"}}}}]
+}

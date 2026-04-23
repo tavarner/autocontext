@@ -7,8 +7,8 @@ import { describe, test, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { FileSink } from "../../../src/integrations/openai/sink.js";
-import type { TraceSink } from "../../../src/integrations/openai/sink.js";
+import { FileSink } from "../../../src/integrations/_shared/sink.js";
+import type { TraceSink } from "../../../src/integrations/_shared/sink.js";
 
 let tmpDir: string;
 

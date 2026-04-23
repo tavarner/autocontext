@@ -1,0 +1,10 @@
+{
+  "id": "msg_p008",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "Hello with session!"}],
+  "model": "claude-3-5-sonnet-20241022",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 8, "output_tokens": 5}
+}

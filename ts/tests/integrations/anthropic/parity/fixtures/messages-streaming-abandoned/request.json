@@ -1,0 +1,6 @@
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "messages": [{"role": "user", "content": "Abandon this stream"}],
+  "max_tokens": 1024,
+  "stream": true
+}

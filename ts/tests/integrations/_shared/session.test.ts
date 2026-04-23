@@ -3,7 +3,7 @@
  * Mirrors Python contextvar session tests.
  */
 import { describe, test, expect } from "vitest";
-import { autocontextSession, currentSession } from "../../../src/integrations/openai/session.js";
+import { autocontextSession, currentSession } from "../../../src/integrations/_shared/session.js";
 
 describe("autocontextSession", () => {
   test("defaults to empty session outside any context", () => {

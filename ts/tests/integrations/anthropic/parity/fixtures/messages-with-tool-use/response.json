@@ -1,0 +1,10 @@
+{
+  "id": "msg_p002",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "tool_use", "id": "tu_001", "name": "get_weather", "input": {"location": "New York"}}],
+  "model": "claude-3-5-sonnet-20241022",
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 20, "output_tokens": 15}
+}
