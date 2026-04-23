@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "profileMode": "isolated",
+  "allowedDomains": [
+    "docs.example.com"
+  ],
+  "allowAuth": false,
+  "allowUploads": false,
+  "allowDownloads": true,
+  "captureScreenshots": true,
+  "headless": true,
+  "downloadsRoot": "/tmp/browser-downloads",
+  "uploadsRoot": null
+}

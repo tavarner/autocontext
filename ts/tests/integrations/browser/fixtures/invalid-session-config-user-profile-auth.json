@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "profileMode": "user-profile",
+  "allowedDomains": [
+    "app.example.com"
+  ],
+  "allowAuth": false,
+  "allowUploads": false,
+  "allowDownloads": false,
+  "captureScreenshots": true,
+  "headless": false,
+  "downloadsRoot": null,
+  "uploadsRoot": null
+}

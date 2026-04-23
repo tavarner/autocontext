@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "profileMode": "ephemeral",
+  "allowedDomains": [
+    "example.com",
+    "*.example.org"
+  ],
+  "allowAuth": false,
+  "allowUploads": false,
+  "allowDownloads": false,
+  "captureScreenshots": true,
+  "headless": true,
+  "downloadsRoot": null,
+  "uploadsRoot": null
+}
