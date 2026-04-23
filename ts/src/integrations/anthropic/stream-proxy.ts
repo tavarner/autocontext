@@ -208,3 +208,162 @@ export class AnthropicStreamProxy implements AsyncIterable<unknown> {
     }
   }
 }
+
+type HelperOutcome = Record<string, unknown>;
+type HelperMessage = Record<string, unknown>;
+
+function _currentSnapshot(
+  target: Record<string | symbol, unknown>,
+): HelperMessage | null {
+  const snapshot =
+    (target["currentMessageSnapshot"] as HelperMessage | undefined) ??
+    (target["current_message_snapshot"] as HelperMessage | undefined);
+  return snapshot && typeof snapshot === "object" ? snapshot : null;
+}
+
+export function wrapHelperStream(opts: {
+  innerHelper: unknown;
+  onFinalize: (message: HelperMessage, outcome: HelperOutcome) => void;
+  onFailure: (exc: unknown) => void;
+}): unknown {
+  const target = opts.innerHelper as Record<string | symbol, unknown>;
+  const state = { finalized: false };
+
+  const emitFinalize = (message: HelperMessage, outcome: HelperOutcome): void => {
+    if (state.finalized) return;
+    opts.onFinalize(message, outcome);
+    state.finalized = true;
+  };
+
+  const emitFailure = (exc: unknown): void => {
+    if (state.finalized) return;
+    opts.onFailure(exc);
+    state.finalized = true;
+  };
+
+  const emitPartialFromSnapshot = (): void => {
+    const snapshot = _currentSnapshot(target);
+    if (snapshot) {
+      emitFinalize(snapshot, { label: "partial", reasoning: "abandonedStream" });
+    }
+  };
+
+  const invokeFinalMessage = async (): Promise<HelperMessage> => {
+    const method = target["finalMessage"];
+    if (typeof method === "function") {
+      return await (method as (...args: Array<unknown>) => Promise<HelperMessage>).call(target);
+    }
+    const snapshot = _currentSnapshot(target);
+    if (snapshot) return snapshot;
+    throw new Error("Anthropic helper stream does not expose finalMessage()");
+  };
+
+  let wrapped: unknown;
+  wrapped = new Proxy(target, {
+    get(innerTarget, prop, receiver) {
+      if (prop === Symbol.asyncIterator) {
+        return () => {
+          const iteratorFactory = Reflect.get(
+            innerTarget,
+            Symbol.asyncIterator,
+            receiver,
+          ) as (() => AsyncIterator<unknown>) | undefined;
+          if (!iteratorFactory) {
+            throw new Error("Anthropic helper stream is not async iterable");
+          }
+          const innerIterator = iteratorFactory.call(innerTarget);
+          return {
+            next: async (value?: unknown) => {
+              try {
+                const result = await innerIterator.next(value as never);
+                if (result.done && !state.finalized) {
+                  emitFinalize(await invokeFinalMessage(), { label: "success" });
+                }
+                return result;
+              } catch (exc) {
+                emitFailure(exc);
+                throw exc;
+              }
+            },
+            return: async (value?: unknown) => {
+              try {
+                const result = innerIterator.return
+                  ? await innerIterator.return(value)
+                  : { done: true, value };
+                if (!state.finalized) {
+                  emitPartialFromSnapshot();
+                }
+                return result;
+              } catch (exc) {
+                emitFailure(exc);
+                throw exc;
+              }
+            },
+            throw: async (err?: unknown) => {
+              emitFailure(err);
+              if (innerIterator.throw) {
+                return await innerIterator.throw(err);
+              }
+              throw err;
+            },
+          } satisfies AsyncIterator<unknown>;
+        };
+      }
+
+      if (prop === "finalMessage") {
+        return async (...args: Array<unknown>) => {
+          try {
+            const method = Reflect.get(innerTarget, prop, innerTarget) as (
+              ...innerArgs: Array<unknown>
+            ) => Promise<HelperMessage>;
+            const message = await method.apply(innerTarget, args);
+            emitFinalize(message, { label: "success" });
+            return message;
+          } catch (exc) {
+            emitFailure(exc);
+            throw exc;
+          }
+        };
+      }
+
+      if (prop === "finalText") {
+        return async (...args: Array<unknown>) => {
+          try {
+            const method = Reflect.get(innerTarget, prop, innerTarget) as (
+              ...innerArgs: Array<unknown>
+            ) => Promise<string>;
+            const text = await method.apply(innerTarget, args);
+            if (!state.finalized) {
+              emitFinalize(await invokeFinalMessage(), { label: "success" });
+            }
+            return text;
+          } catch (exc) {
+            emitFailure(exc);
+            throw exc;
+          }
+        };
+      }
+
+      if (prop === "textStream") {
+        return (async function* () {
+          for await (const event of wrapped as AsyncIterable<Record<string, unknown>>) {
+            if (event["type"] === "content_block_delta") {
+              const delta = event["delta"] as Record<string, unknown>;
+              if (delta["type"] === "text_delta") {
+                yield String(delta["text"] ?? "");
+              }
+            }
+          }
+        })();
+      }
+
+      const value = Reflect.get(innerTarget, prop, receiver);
+      if (typeof value === "function") {
+        return value.bind(innerTarget);
+      }
+      return value;
+    },
+  });
+
+  return wrapped;
+}

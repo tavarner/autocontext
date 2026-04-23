@@ -86,7 +86,16 @@ function _normalizeRequestMessages(
   messages: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   const ts = _nowIso();
-  return messages.map((msg) => ("timestamp" in msg ? msg : { ...msg, timestamp: ts }));
+  return messages.map((msg) => {
+    const content = msg["content"];
+    const normalizedContent =
+      typeof content === "string" || Array.isArray(content)
+        ? flattenContent(content as string | ContentBlock[])
+        : String(content ?? "");
+    return "timestamp" in msg
+      ? { ...msg, content: normalizedContent }
+      : { ...msg, content: normalizedContent, timestamp: ts };
+  });
 }
 
 export function buildSuccessTrace(opts: {

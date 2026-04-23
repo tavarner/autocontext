@@ -81,6 +81,36 @@ describe("trace-builder", () => {
     expect(lastMsg["content"]).toBe("hello world");
   });
 
+  test("buildSuccessTrace flattens request content blocks to contract strings", () => {
+    const snapshot = buildRequestSnapshot({
+      model: "claude-sonnet-4-5",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "look at " },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } },
+            { type: "text", text: "this" },
+          ],
+        },
+      ],
+      extraKwargs: {},
+    });
+    const trace = buildSuccessTrace({
+      requestSnapshot: snapshot,
+      responseContent: [{ type: "text", text: "done" }],
+      responseUsage: { input_tokens: 5, output_tokens: 3 },
+      responseStopReason: "end_turn",
+      identity: {},
+      timing: FAKE_TIMING,
+      env: FAKE_ENV,
+      sourceInfo: FAKE_SOURCE,
+      traceId: ulid(),
+    });
+    const messages = trace.messages as Array<Record<string, unknown>>;
+    expect(messages[0]?.content).toBe("look at this");
+  });
+
   test("buildSuccessTrace with tool_use blocks: toolCalls extracted", () => {
     const trace = buildSuccessTrace({
       requestSnapshot: FAKE_SNAPSHOT,

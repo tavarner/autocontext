@@ -232,3 +232,316 @@ class AsyncStreamProxy:
 
     def accumulated(self) -> _Accumulator:
         return self._accumulator
+
+
+class HelperStreamProxy:
+    """Wrap Anthropic's high-level MessageStream while preserving helper methods."""
+
+    def __init__(
+        self,
+        *,
+        inner_stream: Any,
+        on_success: Callable[[Any], None],
+        on_failure: Callable[[BaseException], None],
+        on_partial: Callable[[Any], None],
+    ) -> None:
+        self._inner = inner_stream
+        self._on_success = on_success
+        self._on_failure = on_failure
+        self._on_partial = on_partial
+        self._state: dict[str, bool] = {"finalized": False}
+
+    def _emit_success(self, message: Any) -> None:
+        if self._state["finalized"]:
+            return
+        self._on_success(message)
+        self._state["finalized"] = True
+
+    def _emit_failure(self, exc: BaseException) -> None:
+        if self._state["finalized"]:
+            return
+        self._on_failure(exc)
+        self._state["finalized"] = True
+
+    def _emit_partial(self) -> None:
+        if self._state["finalized"]:
+            return
+        try:
+            snapshot = self._inner.current_message_snapshot
+        except Exception:
+            return
+        self._on_partial(snapshot)
+        self._state["finalized"] = True
+
+    def __iter__(self) -> HelperStreamProxy:
+        return self
+
+    def __next__(self) -> Any:
+        try:
+            event = next(self._inner)
+        except StopIteration:
+            try:
+                self._emit_success(self._inner.current_message_snapshot)
+            except Exception:
+                pass
+            raise
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+
+        event_dict = event if isinstance(event, dict) else event.model_dump()
+        if event_dict.get("type") == "message_stop":
+            self._emit_success(self._inner.current_message_snapshot)
+        return event
+
+    def __enter__(self) -> HelperStreamProxy:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if exc_val is not None and isinstance(exc_val, BaseException):
+            self._emit_failure(exc_val)
+        elif not self._state["finalized"]:
+            self._emit_partial()
+        self.close()
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def get_final_message(self) -> Any:
+        try:
+            message = self._inner.get_final_message()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(message)
+        return message
+
+    def get_final_text(self) -> str:
+        try:
+            text = self._inner.get_final_text()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(self._inner.current_message_snapshot)
+        return str(text)
+
+    def until_done(self) -> None:
+        try:
+            self._inner.until_done()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(self._inner.current_message_snapshot)
+
+    @property
+    def current_message_snapshot(self) -> Any:
+        return self._inner.current_message_snapshot
+
+    @property
+    def request_id(self) -> str | None:
+        value = self._inner.request_id
+        return str(value) if value is not None else None
+
+    @property
+    def response(self) -> Any:
+        return self._inner.response
+
+    @property
+    def text_stream(self) -> Generator[str, None, None]:
+        for event in self:
+            event_dict = event if isinstance(event, dict) else event.model_dump()
+            if event_dict.get("type") == "content_block_delta":
+                delta = event_dict.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    yield delta.get("text", "")
+
+
+class HelperStreamManagerProxy:
+    """Wrap Anthropic's MessageStreamManager and return HelperStreamProxy on enter."""
+
+    def __init__(
+        self,
+        *,
+        inner_manager: Any,
+        on_success: Callable[[Any], None],
+        on_failure: Callable[[BaseException], None],
+        on_partial: Callable[[Any], None],
+    ) -> None:
+        self._inner = inner_manager
+        self._on_success = on_success
+        self._on_failure = on_failure
+        self._on_partial = on_partial
+        self._stream: HelperStreamProxy | None = None
+
+    def __enter__(self) -> HelperStreamProxy:
+        inner_stream = self._inner.__enter__()
+        self._stream = HelperStreamProxy(
+            inner_stream=inner_stream,
+            on_success=self._on_success,
+            on_failure=self._on_failure,
+            on_partial=self._on_partial,
+        )
+        return self._stream
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._stream is not None:
+            self._stream.__exit__(exc_type, exc_val, exc_tb)
+        self._inner.__exit__(exc_type, exc_val, exc_tb)
+
+
+class AsyncHelperStreamProxy:
+    """Wrap Anthropic's AsyncMessageStream while preserving helper methods."""
+
+    def __init__(
+        self,
+        *,
+        inner_stream: Any,
+        on_success: Callable[[Any], None],
+        on_failure: Callable[[BaseException], None],
+        on_partial: Callable[[Any], None],
+    ) -> None:
+        self._inner = inner_stream
+        self._on_success = on_success
+        self._on_failure = on_failure
+        self._on_partial = on_partial
+        self._state: dict[str, bool] = {"finalized": False}
+
+    def _emit_success(self, message: Any) -> None:
+        if self._state["finalized"]:
+            return
+        self._on_success(message)
+        self._state["finalized"] = True
+
+    def _emit_failure(self, exc: BaseException) -> None:
+        if self._state["finalized"]:
+            return
+        self._on_failure(exc)
+        self._state["finalized"] = True
+
+    def _emit_partial(self) -> None:
+        if self._state["finalized"]:
+            return
+        try:
+            snapshot = self._inner.current_message_snapshot
+        except Exception:
+            return
+        self._on_partial(snapshot)
+        self._state["finalized"] = True
+
+    def __aiter__(self) -> AsyncHelperStreamProxy:
+        return self
+
+    async def __anext__(self) -> Any:
+        try:
+            event = await self._inner.__anext__()
+        except StopAsyncIteration:
+            try:
+                self._emit_success(self._inner.current_message_snapshot)
+            except Exception:
+                pass
+            raise
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+
+        event_dict = event if isinstance(event, dict) else event.model_dump()
+        if event_dict.get("type") == "message_stop":
+            self._emit_success(self._inner.current_message_snapshot)
+        return event
+
+    async def __aenter__(self) -> AsyncHelperStreamProxy:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if exc_val is not None and isinstance(exc_val, BaseException):
+            self._emit_failure(exc_val)
+        elif not self._state["finalized"]:
+            self._emit_partial()
+        await self.close()
+
+    async def close(self) -> None:
+        await self._inner.close()
+
+    async def get_final_message(self) -> Any:
+        try:
+            message = await self._inner.get_final_message()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(message)
+        return message
+
+    async def get_final_text(self) -> str:
+        try:
+            text = await self._inner.get_final_text()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(self._inner.current_message_snapshot)
+        return str(text)
+
+    async def until_done(self) -> None:
+        try:
+            await self._inner.until_done()
+        except BaseException as exc:
+            self._emit_failure(exc)
+            raise
+        self._emit_success(self._inner.current_message_snapshot)
+
+    @property
+    def current_message_snapshot(self) -> Any:
+        return self._inner.current_message_snapshot
+
+    @property
+    def request_id(self) -> str | None:
+        value = self._inner.request_id
+        return str(value) if value is not None else None
+
+    @property
+    def response(self) -> Any:
+        return self._inner.response
+
+    @property
+    def text_stream(self) -> AsyncGenerator[str, None]:
+        async def _gen() -> AsyncGenerator[str, None]:
+            async for event in self:
+                event_dict = event if isinstance(event, dict) else event.model_dump()
+                if event_dict.get("type") == "content_block_delta":
+                    delta = event_dict.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        yield delta.get("text", "")
+
+        return _gen()
+
+
+class AsyncHelperStreamManagerProxy:
+    """Wrap Anthropic's AsyncMessageStreamManager and preserve helper surface."""
+
+    def __init__(
+        self,
+        *,
+        inner_manager: Any,
+        on_success: Callable[[Any], None],
+        on_failure: Callable[[BaseException], None],
+        on_partial: Callable[[Any], None],
+    ) -> None:
+        self._inner = inner_manager
+        self._on_success = on_success
+        self._on_failure = on_failure
+        self._on_partial = on_partial
+        self._stream: AsyncHelperStreamProxy | None = None
+
+    async def __aenter__(self) -> AsyncHelperStreamProxy:
+        inner_stream = await self._inner.__aenter__()
+        self._stream = AsyncHelperStreamProxy(
+            inner_stream=inner_stream,
+            on_success=self._on_success,
+            on_failure=self._on_failure,
+            on_partial=self._on_partial,
+        )
+        return self._stream
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._stream is not None:
+            await self._stream.__aexit__(exc_type, exc_val, exc_tb)
+        await self._inner.__aexit__(exc_type, exc_val, exc_tb)

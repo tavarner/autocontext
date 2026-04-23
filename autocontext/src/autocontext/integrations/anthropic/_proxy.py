@@ -59,6 +59,19 @@ def _resolve_identity(per_call: dict[str, Any] | None) -> dict[str, str]:
     return hashed
 
 
+def _response_usage_and_content(response: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str | None]:
+    usage = None
+    if getattr(response, "usage", None):
+        usage = response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage)
+    content = response.content if hasattr(response, "content") else []
+    stop_reason = response.stop_reason if hasattr(response, "stop_reason") else None
+    if content and not isinstance(content[0], dict):
+        content_list = [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in content]
+    else:
+        content_list = list(content)
+    return usage, content_list, stop_reason
+
+
 class _MessagesProxy:
     def __init__(self, parent: ClientProxy) -> None:
         self._parent = parent
@@ -74,11 +87,9 @@ class _MessagesProxy:
         return self._parent._invoke_non_streaming(kwargs=kwargs)
 
     def stream(self, **kwargs: Any) -> Any:
-        """High-level streaming — returns our StreamProxy as a context manager."""
-        kwargs["stream"] = True
         if self._parent._is_async:
-            return self._parent._invoke_streaming_async(kwargs=kwargs)
-        return self._parent._invoke_streaming(kwargs=kwargs)
+            return self._parent._invoke_helper_streaming_async(kwargs=kwargs)
+        return self._parent._invoke_helper_streaming(kwargs=kwargs)
 
 
 class ClientProxy:
@@ -143,16 +154,7 @@ class ClientProxy:
             raise
         ended_at = _now_iso()
         latency_ms = int((time.monotonic() - started_monotonic) * 1000)
-        usage = None
-        if getattr(response, "usage", None):
-            usage = response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage)
-        content = response.content if hasattr(response, "content") else []
-        stop_reason = response.stop_reason if hasattr(response, "stop_reason") else None
-        # Normalize content to list of dicts
-        if content and not isinstance(content[0], dict):
-            content_list = [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in content]
-        else:
-            content_list = list(content)
+        usage, content_list, stop_reason = _response_usage_and_content(response)
         trace = build_success_trace(
             request_snapshot=request_snapshot,
             response_content=content_list,
@@ -197,15 +199,7 @@ class ClientProxy:
             raise
         ended_at = _now_iso()
         latency_ms = int((time.monotonic() - started_monotonic) * 1000)
-        usage = None
-        if getattr(response, "usage", None):
-            usage = response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage)
-        content = response.content if hasattr(response, "content") else []
-        stop_reason = response.stop_reason if hasattr(response, "stop_reason") else None
-        if content and not isinstance(content[0], dict):
-            content_list = [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in content]
-        else:
-            content_list = list(content)
+        usage, content_list, stop_reason = _response_usage_and_content(response)
         trace = build_success_trace(
             request_snapshot=request_snapshot,
             response_content=content_list,
@@ -255,6 +249,81 @@ class ClientProxy:
 
         return StreamProxy(inner_stream=inner_stream, on_finalize=on_finalize)
 
+    def _invoke_helper_streaming(self, *, kwargs: dict[str, Any]) -> Any:
+        from autocontext.integrations.anthropic._stream import HelperStreamManagerProxy  # noqa: PLC0415
+
+        per_call = kwargs.pop("autocontext", None)
+        identity = _resolve_identity(per_call)
+        request_snapshot = build_request_snapshot(
+            model=kwargs.get("model", ""),
+            messages=kwargs.get("messages", []),
+            extra_kwargs={k: v for k, v in kwargs.items() if k not in {"model", "messages"}},
+        )
+        started_at = _now_iso()
+        started_monotonic = time.monotonic()
+        sink = self._sink
+        env = self._env()
+        source_info = self._source_info()
+
+        def on_success(message: Any) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            usage, content_list, stop_reason = _response_usage_and_content(message)
+            trace = build_success_trace(
+                request_snapshot=request_snapshot,
+                response_content=content_list,
+                response_usage=usage,
+                response_stop_reason=stop_reason,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+            )
+            sink.add(trace)
+
+        def on_failure(exc: BaseException) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            trace = build_failure_trace(
+                request_snapshot=request_snapshot,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+                reason_key=map_exception_to_reason(exc),
+                error_message=str(exc),
+                stack=traceback.format_exc(),
+            )
+            sink.add(trace)
+
+        def on_partial(message: Any) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            usage, content_list, stop_reason = _response_usage_and_content(message)
+            trace = build_success_trace(
+                request_snapshot=request_snapshot,
+                response_content=content_list,
+                response_usage=usage,
+                response_stop_reason=stop_reason,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+            )
+            trace["outcome"] = {"label": "partial", "reasoning": "abandonedStream"}
+            sink.add(trace)
+
+        inner_manager = self._inner.messages.stream(**kwargs)
+        return HelperStreamManagerProxy(
+            inner_manager=inner_manager,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_partial=on_partial,
+        )
+
     def _invoke_streaming_async(self, *, kwargs: dict[str, Any]) -> Any:
         import inspect  # noqa: PLC0415
 
@@ -298,3 +367,78 @@ class ClientProxy:
             return AsyncStreamProxy(inner_stream=inner_stream, on_finalize=on_finalize)
 
         return _make_proxy()
+
+    def _invoke_helper_streaming_async(self, *, kwargs: dict[str, Any]) -> Any:
+        from autocontext.integrations.anthropic._stream import AsyncHelperStreamManagerProxy  # noqa: PLC0415
+
+        per_call = kwargs.pop("autocontext", None)
+        identity = _resolve_identity(per_call)
+        request_snapshot = build_request_snapshot(
+            model=kwargs.get("model", ""),
+            messages=kwargs.get("messages", []),
+            extra_kwargs={k: v for k, v in kwargs.items() if k not in {"model", "messages"}},
+        )
+        started_at = _now_iso()
+        started_monotonic = time.monotonic()
+        sink = self._sink
+        env = self._env()
+        source_info = self._source_info()
+
+        def on_success(message: Any) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            usage, content_list, stop_reason = _response_usage_and_content(message)
+            trace = build_success_trace(
+                request_snapshot=request_snapshot,
+                response_content=content_list,
+                response_usage=usage,
+                response_stop_reason=stop_reason,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+            )
+            sink.add(trace)
+
+        def on_failure(exc: BaseException) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            trace = build_failure_trace(
+                request_snapshot=request_snapshot,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+                reason_key=map_exception_to_reason(exc),
+                error_message=str(exc),
+                stack=traceback.format_exc(),
+            )
+            sink.add(trace)
+
+        def on_partial(message: Any) -> None:
+            ended_at = _now_iso()
+            latency_ms = int((time.monotonic() - started_monotonic) * 1000)
+            usage, content_list, stop_reason = _response_usage_and_content(message)
+            trace = build_success_trace(
+                request_snapshot=request_snapshot,
+                response_content=content_list,
+                response_usage=usage,
+                response_stop_reason=stop_reason,
+                identity=identity,
+                timing={"startedAt": started_at, "endedAt": ended_at, "latencyMs": latency_ms},
+                env=env,
+                source_info=source_info,
+                trace_id=str(ULID()),
+            )
+            trace["outcome"] = {"label": "partial", "reasoning": "abandonedStream"}
+            sink.add(trace)
+
+        inner_manager = self._inner.messages.stream(**kwargs)
+        return AsyncHelperStreamManagerProxy(
+            inner_manager=inner_manager,
+            on_success=on_success,
+            on_failure=on_failure,
+            on_partial=on_partial,
+        )

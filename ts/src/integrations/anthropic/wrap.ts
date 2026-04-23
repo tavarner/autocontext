@@ -46,7 +46,7 @@ export function instrumentClient<T>(
             return proxy._invokeNonStreaming({ ...kwargs });
           },
           stream: (kwargs: Record<string, unknown>) => {
-            return proxy._invokeStreaming({ ...kwargs, stream: true });
+            return proxy._invokeHelperStreaming({ ...kwargs });
           },
         };
       }

@@ -18,7 +18,7 @@ import {
   finalizeStreamingTrace,
   type RequestSnapshot,
 } from "./trace-builder.js";
-import { AnthropicStreamProxy } from "./stream-proxy.js";
+import { AnthropicStreamProxy, wrapHelperStream } from "./stream-proxy.js";
 import {
   hashUserId,
   hashSessionId,
@@ -92,6 +92,18 @@ function _resolvePackageVersion(): string {
   }
   _cachedVersion = "0.0.0";
   return _cachedVersion;
+}
+
+function _responseUsageAndContent(resp: Record<string, unknown>): {
+  usage: Record<string, unknown> | null;
+  content: ContentBlock[];
+  stopReason: string | null;
+} {
+  return {
+    usage: (resp["usage"] as Record<string, unknown>) ?? null,
+    content: ((resp["content"] as Array<Record<string, unknown>>) ?? []) as ContentBlock[],
+    stopReason: (resp["stop_reason"] as string) ?? null,
+  };
 }
 
 export class ClientProxy {
@@ -225,5 +237,66 @@ export class ClientProxy {
     };
 
     return new AnthropicStreamProxy({ innerStream: rawStream, onFinalize });
+  }
+
+  _invokeHelperStreaming(kwargs: Record<string, unknown>): unknown {
+    const perCall = kwargs["autocontext"] as Record<string, string> | null;
+    delete kwargs["autocontext"];
+    const identity = _resolveIdentity(perCall);
+    const snapshot: RequestSnapshot = buildRequestSnapshot({
+      model: String(kwargs["model"] ?? ""),
+      messages: (kwargs["messages"] as Array<Record<string, unknown>>) ?? [],
+      extraKwargs: Object.fromEntries(
+        Object.entries(kwargs).filter(([k]) => k !== "model" && k !== "messages"),
+      ),
+    });
+    const startedAt = _nowIso();
+    const startedMonotonic = Date.now();
+    const inner = this._inner as {
+      messages: { stream: (k: unknown) => unknown };
+    };
+    const helper = inner.messages.stream(kwargs);
+    const sink = this._sink;
+    const env = this._env();
+    const sourceInfo = this._sourceInfo();
+
+    return wrapHelperStream({
+      innerHelper: helper,
+      onFinalize: (message, outcome) => {
+        const endedAt = _nowIso();
+        const latencyMs = Date.now() - startedMonotonic;
+        const { usage, content, stopReason } = _responseUsageAndContent(message);
+        const trace = buildSuccessTrace({
+          requestSnapshot: snapshot,
+          responseContent: content,
+          responseUsage: usage,
+          responseStopReason: stopReason,
+          identity,
+          timing: { startedAt, endedAt, latencyMs },
+          env,
+          sourceInfo,
+          traceId: ulid(),
+        });
+        sink.add(
+          { ...trace, outcome: outcome as typeof trace.outcome } as unknown as Record<string, unknown>,
+        );
+      },
+      onFailure: (exc) => {
+        const endedAt = _nowIso();
+        const latencyMs = Date.now() - startedMonotonic;
+        const trace = buildFailureTrace({
+          requestSnapshot: snapshot,
+          identity,
+          timing: { startedAt, endedAt, latencyMs },
+          env,
+          sourceInfo,
+          traceId: ulid(),
+          reasonKey: mapExceptionToReason(exc),
+          errorMessage: String(exc),
+          stack: exc instanceof Error ? (exc.stack ?? null) : null,
+        });
+        sink.add(trace as unknown as Record<string, unknown>);
+      },
+    });
   }
 }

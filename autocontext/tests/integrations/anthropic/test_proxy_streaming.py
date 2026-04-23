@@ -131,3 +131,29 @@ def test_streaming_malformed_tool_input_preserved_as_raw_error(tmp_path, make_an
     assert block["type"] == "tool_use"
     assert "_rawJsonError" in block["finalized_input"]
     assert block["finalized_input"]["_rawJsonError"] == "{bad json"
+
+
+def test_messages_stream_preserves_helper_final_message_and_emits_trace(
+    tmp_path,
+    make_anthropic_client,
+) -> None:
+    """High-level `.messages.stream()` still supports get_final_message()."""
+    chunks = canned_anthropic_sse_chunks(text_pieces=["hello", " helper"])
+    client = make_anthropic_client(_sse_handler(chunks))
+    sink = FileSink(path=tmp_path / "t.jsonl", batch_size=1)
+    wrapped = instrument_client(client, sink=sink, app_id="test-app")
+
+    with wrapped.messages.stream(
+        model="claude-sonnet-4-5",
+        max_tokens=100,
+        messages=[{"role": "user", "content": "hi"}],
+    ) as stream:
+        final_message = stream.get_final_message()
+
+    assert final_message.content[0].text == "hello helper"
+    sink.close()
+    lines = (tmp_path / "t.jsonl").read_text().strip().splitlines()
+    assert len(lines) == 1
+    trace = json.loads(lines[0])
+    assistant_msgs = [m for m in trace["messages"] if m["role"] == "assistant"]
+    assert assistant_msgs[-1]["content"] == "hello helper"

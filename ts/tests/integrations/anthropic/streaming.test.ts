@@ -228,4 +228,43 @@ describe("Anthropic streaming proxy", () => {
     cleanup();
     sink.close();
   });
+
+  test("messages.stream() preserves finalMessage() helper", async () => {
+    const { sink, readTraces, cleanup } = makeSink();
+    const fakeFetch = (_url: string, _init: RequestInit) =>
+      Promise.resolve(
+        cannedAnthropicSseResponse({
+          textPieces: ["helper", " path"],
+          usage: { input_tokens: 4, output_tokens: 6 },
+        }),
+      );
+    const inner = new Anthropic({
+      apiKey: "test-key",
+      fetch: fakeFetch as typeof fetch,
+    });
+    const client = instrumentClient(inner, {
+      sink,
+      appId: "test-app",
+      environmentTag: "test",
+    });
+
+    const stream = client.messages.stream({
+      model: "claude-sonnet-4-5",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "hi" }],
+    }) as { finalMessage: () => Promise<{ content: Array<{ type: string; text?: string }> }> };
+
+    const finalMessage = await stream.finalMessage();
+    expect(finalMessage.content[0]?.type).toBe("text");
+    expect(finalMessage.content[0]?.text).toBe("helper path");
+
+    const traces = readTraces();
+    expect(traces.length).toBeGreaterThanOrEqual(1);
+    const lastTrace = traces[traces.length - 1]!;
+    const messages = lastTrace.messages as Array<Record<string, unknown>>;
+    expect(messages[messages.length - 1]?.content).toBe("helper path");
+
+    cleanup();
+    sink.close();
+  });
 });
