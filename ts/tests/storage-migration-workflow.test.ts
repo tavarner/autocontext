@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -10,6 +10,15 @@ import {
 } from "../src/storage/storage-migration-workflow.js";
 
 const MIGRATIONS_DIR = join(import.meta.dirname, "..", "migrations");
+const PYTHON_MIGRATIONS_DIR = join(import.meta.dirname, "..", "..", "autocontext", "migrations");
+
+function columnNames(db: Database.Database, tableName: string): Set<string> {
+  return new Set(
+    (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    ),
+  );
+}
 
 describe("storage migration workflow", () => {
   let dir: string;
@@ -68,6 +77,49 @@ describe("storage migration workflow", () => {
     );
     for (const typescriptMigration of Object.keys(TYPESCRIPT_TO_PYTHON_MIGRATION_BASELINES)) {
       expect(appliedTypescript.has(typescriptMigration)).toBe(true);
+    }
+  });
+
+  it("reconciles partial Python baselines before seeding their ledger rows", () => {
+    db.exec(
+      `CREATE TABLE schema_migrations (
+         version TEXT PRIMARY KEY,
+         applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+       )`,
+    );
+    const insert = db.prepare("INSERT INTO schema_migrations(version) VALUES (?)");
+    for (const pythonMigration of [
+      "001_initial.sql",
+      "002_phase3_phase7.sql",
+      "003_agent_subagent_metadata.sql",
+      "004_knowledge_inheritance.sql",
+      "005_ecosystem_provider_tracking.sql",
+    ]) {
+      db.exec(readFileSync(join(PYTHON_MIGRATIONS_DIR, pythonMigration), "utf8"));
+      insert.run(pythonMigration);
+    }
+
+    migrateDatabase(db, MIGRATIONS_DIR);
+
+    expect(Array.from(columnNames(db, "generations"))).toEqual(
+      expect.arrayContaining([
+        "duration_seconds",
+        "dimension_summary_json",
+        "scoring_backend",
+        "rating_uncertainty",
+      ]),
+    );
+    expect(Array.from(columnNames(db, "matches"))).toEqual(
+      expect.arrayContaining(["winner", "strategy_json", "replay_json"]),
+    );
+
+    const appliedPython = new Set(
+      (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: string }>).map(
+        (row) => row.version,
+      ),
+    );
+    for (const pythonMigration of TYPESCRIPT_TO_PYTHON_MIGRATION_BASELINES["009_generation_loop.sql"]) {
+      expect(appliedPython.has(pythonMigration)).toBe(true);
     }
   });
 });
