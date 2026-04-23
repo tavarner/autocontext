@@ -34,6 +34,12 @@ _DEFAULT_COMPONENT_TOKEN_LIMITS: dict[str, int] = {
     "consultation_strategy": 400,
 }
 
+_TAIL_PRESERVING_COMPONENTS = {
+    "agent_task_best_output",
+    "consultation_context",
+    "consultation_strategy",
+}
+
 _IMPORTANT_KEYWORDS = (
     "root cause",
     "finding",
@@ -121,6 +127,8 @@ def _compact_component(key: str, text: str, max_tokens: int) -> str:
         compacted = _compact_history(text, max_tokens=max_tokens)
     elif key == "trajectory":
         compacted = _compact_table(text, max_tokens=max_tokens)
+    elif key in _TAIL_PRESERVING_COMPONENTS and _looks_like_plain_prose(text):
+        compacted = _compact_plain_prose(text, max_tokens=max_tokens)
     else:
         compacted = _compact_markdown(text, max_tokens=max_tokens)
 
@@ -189,6 +197,20 @@ def _compact_table(text: str, *, max_tokens: int) -> str:
     return compacted or _truncate_text(text, max_tokens=max_tokens)
 
 
+def _compact_plain_prose(text: str, *, max_tokens: int) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return _truncate_text(text, max_tokens=max_tokens)
+
+    head = lines[:2]
+    tail = lines[-3:]
+    selected = _dedupe_lines([*head, *tail])
+    compacted = "\n".join(selected).strip()
+    if compacted and compacted != text:
+        compacted = f"{compacted}\n\n[... condensed recent context ...]"
+    return compacted or _truncate_text(text, max_tokens=max_tokens)
+
+
 def _split_sections(text: str) -> list[str]:
     if "\n\n---\n\n" in text:
         return [section.strip() for section in text.split("\n\n---\n\n") if section.strip()]
@@ -204,6 +226,19 @@ def _split_sections(text: str) -> list[str]:
     if current:
         sections.append(current)
     return ["\n".join(section).strip() for section in sections if any(line.strip() for line in section)]
+
+
+def _looks_like_plain_prose(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if re.search(r"^#{1,6}\s+", stripped, re.MULTILINE):
+        return False
+    if "\n\n---\n\n" in stripped:
+        return False
+    if re.search(r"^\s*(?:[-*]|\d+\.)\s+", stripped, re.MULTILINE):
+        return False
+    return True
 
 
 def _compact_section(section: str) -> str:

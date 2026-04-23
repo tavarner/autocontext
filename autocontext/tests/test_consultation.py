@@ -404,6 +404,41 @@ class TestConsultationRunner:
         assert "score history" in prompt.lower()
         assert "condensed" in prompt.lower()
 
+    def test_user_prompt_keeps_tail_of_plain_text_operator_context(self) -> None:
+        from autocontext.consultation.runner import ConsultationRunner
+        from autocontext.consultation.types import ConsultationRequest, ConsultationTrigger
+
+        provider = CallableProvider(lambda _system, _user: "## Critique\nDone", model_name="spy")
+        runner = ConsultationRunner(provider)
+        request = ConsultationRequest(
+            run_id="run-1",
+            generation=9,
+            trigger=ConsultationTrigger.OPERATOR_REQUEST,
+            context_summary=(
+                "\n".join(
+                    f"Old note {idx}: filler filler filler filler filler filler filler."
+                    for idx in range(1, 60)
+                )
+                + "\nActual operator ask: explain why the new guard mutation caused the regression."
+            ),
+            current_strategy_summary=(
+                "\n".join(
+                    f"Old strategy {idx}: filler filler filler filler filler."
+                    for idx in range(1, 40)
+                )
+                + "\nCurrent issue: the fallback branch is being removed too early."
+            ),
+            score_history=[0.51] * 20,
+            gate_history=["retry"] * 20,
+        )
+
+        prompt = runner._build_user_prompt(request)
+
+        assert "actual operator ask" in prompt.lower()
+        assert "guard mutation caused the regression" in prompt.lower()
+        assert "fallback branch is being removed too early" in prompt.lower()
+        assert "condensed" in prompt.lower()
+
 
 # ===========================================================================
 # 4. SQLite Migration + Store Methods

@@ -207,6 +207,28 @@ class TestBuildEnrichedPrompt:
         assert "strongest evidence first" in prompt.lower()
         assert "condensed" in prompt.lower()
 
+    def test_compacts_plain_text_best_output_without_losing_tail(self) -> None:
+        from autocontext.execution.agent_task_evolution import build_enriched_prompt
+
+        prompt = build_enriched_prompt(
+            task_prompt="Write a better incident review.",
+            playbook="",
+            generation=6,
+            best_output=(
+                "\n".join(
+                    f"Paragraph {idx}: filler filler filler filler filler filler filler filler."
+                    for idx in range(1, 80)
+                )
+                + "\nFinal answer: preserve the rollback guard and cite evidence first."
+            ),
+            best_score=0.91,
+        )
+
+        assert "final answer" in prompt.lower()
+        assert "rollback guard" in prompt.lower()
+        assert "cite evidence first" in prompt.lower()
+        assert "condensed" in prompt.lower()
+
 
 # ===========================================================================
 # AgentTaskTrajectory
