@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from autocontext.investigation.browser_context import InvestigationBrowserContext
+
 
 def _spec_response() -> str:
     return json.dumps(
@@ -206,6 +208,46 @@ class TestInvestigationEngine:
 
         assert result.status == "failed"
         assert "valid JSON" in (result.error or "")
+
+    def test_includes_browser_context_in_prompts_and_evidence(self, tmp_path: Path) -> None:
+        from autocontext.investigation.engine import InvestigationEngine, InvestigationRequest
+
+        calls: list[tuple[str, str]] = []
+
+        def spec_llm(system: str, user: str) -> str:
+            calls.append((system, user))
+            return _spec_response()
+
+        def analysis_llm(system: str, user: str) -> str:
+            calls.append((system, user))
+            return _hypothesis_response()
+
+        engine = InvestigationEngine(
+            spec_llm_fn=spec_llm,
+            analysis_llm_fn=analysis_llm,
+            knowledge_root=tmp_path,
+        )
+
+        result = engine.run(
+            InvestigationRequest(
+                description="Investigate checkout errors",
+                browser_context=InvestigationBrowserContext(
+                    url="https://example.com/status",
+                    title="Status Page",
+                    visible_text="Checkout is degraded for some users.",
+                    html_path="/tmp/status.html",
+                    screenshot_path="/tmp/status.png",
+                ),
+            )
+        )
+
+        assert result.status == "completed"
+        assert len(calls) == 2
+        assert "Live browser context" in calls[0][1]
+        assert "https://example.com/status" in calls[0][1]
+        assert "Checkout is degraded for some users." in calls[1][1]
+        assert any(item.kind == "browser_snapshot" for item in result.evidence)
+        assert any(item.source == "https://example.com/status" for item in result.evidence)
 
     def test_hypothesis_prompt_uses_clustered_evidence_summary(self, tmp_path: Path) -> None:
         from autocontext.investigation.engine import InvestigationEngine, InvestigationRequest

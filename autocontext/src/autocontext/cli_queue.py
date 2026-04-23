@@ -22,6 +22,7 @@ class QueueEnqueuer(Protocol):
         spec_name: str,
         task_prompt: str | None = None,
         rubric: str | None = None,
+        browser_url: str | None = None,
         max_rounds: int = 5,
         quality_threshold: float = 0.9,
         min_rounds: int = 1,
@@ -56,6 +57,7 @@ def run_queue_command(
     spec: str,
     task_prompt: str,
     rubric: str,
+    browser_url: str,
     max_rounds: int,
     threshold: float,
     min_rounds: int,
@@ -92,34 +94,28 @@ def run_queue_command(
     settings = load_settings_fn()
     store = sqlite_from_settings(settings)
 
-    has_direct_task_payload = bool(task_prompt.strip() or rubric.strip())
-    if not has_direct_task_payload and max_rounds == 5 and threshold == 0.9 and min_rounds == 1:
-        task_id = enqueue_task_fn(
-            store=store,
-            spec_name=resolved_spec_name,
-            priority=priority,
-        )
-    elif min_rounds == 1:
-        task_id = enqueue_task_fn(
-            store=store,
-            spec_name=resolved_spec_name,
-            task_prompt=task_prompt.strip() or None,
-            rubric=rubric.strip() or None,
-            max_rounds=max_rounds,
-            quality_threshold=threshold,
-            priority=priority,
-        )
-    else:
-        task_id = enqueue_task_fn(
-            store=store,
-            spec_name=resolved_spec_name,
-            task_prompt=task_prompt.strip() or None,
-            rubric=rubric.strip() or None,
-            max_rounds=max_rounds,
-            quality_threshold=threshold,
-            min_rounds=min_rounds,
-            priority=priority,
-        )
+    task_kwargs: dict[str, Any] = {
+        "store": store,
+        "spec_name": resolved_spec_name,
+        "priority": priority,
+    }
+    normalized_task_prompt = task_prompt.strip() or None
+    normalized_rubric = rubric.strip() or None
+    normalized_browser_url = browser_url.strip() or None
+    if normalized_task_prompt is not None:
+        task_kwargs["task_prompt"] = normalized_task_prompt
+    if normalized_rubric is not None:
+        task_kwargs["rubric"] = normalized_rubric
+    if normalized_browser_url is not None:
+        task_kwargs["browser_url"] = normalized_browser_url
+    if max_rounds != 5:
+        task_kwargs["max_rounds"] = max_rounds
+    if threshold != 0.9:
+        task_kwargs["quality_threshold"] = threshold
+    if min_rounds != 1:
+        task_kwargs["min_rounds"] = min_rounds
+
+    task_id = enqueue_task_fn(**task_kwargs)
 
     payload = {"task_id": task_id, "spec_name": resolved_spec_name, "status": "queued"}
     if json_output:
@@ -140,6 +136,7 @@ def register_queue_command(
         spec: str = typer.Option("", "--spec", "-s", help="Task spec name"),
         task_prompt: str = typer.Option("", "--task-prompt", "--prompt", "-p", help="The queued task prompt"),
         rubric: str = typer.Option("", "--rubric", "-r", help="Evaluation rubric"),
+        browser_url: str = typer.Option("", "--browser-url", help="Optional browser URL to capture before execution"),
         max_rounds: int = typer.Option(5, "--rounds", "-n", min=1, help="Maximum improvement rounds"),
         threshold: float = typer.Option(0.9, "--threshold", "-t", help="Quality threshold to stop"),
         min_rounds: int = typer.Option(1, "--min-rounds", min=1, help="Minimum rounds before threshold stops"),
@@ -155,6 +152,7 @@ def register_queue_command(
             spec=spec,
             task_prompt=task_prompt,
             rubric=rubric,
+            browser_url=browser_url,
             max_rounds=max_rounds,
             threshold=threshold,
             min_rounds=min_rounds,

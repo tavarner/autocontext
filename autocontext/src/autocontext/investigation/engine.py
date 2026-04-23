@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from autocontext.agents.types import LlmFn
+from autocontext.investigation.browser_context import (
+    InvestigationBrowserContext,
+    build_browser_evidence_summary,
+    render_investigation_browser_context,
+)
 from autocontext.scenarios.custom.family_pipeline import validate_for_family, validate_source_for_family
 from autocontext.scenarios.custom.investigation_codegen import generate_investigation_class
 from autocontext.scenarios.custom.investigation_spec import InvestigationSpec
@@ -28,6 +33,7 @@ class InvestigationRequest:
     max_steps: int | None = None
     max_hypotheses: int | None = None
     save_as: str | None = None
+    browser_context: InvestigationBrowserContext | None = None
 
 
 @dataclass(slots=True)
@@ -155,7 +161,11 @@ def parse_investigation_json(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _build_investigation_spec_prompt(description: str) -> tuple[str, str]:
+def _build_investigation_spec_prompt(
+    description: str,
+    *,
+    browser_context: InvestigationBrowserContext | None = None,
+) -> tuple[str, str]:
     system_prompt = (
         "You are an investigation designer. Given a problem description, produce an investigation spec as JSON.\n\n"
         "Required fields:\n"
@@ -171,7 +181,10 @@ def _build_investigation_spec_prompt(description: str) -> tuple[str, str]:
         "- when preconditions represent ordering, reference prior action names instead of environmental access assumptions\n\n"
         "Output ONLY the JSON object, no markdown fences."
     )
-    return system_prompt, f"Investigation: {description}"
+    user_prompt = f"Investigation: {description}"
+    if browser_context is not None:
+        user_prompt = f"{user_prompt}\n\n{render_investigation_browser_context(browser_context)}"
+    return system_prompt, user_prompt
 
 
 def _build_hypothesis_prompt(
@@ -180,6 +193,7 @@ def _build_hypothesis_prompt(
     execution: _ExecutedInvestigation,
     diagnosis_target: str,
     max_hypotheses: int | None,
+    browser_context: InvestigationBrowserContext | None = None,
 ) -> tuple[str, str]:
     system_prompt = (
         "You are a diagnostic analyst. Given an investigation description and collected evidence, generate hypotheses. "
@@ -203,6 +217,8 @@ def _build_hypothesis_prompt(
         f"Steps taken: {execution.steps_executed}\n"
         f"Maximum hypotheses: {max_hypotheses or 5}"
     )
+    if browser_context is not None:
+        user_prompt = f"{user_prompt}\n\n{render_investigation_browser_context(browser_context)}"
     return system_prompt, user_prompt
 
 
@@ -348,8 +364,24 @@ def _similarity_score(left: str, right: str) -> float:
     return matches / max(len(left_tokens), len(right_tokens))
 
 
-def _build_evidence(execution: _ExecutedInvestigation) -> list[InvestigationEvidence]:
-    return [
+def _build_evidence(
+    execution: _ExecutedInvestigation,
+    *,
+    browser_context: InvestigationBrowserContext | None = None,
+) -> list[InvestigationEvidence]:
+    evidence: list[InvestigationEvidence] = []
+    if browser_context is not None:
+        evidence.append(
+            InvestigationEvidence(
+                id="browser_snapshot",
+                kind="browser_snapshot",
+                source=browser_context.url,
+                summary=build_browser_evidence_summary(browser_context),
+                is_red_herring=False,
+            )
+        )
+    evidence.extend(
+        [
         InvestigationEvidence(
             id=item.id,
             kind="red_herring" if item.is_red_herring else "observation",
@@ -358,7 +390,9 @@ def _build_evidence(execution: _ExecutedInvestigation) -> list[InvestigationEvid
             is_red_herring=item.is_red_herring,
         )
         for item in execution.collected_evidence
-    ]
+        ]
+    )
+    return evidence
 
 
 def _build_clustered_evidence_summary(
@@ -550,6 +584,8 @@ def _evaluate_hypotheses(
 def _build_conclusion(
     hypotheses: list[InvestigationHypothesis],
     evidence: list[InvestigationEvidence],
+    *,
+    has_browser_context: bool = False,
 ) -> InvestigationConclusion:
     supported = sorted(
         [hypothesis for hypothesis in hypotheses if hypothesis.status == "supported"],
@@ -563,7 +599,10 @@ def _build_conclusion(
         limitations.append(f"{red_herrings} potential red herring(s) in evidence pool")
     if any(hypothesis.status == "unresolved" for hypothesis in hypotheses):
         limitations.append("Some hypotheses remain unresolved")
-    limitations.append("Investigation based on generated scenario — not live system data")
+    if has_browser_context:
+        limitations.append("Investigation combines generated scenario reasoning with browser snapshot evidence")
+    else:
+        limitations.append("Investigation based on generated scenario — not live system data")
     return InvestigationConclusion(
         best_explanation=best.statement if best else "No hypothesis received sufficient support",
         confidence=best.confidence if best else 0.0,
@@ -642,7 +681,10 @@ class InvestigationEngine:
         name = request.save_as or derive_investigation_name(request.description)
 
         try:
-            spec_system, spec_user = _build_investigation_spec_prompt(request.description)
+            spec_system, spec_user = _build_investigation_spec_prompt(
+                request.description,
+                browser_context=request.browser_context,
+            )
             raw_spec = parse_investigation_json(self._spec_llm_fn(spec_system, spec_user))
             if raw_spec is None:
                 raise ValueError("Investigation spec generation did not return valid JSON")
@@ -670,6 +712,7 @@ class InvestigationEngine:
                 execution=execution,
                 diagnosis_target=spec.diagnosis_target,
                 max_hypotheses=request.max_hypotheses,
+                browser_context=request.browser_context,
             )
             question, raw_hypotheses = _parse_hypotheses(
                 text=self._analysis_llm_fn(hypothesis_system, hypothesis_user),
@@ -677,13 +720,17 @@ class InvestigationEngine:
                 max_hypotheses=request.max_hypotheses,
             )
 
-            evidence = _build_evidence(execution)
+            evidence = _build_evidence(execution, browser_context=request.browser_context)
             hypotheses, annotated_evidence = _evaluate_hypotheses(
                 hypotheses=raw_hypotheses,
                 evidence=evidence,
                 diagnosis_target=spec.diagnosis_target,
             )
-            conclusion = _build_conclusion(hypotheses, annotated_evidence)
+            conclusion = _build_conclusion(
+                hypotheses,
+                annotated_evidence,
+                has_browser_context=request.browser_context is not None,
+            )
             unknowns = _identify_unknowns(hypotheses, annotated_evidence)
             next_steps = _recommend_next_steps(hypotheses, unknowns)
             report_path = investigation_dir / "report.json"

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from autocontext.cli import app
+from autocontext.investigation.browser_context import InvestigationBrowserContext
 
 runner = CliRunner()
 
@@ -88,6 +89,19 @@ class _FailingInvestigationEngine:
         return InvestigationResult.from_dict(payload)
 
 
+class _CapturingInvestigationEngine:
+    captured_request = None
+
+    def __init__(self, **_: object) -> None:
+        pass
+
+    def run(self, request):  # noqa: ANN001
+        from autocontext.investigation.engine import InvestigationResult
+
+        _CapturingInvestigationEngine.captured_request = request
+        return InvestigationResult.from_dict(_completed_payload())
+
+
 class TestInvestigateCli:
     def test_help_exists(self) -> None:
         result = runner.invoke(app, ["investigate", "--help"])
@@ -97,6 +111,7 @@ class TestInvestigateCli:
         assert "investigate" in help_text.lower()
         assert "--description" in help_text
         assert "--hypotheses" in help_text
+        assert "--browser-url" in help_text
 
     def test_json_success(self, tmp_path: Path) -> None:
         settings = _make_settings(tmp_path)
@@ -128,3 +143,43 @@ class TestInvestigateCli:
         payload = json.loads(result.output.strip())
         assert payload["status"] == "failed"
         assert payload["error"] == "spec generation did not return valid JSON"
+
+    def test_browser_url_attaches_browser_context_to_the_investigation_request(self, tmp_path: Path) -> None:
+        settings = _make_settings(tmp_path).model_copy(
+            update={
+                "browser_enabled": True,
+                "browser_backend": "chrome-cdp",
+                "browser_allowed_domains": "example.com",
+                "browser_debugger_url": "http://127.0.0.1:9333",
+            }
+        )
+        browser_context = InvestigationBrowserContext(
+            url="https://example.com/status",
+            title="Status",
+            visible_text="Checkout is degraded",
+            html_path="/tmp/status.html",
+            screenshot_path="/tmp/status.png",
+        )
+        _CapturingInvestigationEngine.captured_request = None
+
+        with (
+            patch("autocontext.cli.load_settings", return_value=settings),
+            patch("autocontext.cli._resolve_investigation_runtime", return_value=(object(), "mock-model")),
+            patch("autocontext.cli_investigate.capture_investigation_browser_context", return_value=browser_context),
+            patch("autocontext.investigation.engine.InvestigationEngine", _CapturingInvestigationEngine),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "investigate",
+                    "-d",
+                    "why did checkout fail",
+                    "--browser-url",
+                    "https://example.com/status",
+                    "--json",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert _CapturingInvestigationEngine.captured_request is not None
+        assert _CapturingInvestigationEngine.captured_request.browser_context == browser_context

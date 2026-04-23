@@ -13,6 +13,11 @@ from autocontext.integrations.browser.chrome_cdp_transport import (
     ChromeCdpTransportError,
     ChromeCdpWebSocketTransport,
 )
+from autocontext.integrations.browser.context_capture import (
+    CapturedBrowserContext,
+    capture_browser_context,
+    render_captured_browser_context,
+)
 from autocontext.integrations.browser.evidence import BrowserArtifactPaths, BrowserEvidenceStore
 from autocontext.integrations.browser.factory import (
     ConfiguredBrowserRuntime,
@@ -49,11 +54,14 @@ __all__ = [
     "ChromeCdpTargetDiscoveryPort",
     "ChromeCdpTransportError",
     "ChromeCdpWebSocketTransport",
+    "CapturedBrowserContext",
     "BrowserPolicyDecision",
     "browser_runtime_from_settings",
     "build_default_browser_session_config",
+    "capture_browser_context",
     "evaluate_browser_action_policy",
     "normalize_browser_allowed_domains",
+    "render_captured_browser_context",
     "resolve_browser_session_config",
     "select_chrome_cdp_target",
     "validate_browser_action",

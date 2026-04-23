@@ -1220,6 +1220,7 @@ def investigate(
     max_steps: int = typer.Option(8, "--max-steps", min=1, help="Maximum investigation steps"),
     hypotheses: int = typer.Option(5, "--hypotheses", min=1, help="Maximum hypotheses to generate"),
     save_as: str = typer.Option("", "--save-as", help="Name for the saved investigation"),
+    browser_url: str = typer.Option("", "--browser-url", help="Optional browser URL to capture before investigation"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Run a plain-language investigation with evidence and hypotheses."""
@@ -1228,6 +1229,7 @@ def investigate(
         max_steps=max_steps,
         hypotheses=hypotheses,
         save_as=save_as,
+        browser_url=browser_url,
         json_output=json_output,
         console=console,
         load_settings_fn=load_settings,

@@ -132,6 +132,7 @@ class TestQueueCommand:
         assert "--spec" in result.stdout or "-s" in result.stdout
         assert "--task-prompt" in result.stdout or "-p" in result.stdout
         assert "--rounds" in result.stdout or "-n" in result.stdout
+        assert "--browser-url" in result.stdout
 
     def test_queue_requires_spec_or_task_prompt(self) -> None:
         result = runner.invoke(app, ["queue"])
@@ -196,5 +197,39 @@ class TestQueueCommand:
             rubric="correct",
             quality_threshold=0.8,
             max_rounds=2,
+            priority=0,
+        )
+
+    def test_queue_passes_browser_url_through_to_the_runner(self) -> None:
+        settings = MagicMock()
+        store = MagicMock()
+
+        with (
+            patch("autocontext.cli.load_settings", return_value=settings),
+            patch("autocontext.cli._sqlite_from_settings", return_value=store),
+            patch("autocontext.execution.task_runner.enqueue_task", return_value="task-789") as mock_enqueue,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "queue",
+                    "--spec",
+                    "browser-task",
+                    "--browser-url",
+                    "https://status.example.com",
+                    "--json",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {
+            "task_id": "task-789",
+            "spec_name": "browser-task",
+            "status": "queued",
+        }
+        mock_enqueue.assert_called_once_with(
+            store=store,
+            spec_name="browser-task",
+            browser_url="https://status.example.com",
             priority=0,
         )
