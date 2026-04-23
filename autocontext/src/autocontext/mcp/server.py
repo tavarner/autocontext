@@ -367,10 +367,11 @@ def autocontext_queue_improvement_run(
     task_name: str,
     initial_output: str | None = None,
     priority: int = 0,
+    browser_url: str | None = None,
 ) -> str:
     """Queue an agent task for background improvement loop processing.
     The task runner daemon will pick it up automatically."""
-    return json.dumps(tools.queue_improvement_run(_get_ctx(), task_name, initial_output, priority))
+    return json.dumps(tools.queue_improvement_run(_get_ctx(), task_name, initial_output, priority, browser_url))
 
 
 @mcp.tool()

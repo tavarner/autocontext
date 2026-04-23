@@ -7,6 +7,7 @@ originated in the TS package.
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,11 @@ from typer.testing import CliRunner
 from autocontext.cli import app
 
 runner = CliRunner()
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 class _FakeProvider:
@@ -128,10 +134,12 @@ class TestImproveCommand:
 class TestQueueCommand:
     def test_queue_help(self) -> None:
         result = runner.invoke(app, ["queue", "--help"])
+        stdout = strip_ansi(result.stdout)
         assert result.exit_code == 0
-        assert "--spec" in result.stdout or "-s" in result.stdout
-        assert "--task-prompt" in result.stdout or "-p" in result.stdout
-        assert "--rounds" in result.stdout or "-n" in result.stdout
+        assert "--spec" in stdout or "-s" in stdout
+        assert "--task-prompt" in stdout or "-p" in stdout
+        assert "--rounds" in stdout or "-n" in stdout
+        assert "--browser-url" in stdout
 
     def test_queue_requires_spec_or_task_prompt(self) -> None:
         result = runner.invoke(app, ["queue"])
@@ -196,5 +204,39 @@ class TestQueueCommand:
             rubric="correct",
             quality_threshold=0.8,
             max_rounds=2,
+            priority=0,
+        )
+
+    def test_queue_passes_browser_url_through_to_the_runner(self) -> None:
+        settings = MagicMock()
+        store = MagicMock()
+
+        with (
+            patch("autocontext.cli.load_settings", return_value=settings),
+            patch("autocontext.cli._sqlite_from_settings", return_value=store),
+            patch("autocontext.execution.task_runner.enqueue_task", return_value="task-789") as mock_enqueue,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "queue",
+                    "--spec",
+                    "browser-task",
+                    "--browser-url",
+                    "https://status.example.com",
+                    "--json",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {
+            "task_id": "task-789",
+            "spec_name": "browser-task",
+            "status": "queued",
+        }
+        mock_enqueue.assert_called_once_with(
+            store=store,
+            spec_name="browser-task",
+            browser_url="https://status.example.com",
             priority=0,
         )

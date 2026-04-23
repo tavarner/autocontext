@@ -427,6 +427,20 @@ class TestQueueTools:
         assert "task_id" in result
         assert result["generations"] == 1
 
+    def test_queue_task_accepts_browser_url_override(self, ctx):
+        create_agent_task(ctx, "queue-browser-task", "Do something", "Quality")
+        result = queue_improvement_run(
+            ctx,
+            "queue-browser-task",
+            priority=2,
+            browser_url="https://status.example.com",
+        )
+
+        task = ctx.sqlite.get_task(result["task_id"])
+        assert task is not None
+        config = json.loads(task["config_json"])
+        assert config["browser_url"] == "https://status.example.com"
+
     def test_queue_task_propagates_judge_guardrail_settings(self, ctx):
         ctx.settings = ctx.settings.model_copy(update={
             "judge_samples": 2,

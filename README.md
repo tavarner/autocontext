@@ -98,7 +98,7 @@ Strategies are then evaluated through scenario execution, staged validation, and
 | ------------- | ----------------------------------------------------------------------------------------- |
 | `run`         | Improve behavior inside a reusable scenario or task across generations                    |
 | `simulate`    | Model a system, explore parameter sweeps, or compare replayable outcomes                  |
-| `investigate` | Evidence-driven diagnosis with hypotheses and confidence scoring                          |
+| `investigate` | Evidence-driven diagnosis with hypotheses, confidence scoring, and optional browser context |
 | `analyze`     | Inspect or compare runs, simulations, investigations, or missions after the fact          |
 | `mission`     | Verifier-driven goal advanced step by step with checkpoints and completion criteria       |
 | `campaign`    | Coordinate multiple missions with budget tracking, dependencies, and progress aggregation |
@@ -267,7 +267,9 @@ Both packages share an optional, disabled-by-default browser exploration contrac
 - Run and improve a saved scenario: `uv run autoctx run --scenario support_triage --gens 3`
 - Inspect or replay outputs: `uv run autoctx list`, `uv run autoctx status <run_id>`
 - Run an investigation from Python: `uv run autoctx investigate -d "why did conversion drop after Tuesday's release"`
+- Add a policy-checked browser snapshot to an investigation: `uv run autoctx investigate -d "checkout is failing in prod" --browser-url https://status.example.com`
 - Enqueue an ad hoc queued task from Python: `uv run autoctx queue add --task-prompt "Write a 1-line fact about primes" --rubric "correct" --threshold 0.8 --rounds 2`
+- Enqueue a browser-enriched queued task when browser exploration is configured: `uv run autoctx queue --spec support_triage --browser-url https://status.example.com`
 - Override the simulation provider per call: `uv run autoctx simulate -d "simulate deploying a web service with rollback" --provider claude-cli`
 - Scaffold a custom scenario: `uv run autoctx new-scenario --template prompt-optimization --name my-task`
 - Export training data: `uv run autoctx export-training-data --scenario support_triage --all-runs --output training/support_triage.jsonl`

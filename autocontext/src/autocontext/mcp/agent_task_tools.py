@@ -253,6 +253,7 @@ def queue_improvement_run(
     task_name: str,
     initial_output: str | None = None,
     priority: int = 0,
+    browser_url: str | None = None,
 ) -> dict[str, Any]:
     """Add a task to the runner queue for background processing."""
 
@@ -284,6 +285,7 @@ def queue_improvement_run(
         task_prompt=data.get("task_prompt"),
         rubric=data.get("rubric"),
         reference_context=data.get("reference_context"),
+        browser_url=browser_url,
         required_concepts=data.get("required_concepts"),
         generations=data.get("generations", 1),
         max_rounds=data.get("max_rounds", 5),

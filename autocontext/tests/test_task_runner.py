@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from autocontext.config.settings import AppSettings
 from autocontext.execution.improvement_loop import ImprovementResult, RoundResult
 from autocontext.execution.task_runner import (
     SimpleAgentTask,
@@ -14,10 +16,11 @@ from autocontext.execution.task_runner import (
     TaskRunner,
     _serialize_evolution_result,
     _serialize_result,
+    create_task_runner_from_settings,
     enqueue_task,
 )
 from autocontext.providers.base import CompletionResult, LLMProvider
-from autocontext.scenarios.agent_task import AgentTaskInterface
+from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
 from autocontext.storage.sqlite_store import SQLiteStore
 
 # ---------------------------------------------------------------------------
@@ -72,12 +75,14 @@ class TestTaskConfig:
             "max_rounds": 3,
             "quality_threshold": 0.8,
             "reference_context": "ref",
+            "browser_url": "https://example.com",
         })
         cfg = TaskConfig.from_json(data)
         assert cfg.generations == 3
         assert cfg.max_rounds == 3
         assert cfg.quality_threshold == 0.8
         assert cfg.reference_context == "ref"
+        assert cfg.browser_url == "https://example.com"
 
     def test_from_empty_string(self):
         cfg = TaskConfig.from_json("")
@@ -182,6 +187,23 @@ class TestSimpleAgentTask:
         output = task.generate_output({})
         assert output == "Generated content"
 
+    def test_generate_output_includes_reference_context_and_required_concepts(self):
+        provider = _MockProvider(["Generated content"])
+        task = SimpleAgentTask(task_prompt="Write something", rubric="Quality", provider=provider)
+
+        output = task.generate_output({
+            "reference_context": "Trusted facts only",
+            "required_concepts": ["safety", "latency"],
+        })
+
+        assert output == "Generated content"
+        prompt = provider.calls[0]["user"]
+        assert "Reference Context" in prompt
+        assert "Trusted facts only" in prompt
+        assert "Required Concepts" in prompt
+        assert "- safety" in prompt
+        assert "- latency" in prompt
+
     def test_evaluate_output(self):
         provider = _MockProvider([_judge_response(0.85, "nice work")])
         task = SimpleAgentTask(task_prompt="Write something", rubric="Quality", provider=provider)
@@ -217,6 +239,27 @@ class TestSimpleAgentTask:
         result = task.evaluate_output("bad output", {})
         revised = task.revise_output("bad output", result, {})
         assert revised == "Revised content"
+
+    def test_revise_output_includes_reference_context_and_required_concepts(self):
+        provider = _MockProvider(["Revised content"])
+        task = SimpleAgentTask(task_prompt="Write something", rubric="Quality", provider=provider)
+
+        revised = task.revise_output(
+            "bad output",
+            AgentTaskResult(score=0.5, reasoning="needs work"),
+            {
+                "reference_context": "Trusted facts only",
+                "required_concepts": ["safety", "latency"],
+            },
+        )
+
+        assert revised == "Revised content"
+        prompt = provider.calls[0]["user"]
+        assert "Reference Context" in prompt
+        assert "Trusted facts only" in prompt
+        assert "Required Concepts" in prompt
+        assert "- safety" in prompt
+        assert "- latency" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +405,67 @@ class TestTaskRunner:
         assert r2["id"] == "mid"
         assert r3["id"] == "low"
 
+    def test_run_once_merges_browser_context_into_reference_context(self, store):
+        provider = _MockProvider([
+            "Initial output",
+            _judge_response(0.95, "excellent"),
+        ])
+        store.enqueue_task(
+            "t-browser",
+            "browser-spec",
+            config={
+                "task_prompt": "Write a summary",
+                "rubric": "Quality",
+                "reference_context": "Saved context",
+                "browser_url": "https://status.example.com",
+            },
+        )
+
+        class _FakeBrowserContextService:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, str | None]] = []
+
+            def build_reference_context(
+                self,
+                *,
+                task_id: str,
+                browser_url: str,
+                reference_context: str | None,
+            ) -> str:
+                self.calls.append({
+                    "task_id": task_id,
+                    "browser_url": browser_url,
+                    "reference_context": reference_context,
+                })
+                return (
+                    "Saved context\n\n"
+                    "Live browser context:\n"
+                    "URL: https://status.example.com\n"
+                    "Title: Status page\n"
+                    "Visible text: All systems operational"
+                )
+
+        browser_context_service = _FakeBrowserContextService()
+        runner = TaskRunner(
+            store=store,
+            provider=provider,
+            browser_context_service=browser_context_service,
+        )
+
+        result = runner.run_once()
+
+        assert result is not None
+        assert result["status"] == "completed"
+        assert browser_context_service.calls == [{
+            "task_id": "t-browser",
+            "browser_url": "https://status.example.com",
+            "reference_context": "Saved context",
+        }]
+        prompt = provider.calls[0]["user"]
+        assert "Saved context" in prompt
+        assert "Live browser context:" in prompt
+        assert "All systems operational" in prompt
+
 
 # ---------------------------------------------------------------------------
 # Enqueue convenience function
@@ -381,6 +485,7 @@ class TestEnqueueFunction:
             task_prompt="Write a post",
             rubric="Accuracy and voice",
             reference_context="RLM = Recursive Language Model",
+            browser_url="https://example.com",
             required_concepts=["context folding", "Python REPL"],
             generations=4,
             max_rounds=3,
@@ -411,6 +516,7 @@ class TestEnqueueFunction:
         assert config["judge_temperature"] == 0.2
         assert config["judge_disagreement_threshold"] == 0.07
         assert config["judge_bias_probes_enabled"] is True
+        assert config["browser_url"] == "https://example.com"
         assert "context folding" in config["required_concepts"]
         assert config["objective_verification"]["ground_truth"][0]["item_id"] == "warfarin-aspirin"
 
@@ -937,3 +1043,88 @@ class TestTaskRunnerTiming:
         assert isinstance(result_data["duration_ms"], (int, float))
         assert result_data["duration_ms"] >= 0
         assert result_data["duration_ms"] < 60000  # sanity: mock task shouldn't take a minute
+
+
+class TestTaskRunnerFactory:
+    def test_create_task_runner_from_settings_wires_browser_context_service(self, store):
+        provider = _MockProvider([_judge_response(0.9, "good enough")])
+        enqueue_task(
+            store,
+            "browser-factory-spec",
+            task_prompt="Summarize current status",
+            rubric="Be accurate",
+            initial_output="Draft",
+            reference_context="Saved context",
+            browser_url="https://status.example.com",
+        )
+
+        class _FactoryBrowserContextService:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, str | None]] = []
+
+            def build_reference_context(
+                self,
+                *,
+                task_id: str,
+                browser_url: str,
+                reference_context: str | None,
+            ) -> str:
+                self.calls.append({
+                    "task_id": task_id,
+                    "browser_url": browser_url,
+                    "reference_context": reference_context,
+                })
+                return "Saved context\n\nLive browser context:\nVisible text: All systems operational"
+
+        browser_context_service = _FactoryBrowserContextService()
+        settings = AppSettings(browser_enabled=True, runs_root=Path(store.db_path).parent / "runs")
+
+        with patch(
+            "autocontext.execution.task_runner.create_queued_task_browser_context_service",
+            return_value=browser_context_service,
+        ) as mock_create:
+            runner = create_task_runner_from_settings(
+                settings,
+                store=store,
+                provider=provider,
+            )
+
+        result = runner.run_once()
+
+        assert result is not None
+        assert result["status"] == "completed"
+        assert browser_context_service.calls == [{
+            "task_id": result["id"],
+            "browser_url": "https://status.example.com",
+            "reference_context": "Saved context",
+        }]
+        mock_create.assert_called_once_with(settings)
+
+    def test_create_task_runner_from_settings_preserves_fail_closed_behavior_when_disabled(self, store):
+        provider = _MockProvider([_judge_response(0.9, "good enough")])
+        enqueue_task(
+            store,
+            "browser-disabled-spec",
+            task_prompt="Summarize current status",
+            rubric="Be accurate",
+            initial_output="Draft",
+            browser_url="https://status.example.com",
+        )
+
+        settings = AppSettings(browser_enabled=False, runs_root=Path(store.db_path).parent / "runs")
+
+        with patch(
+            "autocontext.execution.task_runner.create_queued_task_browser_context_service",
+        ) as mock_create:
+            runner = create_task_runner_from_settings(
+                settings,
+                store=store,
+                provider=provider,
+            )
+
+        result = runner.run_once()
+
+        assert result is not None
+        assert result["status"] == "failed"
+        assert "browser exploration is not configured" in (result["error"] or "")
+        mock_create.assert_not_called()

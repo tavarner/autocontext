@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import typer
 
 from autocontext.config.settings import AppSettings
+from autocontext.investigation.browser_context import capture_investigation_browser_context
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -23,6 +24,7 @@ def run_investigate_command(
     max_steps: int,
     hypotheses: int,
     save_as: str,
+    browser_url: str,
     json_output: bool,
     console: Console,
     load_settings_fn: Callable[[], AppSettings],
@@ -31,7 +33,11 @@ def run_investigate_command(
     write_json_stderr: Callable[[str], None],
     check_json_exit: Callable[[dict[str, Any]], None],
 ) -> None:
-    from autocontext.investigation.engine import InvestigationEngine, InvestigationRequest
+    from autocontext.investigation.engine import (
+        InvestigationEngine,
+        InvestigationRequest,
+        derive_investigation_name,
+    )
 
     if not description:
         message = "--description is required. Run 'autoctx investigate --help' for usage."
@@ -42,6 +48,23 @@ def run_investigate_command(
         raise typer.Exit(code=1)
 
     settings = load_settings_fn()
+    browser_context = None
+    if browser_url:
+        investigation_name = save_as or derive_investigation_name(description)
+        try:
+            browser_context = capture_investigation_browser_context(
+                settings,
+                browser_url=browser_url,
+                investigation_name=investigation_name,
+            )
+        except Exception as exc:
+            message = f"Browser exploration failed: {exc}"
+            if json_output:
+                write_json_stderr(message)
+            else:
+                console.print(f"[red]{message}[/red]")
+            raise typer.Exit(code=1) from exc
+
     spec_provider, spec_model = resolve_investigation_runtime(settings, role="architect")
     analysis_provider, analysis_model = resolve_investigation_runtime(settings, role="analyst")
 
@@ -64,6 +87,7 @@ def run_investigate_command(
             max_steps=max_steps,
             max_hypotheses=hypotheses,
             save_as=save_as or None,
+            browser_context=browser_context,
         )
     )
     payload = result.to_dict()

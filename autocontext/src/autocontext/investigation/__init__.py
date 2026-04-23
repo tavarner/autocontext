@@ -1,3 +1,9 @@
+from autocontext.investigation.browser_context import (
+    InvestigationBrowserContext,
+    build_browser_evidence_summary,
+    capture_investigation_browser_context,
+    render_investigation_browser_context,
+)
 from autocontext.investigation.engine import (
     InvestigationArtifacts,
     InvestigationConclusion,
@@ -13,6 +19,7 @@ from autocontext.investigation.engine import (
 )
 
 __all__ = [
+    "InvestigationBrowserContext",
     "InvestigationArtifacts",
     "InvestigationConclusion",
     "InvestigationEngine",
@@ -20,8 +27,11 @@ __all__ = [
     "InvestigationHypothesis",
     "InvestigationRequest",
     "InvestigationResult",
+    "build_browser_evidence_summary",
+    "capture_investigation_browser_context",
     "derive_investigation_name",
     "generate_investigation_id",
     "normalize_positive_integer",
     "parse_investigation_json",
+    "render_investigation_browser_context",
 ]
