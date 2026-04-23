@@ -75,6 +75,7 @@ const COMMANDS: readonly CommandDescriptor[] = [
   { name: "logout", description: "Clear stored provider credentials", group: "primary", route: { kind: "no-db", command: "logout" } },
   { name: "providers", description: "List all known providers with auth status (JSON)", group: "primary", route: { kind: "no-db", command: "providers" } },
   { name: "models", description: "List available models for authenticated providers (JSON)", group: "primary", route: { kind: "no-db", command: "models" } },
+  { name: "mission", description: "Manage multi-step task missions", group: "primary", route: { kind: "db", command: "mission" } },
   { name: "campaign", description: "Manage multi-mission campaigns", group: "primary", route: { kind: "db", command: "campaign" } },
   { name: "tui", description: "Start interactive TUI (WebSocket server + Ink UI)", group: "primary", route: { kind: "db", command: "tui" } },
   { name: "judge", description: "One-shot evaluation of output against a rubric", group: "primary", route: { kind: "db", command: "judge" } },

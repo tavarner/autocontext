@@ -19,6 +19,10 @@ describe("CLI command registry", () => {
 
   it("classifies commands by dispatch surface", () => {
     expect(resolveCliCommand("run")).toEqual({ kind: "db", command: "run" });
+    expect(resolveCliCommand("mission")).toEqual({
+      kind: "db",
+      command: "mission",
+    });
     expect(resolveCliCommand("init")).toEqual({ kind: "no-db", command: "init" });
     expect(resolveCliCommand("registry")).toEqual({
       kind: "control-plane",
