@@ -1,6 +1,6 @@
 // `autoctx production-traces build-dataset ...`
 //
-// Loads source traces (filtered by --since/--until), reads cluster + rubric
+// Loads source traces (filtered by --since/--until/--provider), reads cluster + rubric
 // configs, wires a registry-backed RubricLookup (the ONE allowed cross-module
 // import from `control-plane/registry/` per the Layer 7 brief), and invokes
 // Layer 5's `buildDataset(inputs)` orchestrator.
@@ -200,7 +200,7 @@ export async function runBuildDataset(
   if (traces.length === 0) {
     return {
       stdout: "",
-      stderr: `no ingested traces match filter (since=${since ?? "-"}, until=${until ?? "-"})`,
+      stderr: `no ingested traces match filter (since=${since ?? "-"}, until=${until ?? "-"}, provider=${provider ?? "-"})`,
       exitCode: EXIT.NO_MATCHING_TRACES,
     };
   }
