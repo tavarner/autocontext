@@ -85,6 +85,47 @@ AGENT_TASK_DESIGNER_SYSTEM = (
     "Produce the smallest complete AgentTaskSpec that faithfully captures the user description.\n"
 )
 
+SOLVE_AGENT_TASK_DESIGNER_SYSTEM = (
+    "You design the smallest viable AgentTaskSpec JSON for autocontext solve-on-demand. "
+    "Return only one JSON object wrapped in the required delimiters.\n\n"
+    f"{SPEC_START}\n{{ ... }}\n{SPEC_END}\n\n"
+    "Required fields:\n"
+    '- "task_prompt": self-contained prompt for the evaluated agent\n'
+    '- "judge_rubric": concise scoring dimensions and criteria\n'
+    '- "output_format": one of free_text, json_schema, or code\n\n'
+    "Optional fields are allowed only when they materially change execution or evaluation: "
+    "judge_model, difficulty_tiers, reference_context, reference_sources, required_concepts, "
+    "sample_input, context_preparation, required_context_keys, calibration_examples, "
+    "max_rounds, quality_threshold, revision_prompt. "
+    "Omit unnecessary fields instead of filling them with prose.\n\n"
+    "Solve-specific rules:\n"
+    "- Keep the spec lean and execution-ready.\n"
+    "- Prefer a single structured output contract over long nested examples.\n"
+    "- Keep task_prompt under 550 characters whenever possible.\n"
+    "- Keep judge_rubric under 900 characters whenever possible.\n"
+    "- Keep sample_input under 800 characters whenever possible.\n"
+    "- Prefer compact sample_input that summarizes telemetry or state instead of "
+    "repeating long arrays or verbose examples when possible.\n"
+    "- Keep required_concepts short and focused; omit them if the prompt and rubric already carry the needed intent.\n"
+    "- Use context_preparation and required_context_keys only when absolutely necessary.\n"
+    "- Do not invent impossible external loaders or unsatisfied state keys.\n"
+    "- For structured tasks, prefer json_schema.\n"
+    "- If iterative refinement is useful, set max_rounds > 1 and provide a compact revision_prompt.\n\n"
+    "Produce the smallest complete AgentTaskSpec that faithfully captures the user description.\n"
+)
+
+RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM = (
+    "Design the smallest viable AgentTaskSpec JSON for autocontext solve-on-demand. "
+    "Return only one JSON object wrapped in the required delimiters.\n\n"
+    f"{SPEC_START}\n{{ ... }}\n{SPEC_END}\n\n"
+    "Required fields: task_prompt, judge_rubric, output_format. "
+    "Keep task_prompt under 550 characters, judge_rubric under 900 characters, and "
+    "sample_input under 800 characters whenever possible. "
+    "Prefer compact sample_input that summarizes telemetry or state instead of repeating "
+    "long arrays. Prefer 3-5 short evidence items and 1-3 short actions. "
+    "Omit optional fields unless they are essential for execution or evaluation. Prefer json_schema for structured tasks.\n"
+)
+
 
 def parse_agent_task_spec(text: str) -> AgentTaskSpec:
     """Parse an AgentTaskSpec from LLM response text."""
@@ -115,12 +156,18 @@ def parse_agent_task_spec(text: str) -> AgentTaskSpec:
     )
 
 
-def design_agent_task(description: str, llm_fn: LlmFn) -> AgentTaskSpec:
+def design_agent_task(
+    description: str,
+    llm_fn: LlmFn,
+    *,
+    system_prompt: str = AGENT_TASK_DESIGNER_SYSTEM,
+) -> AgentTaskSpec:
     """Design an agent task spec from a natural language description.
 
     Args:
         description: Natural language description of the task.
         llm_fn: Callable(system_prompt, user_prompt) -> response text.
+        system_prompt: Designer instructions used for the LLM call.
 
     Returns:
         Parsed AgentTaskSpec.
@@ -129,7 +176,7 @@ def design_agent_task(description: str, llm_fn: LlmFn) -> AgentTaskSpec:
 
     return design_with_parse_retry(
         llm_fn=llm_fn,
-        system_prompt=AGENT_TASK_DESIGNER_SYSTEM,
+        system_prompt=system_prompt,
         user_prompt=f"User description:\n{description}",
         parser=parse_agent_task_spec,
         delimiter_hint=f"{SPEC_START} ... {SPEC_END}",
@@ -195,8 +242,7 @@ def design_validated_agent_task(
                 )
                 continue
             raise ValueError(
-                f"agent task design failed after {total_attempts} attempts. "
-                f"Errors per attempt: {errors_per_attempt}"
+                f"agent task design failed after {total_attempts} attempts. Errors per attempt: {errors_per_attempt}"
             ) from exc
 
         errors = validate_intent(description, spec)
@@ -214,10 +260,7 @@ def design_validated_agent_task(
                 "; ".join(errors),
             )
 
-    raise ValueError(
-        f"intent validation failed after {total_attempts} attempts. "
-        f"Errors per attempt: {errors_per_attempt}"
-    )
+    raise ValueError(f"intent validation failed after {total_attempts} attempts. Errors per attempt: {errors_per_attempt}")
 
 
 def _build_parse_failure_retry_prompt(

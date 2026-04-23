@@ -385,6 +385,21 @@ class TestSolveScenarioBuilder:
 
         assert family.name == "agent_task"
 
+    def test_resolves_compositional_generalization_proposal_to_agent_task(self) -> None:
+        from autocontext.knowledge.solver import _resolve_requested_scenario_family
+
+        family = _resolve_requested_scenario_family(
+            "## Scenario Proposal\n\n"
+            "**Family:** compositional_generalization\n"
+            "**Priority:** Week 2\n"
+            "**Generations to signal:** 20-30\n\n"
+            "### Description\n\n"
+            "Given outputs from an unfamiliar domain, the system must reconstruct the implicit "
+            "schema, infer quality criteria, and produce conforming output for held-out inputs.\n"
+        )
+
+        assert family.name == "agent_task"
+
     def test_build_strips_nonessential_solve_sections_before_creation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -433,6 +448,73 @@ class TestSolveScenarioBuilder:
         assert "Objective" in captured["description"]
         assert "Scenario Design" in captured["description"]
 
+    def test_build_uses_compact_designer_prompt_for_agent_task_solves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from autocontext.knowledge.solver import (
+            _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS,
+            RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+            SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+            SolveScenarioBuilder,
+        )
+
+        runtime = SubagentRuntime(DeterministicDevClient())
+        builder = SolveScenarioBuilder(
+            runtime=runtime,
+            llm_fn=_operator_loop_llm,
+            model="test-model",
+            knowledge_root=tmp_path,
+        )
+        captured: dict[str, str] = {}
+
+        class _CreatedScenario:
+            name = "stress_test_rubric_fixture"
+
+        def _fake_create(self, description: str, *, family_name: str = "") -> _CreatedScenario:
+            del family_name
+            captured["description"] = description
+            captured["designer_system_prompt"] = self._designer_system_prompt
+            captured["retry_designer_system_prompt"] = self._retry_designer_system_prompt
+            transformed = self._description_transform(description) if self._description_transform is not None else description
+            captured["transformed_description"] = transformed
+            return _CreatedScenario()
+
+        monkeypatch.setattr(
+            "autocontext.scenarios.custom.agent_task_creator.AgentTaskCreator.create",
+            _fake_create,
+        )
+
+        builder.build(
+            "Harness Stress Test: rubric drift detection — long-horizon evaluation quality monitoring\n\n"
+            "## Objective\n\n"
+            "Run a scenario long enough (10+ generations) that rubric drift becomes measurable, then "
+            "validate that the analytics stack correctly detects and reports evaluation quality degradation.\n\n"
+            "## Scenario Design\n\n"
+            "* Use any stable scenario (grid_ctf or a custom agent-task)\n"
+            "* Run 10+ generations with live Anthropic provider\n"
+            "* Use analytics/rubric_drift.py, analytics/calibration.py, analytics/correlation.py, "
+            "analytics/timeline_inspector.py, and analytics/trace_reporter.py\n"
+            "* Capture concrete commands, artifacts, and metrics\n"
+            "* Report cross-module consistency\n\n"
+            "## Evaluation Dimensions\n\n"
+            "* Rubric drift coefficient\n"
+            "* Calibration error\n"
+            "* Inter-dimension correlation matrix health\n"
+            "* Score distribution entropy across generations\n"
+            "* Stagnation detection accuracy\n\n"
+            "## Success Criteria\n\n"
+            "* 10+ generation run completes without crashes\n"
+            "* Analytics modules produce non-trivial output\n"
+            "* Timeline inspector identifies at least one inflection point or trend\n"
+            "* All analytics outputs are internally consistent\n"
+        )
+
+        assert captured["designer_system_prompt"] == SOLVE_AGENT_TASK_DESIGNER_SYSTEM
+        assert captured["retry_designer_system_prompt"] == RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM
+        assert len(captured["transformed_description"]) <= _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS
+        assert len(captured["transformed_description"]) < len(captured["description"])
+        assert "## Scenario Design" in captured["transformed_description"]
+
     def test_build_strips_inline_example_parentheticals_before_creation(self) -> None:
         from autocontext.knowledge.solver import _build_solve_description_brief
 
@@ -450,6 +532,139 @@ class TestSolveScenarioBuilder:
         assert "essay-quality metric" not in brief
         assert "e.g." not in brief
         assert "gaming the metric" in brief
+
+    def test_build_solve_agent_task_design_brief_compacts_long_structured_descriptions(self) -> None:
+        from autocontext.knowledge.solver import (
+            _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS,
+            _build_solve_agent_task_design_brief,
+            _build_solve_description_brief,
+        )
+
+        description = (
+            "Harness Stress Test: rubric drift detection — long-horizon evaluation quality monitoring\n\n"
+            "## Objective\n\n"
+            "Run a scenario long enough (10+ generations) that rubric drift becomes measurable, then "
+            "validate that the analytics stack correctly detects and reports evaluation quality degradation.\n\n"
+            "## Scenario Design\n\n"
+            "* Use any stable scenario (grid_ctf or a custom agent-task)\n"
+            "* Run 10+ generations with live Anthropic provider\n"
+            "* Use analytics/rubric_drift.py, analytics/calibration.py, analytics/correlation.py, "
+            "analytics/timeline_inspector.py, and analytics/trace_reporter.py\n"
+            "* Capture concrete commands, artifacts, and metrics\n"
+            "* Report cross-module consistency\n\n"
+            "## Evaluation Dimensions\n\n"
+            "* Rubric drift coefficient\n"
+            "* Calibration error\n"
+            "* Inter-dimension correlation matrix health\n"
+            "* Score distribution entropy across generations\n"
+            "* Stagnation detection accuracy\n\n"
+            "## Success Criteria\n\n"
+            "* 10+ generation run completes without crashes\n"
+            "* Analytics modules produce non-trivial output\n"
+            "* Timeline inspector identifies at least one inflection point or trend\n"
+            "* All analytics outputs are internally consistent\n"
+        )
+
+        brief = _build_solve_description_brief(description)
+        compact = _build_solve_agent_task_design_brief(description)
+
+        assert len(brief) > _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS
+        assert len(compact) <= _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS
+        assert len(compact) < len(brief)
+        assert "## Objective" in compact
+        assert "## Scenario Design" in compact
+        assert "analytics/rubric_drift.py" in compact
+
+    def test_agent_task_creator_applies_description_transform_to_family_creators(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from autocontext.scenarios.custom.agent_task_creator import AgentTaskCreator
+
+        captured: dict[str, str] = {}
+
+        class _FakeFamilyCreator:
+            def create(self, description: str, name: str) -> dict[str, str]:
+                captured["description"] = description
+                captured["name"] = name
+                return {"name": name, "description": description}
+
+        monkeypatch.setattr(
+            "autocontext.scenarios.custom.agent_task_creator.create_for_family",
+            lambda family, llm_fn, knowledge_root: _FakeFamilyCreator(),
+        )
+
+        creator = AgentTaskCreator(
+            llm_fn=lambda system, user: "",
+            knowledge_root=tmp_path,
+            description_transform=lambda description: f"compact::{description}",
+        )
+
+        creator.create(
+            "Original solve description",
+            family_name="artifact_editing",
+        )
+
+        assert captured["description"] == "compact::Original solve description"
+        assert captured["name"] == "original_solve_description"
+
+    def test_agent_task_creator_retries_family_creator_once_on_timeout(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from autocontext.scenarios.custom.agent_task_creator import AgentTaskCreator
+
+        captured = {"attempts": 0}
+
+        class _FlakyFamilyCreator:
+            def create(self, description: str, name: str) -> dict[str, str]:
+                del description, name
+                captured["attempts"] += 1
+                if captured["attempts"] == 1:
+                    raise RuntimeError("PiCLIRuntime failed: timeout")
+                return {"status": "ok"}
+
+        monkeypatch.setattr(
+            "autocontext.scenarios.custom.agent_task_creator.create_for_family",
+            lambda family, llm_fn, knowledge_root: _FlakyFamilyCreator(),
+        )
+
+        creator = AgentTaskCreator(
+            llm_fn=lambda system, user: "",
+            knowledge_root=tmp_path,
+        )
+
+        result = creator.create(
+            "Original solve description",
+            family_name="artifact_editing",
+        )
+
+        assert result == {"status": "ok"}
+        assert captured["attempts"] == 2
+
+    def test_solve_task_spec_needs_compact_retry_for_runtime_heavy_specs(self) -> None:
+        from autocontext.knowledge.solver import _solve_task_spec_needs_compact_retry
+        from autocontext.scenarios.custom.agent_task_spec import AgentTaskSpec
+
+        heavy_spec = AgentTaskSpec(
+            task_prompt=(
+                "Run a stable eval (grid_ctf if available) for 10 generations with the live provider "
+                "and inspect repository analytics artifacts."
+            ),
+            judge_rubric="Score whether the run completed and analytics were inspected.",
+            output_format="json_schema",
+        )
+        compact_spec = AgentTaskSpec(
+            task_prompt="Inspect telemetry and return JSON only with keys drift_status, calibration_status, and summary.",
+            judge_rubric="Score contract fidelity and diagnosis quality.",
+            output_format="json_schema",
+            sample_input='{"score_entropy":0.18}',
+        )
+
+        assert _solve_task_spec_needs_compact_retry(heavy_spec) is True
+        assert _solve_task_spec_needs_compact_retry(compact_spec) is False
 
     def test_resolves_alignment_stress_proposal_to_agent_task(self) -> None:
         from autocontext.knowledge.solver import _resolve_requested_scenario_family
@@ -487,7 +702,8 @@ class TestSolveLLMFn:
 
         assert result == "ok"
         assert captured["model"] == "architect-model"
-        assert captured["max_tokens"] == 1800
+        assert captured["max_tokens"] == 1200
+        assert captured["temperature"] == 0.2
         assert captured["role"] == "scenario_designer"
 
     def test_build_creator_prefers_translator_model_for_solve_design(
@@ -674,6 +890,7 @@ class TestSolveLLMFn:
         assert summary.best_score == 0.73
         assert summary.generations_executed == 2
         assert captured["pi_timeout"] == _SOLVE_CREATOR_PI_TIMEOUT_FLOOR_SECONDS
+
 
 class TestSolveScenarioExecutor:
     def test_runs_agent_task_scenarios_through_task_loop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
