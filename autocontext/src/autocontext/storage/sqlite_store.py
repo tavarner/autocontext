@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from autocontext.storage.bootstrap_schema import bootstrap_core_schema, default_migrations_dir
 from autocontext.storage.row_types import GenerationMetricsRow, RunRow
+from autocontext.storage.sqlite_migrations import apply_python_migration_files
 
 if TYPE_CHECKING:
     from autocontext.monitor.types import MonitorAlert, MonitorCondition
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
 SQLITE_BUSY_TIMEOUT_MS = 5_000
 AgentOutputBatch = tuple[str, str]
 AgentRoleMetricBatch = tuple[str, str, int, int, int, str, str]
+
+
 class SQLiteStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -43,23 +46,7 @@ class SQLiteStore:
                 bootstrap_core_schema(conn)
             return
         with self.connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version TEXT PRIMARY KEY,
-                    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-                """
-            )
-            for migration in sorted(migrations_dir.glob("*.sql")):
-                applied = conn.execute(
-                    "SELECT version FROM schema_migrations WHERE version = ?",
-                    (migration.name,),
-                ).fetchone()
-                if applied:
-                    continue
-                conn.executescript(migration.read_text(encoding="utf-8"))
-                conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", (migration.name,))
+            apply_python_migration_files(conn, migrations_dir)
 
     def create_run(self, run_id: str, scenario: str, generations: int, executor_mode: str, agent_provider: str = "") -> None:
         with self.connect() as conn:
