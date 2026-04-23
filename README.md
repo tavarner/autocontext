@@ -37,11 +37,11 @@ autocontext runs LLM agents through structured scenarios, evaluates their output
 <!-- autocontext-whats-new:start -->
 ## What's New
 
-- Pi RPC and solve runtime budgets hardened for longer live-agent runs
-- Custom scenario registry diagnostics and spec-to-scenario auto-materialization
-- Structured agent-task JSON payloads now validate and render safely
-- TypeScript new-scenario and improve fallbacks preserve family semantics
-- Generated scenario solve/export paths keep family-specific signals intact
+- Browser integration now spans Python and TypeScript CDP backends, investigations, queued tasks, and policy-gated evidence.
+- Anthropic SDK instrumentation captures Python and TypeScript production traces, streaming outcomes, and cross-runtime parity.
+- Production trace datasets gained provider/app/env/outcome filters and shared OpenAI/Anthropic E2E coverage.
+- Scenario family designers now share parser logic across TypeScript families, preserving family-specific prompt semantics.
+- Investigation evidence, secondary prompt reducers, migration ledgers, CLI dispatch, and proxy runtime plumbing were hardened.
 <!-- autocontext-whats-new:end -->
 
 ## What actually is autocontext?
