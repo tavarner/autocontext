@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import traceback
 import weakref
-from typing import Any, Callable
+from collections.abc import AsyncGenerator, Callable, Generator
+from typing import Any
 
 
 class _Accumulator:
@@ -104,7 +105,7 @@ class StreamProxy:
         acc = self._accumulator
         self._finalizer = weakref.finalize(self, _abandoned_callback, self._state, on_finalize, acc)
 
-    def __enter__(self) -> "StreamProxy":
+    def __enter__(self) -> StreamProxy:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -126,7 +127,7 @@ class StreamProxy:
         self._state["finalized"] = True
         self._finalizer.detach()
 
-    def __iter__(self) -> "StreamProxy":
+    def __iter__(self) -> StreamProxy:
         return self
 
     def __next__(self) -> Any:
@@ -147,7 +148,7 @@ class StreamProxy:
         return event
 
     @property
-    def text_stream(self):
+    def text_stream(self) -> Generator[str, None, None]:
         """Yields text pieces from text_delta events."""
         for event in self:
             event_dict = event if isinstance(event, dict) else event.model_dump()
@@ -176,7 +177,7 @@ class AsyncStreamProxy:
         acc = self._accumulator
         self._finalizer = weakref.finalize(self, _abandoned_callback, self._state, on_finalize, acc)
 
-    async def __aenter__(self) -> "AsyncStreamProxy":
+    async def __aenter__(self) -> AsyncStreamProxy:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -198,7 +199,7 @@ class AsyncStreamProxy:
         self._state["finalized"] = True
         self._finalizer.detach()
 
-    def __aiter__(self) -> "AsyncStreamProxy":
+    def __aiter__(self) -> AsyncStreamProxy:
         return self
 
     async def __anext__(self) -> Any:
@@ -219,8 +220,8 @@ class AsyncStreamProxy:
         return event
 
     @property
-    def text_stream(self):
-        async def _gen():
+    def text_stream(self) -> AsyncGenerator[str, None]:
+        async def _gen() -> AsyncGenerator[str, None]:
             async for event in self:
                 event_dict = event if isinstance(event, dict) else event.model_dump()
                 if event_dict.get("type") == "content_block_delta":

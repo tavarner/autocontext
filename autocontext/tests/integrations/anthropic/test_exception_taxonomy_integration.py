@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+import anthropic
 import httpx
 import pytest
 
@@ -25,7 +26,7 @@ def test_rate_limit_exception_maps_to_rate_limited_in_trace(tmp_path, make_anthr
     sink = FileSink(path=tmp_path / "t.jsonl", batch_size=1)
     wrapped = instrument_client(client, sink=sink, app_id="test-app")
 
-    with pytest.raises(Exception):
+    with pytest.raises(anthropic.APIStatusError):
         wrapped.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=100,
@@ -44,7 +45,7 @@ def test_overloaded_exception_maps_to_overloaded_in_trace(tmp_path, make_anthrop
     sink = FileSink(path=tmp_path / "t.jsonl", batch_size=1)
     wrapped = instrument_client(client, sink=sink, app_id="test-app")
 
-    with pytest.raises(Exception):
+    with pytest.raises(anthropic.APIStatusError):
         wrapped.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=100,
@@ -68,6 +69,7 @@ def test_timeout_exception_maps_to_timeout_in_trace(tmp_path, make_anthropic_cli
     taxonomy directly for the timeout case.
     """
     import anthropic
+
     from autocontext.integrations.anthropic._taxonomy import map_exception_to_reason
 
     exc = anthropic.APITimeoutError(

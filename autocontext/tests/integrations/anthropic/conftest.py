@@ -87,7 +87,11 @@ def canned_anthropic_sse_chunks(
             "type": "tool_use", "id": tool_use["id"], "name": tool_use["name"], "input": {},
         }})
         for chunk in tool_use.get("input_json_delta_chunks", []):
-            events.append({"type": "content_block_delta", "index": idx, "delta": {"type": "input_json_delta", "partial_json": chunk}})
+            events.append({
+                "type": "content_block_delta",
+                "index": idx,
+                "delta": {"type": "input_json_delta", "partial_json": chunk},
+            })
         events.append({"type": "content_block_stop", "index": idx})
     events.append({
         "type": "message_delta",

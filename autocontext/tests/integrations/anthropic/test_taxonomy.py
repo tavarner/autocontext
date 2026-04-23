@@ -8,7 +8,6 @@ from autocontext.integrations.anthropic._taxonomy import (
     map_exception_to_reason,
 )
 
-
 # All 13 class names from the ANTHROPIC_ERROR_REASONS table.
 _ALL_MAPPED_CLASSES = [
     ("RateLimitError", "rateLimited"),

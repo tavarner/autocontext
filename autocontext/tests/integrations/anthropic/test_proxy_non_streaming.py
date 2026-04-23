@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import anthropic
 import httpx
 import pytest
 
@@ -103,7 +104,7 @@ def test_error_emits_failure_trace(tmp_path, make_anthropic_client) -> None:
     sink = FileSink(path=tmp_path / "t.jsonl", batch_size=1)
     wrapped = instrument_client(client, sink=sink, app_id="test-app")
 
-    with pytest.raises(Exception):
+    with pytest.raises(anthropic.APIStatusError):
         wrapped.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=100,

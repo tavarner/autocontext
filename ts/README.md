@@ -451,6 +451,89 @@ Emitted trace line (pretty-printed for readability):
 For the Python equivalent, see
 `autocontext/src/autocontext/integrations/openai/STABILITY.md`.
 
+## Anthropic integration
+
+Autocontext ships a zero-configuration Anthropic instrumentation path that
+automatically wraps your existing `new Anthropic(...)` calls and emits structured
+traces to a sink of your choice.
+
+### 1. Register detectors
+
+Create `.autoctx.instrument.config.mjs` at the root of your repo:
+
+```js
+// .autoctx.instrument.config.mjs
+import { registerDetectorPlugin } from "autoctx/control-plane/instrument";
+import { plugin as anthropicTsPlugin } from "autoctx/detectors/anthropic-ts";
+
+registerDetectorPlugin(anthropicTsPlugin);
+```
+
+### 2. Run instrument
+
+Preview changes without touching any files:
+
+```bash
+autoctx instrument --dry-run
+```
+
+Apply changes on a new branch for review:
+
+```bash
+autoctx instrument --apply --branch autoctx/instrument
+```
+
+### 3. Review the PR
+
+The instrument command opens a branch. Open the PR and review the diff — you
+will see your `new Anthropic(...)` calls wrapped with `instrumentClient(...)`.
+Edit the generated TODO comment to point at your `FileSink`:
+
+```ts
+// Before (generated):
+const client = instrumentClient(new Anthropic(), { sink: /* TODO: pass your TraceSink here */ });
+
+// After (your edit):
+import { FileSink } from "autoctx/integrations/anthropic";
+const sink = new FileSink("./traces/anthropic.jsonl");
+const client = instrumentClient(new Anthropic(), { sink });
+```
+
+Merge the PR.
+
+### 4. Customer code emits traces
+
+Your code is unchanged beyond the wrap. Every `messages.create` call now emits
+a JSONL trace line to your sink:
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { instrumentClient, FileSink, autocontextSession } from "autoctx/integrations/anthropic";
+
+const sink = new FileSink("./traces/anthropic.jsonl");
+const client = instrumentClient(new Anthropic(), { sink });
+
+await autocontextSession({ userId: "u_123" }, async () => {
+  const res = await client.messages.create({
+    model: "claude-opus-4-7-20251101",
+    max_tokens: 256,
+    messages: [{ role: "user", content: "Hello!" }],
+  });
+  console.log(res.content[0].type === "text" ? res.content[0].text : "");
+});
+
+await sink.close();
+```
+
+Emitted trace line (pretty-printed for readability):
+
+```jsonl
+{"schemaVersion":"1.0","traceId":"...","sessionContext":{"userId":"u_123"},"request":{"model":"claude-opus-4-7-20251101","messages":[{"role":"user","content":"Hello!"}]},"response":{"id":"...","content":[{"type":"text","text":"Hi! How can I help?"}],"stop_reason":"end_turn","usage":{"input_tokens":9,"output_tokens":7}},"durationMs":342,"errorReason":null}
+```
+
+For the Python equivalent, see
+`autocontext/src/autocontext/integrations/anthropic/STABILITY.md`.
+
 ## Development
 
 ```bash

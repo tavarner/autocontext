@@ -1,8 +1,6 @@
 """Tests for content-block flattening helpers (TDD — RED phase first)."""
 from __future__ import annotations
 
-import pytest
-
 from autocontext.integrations.anthropic._content import (
     extract_tool_uses,
     flatten_content,
