@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Provider proxy runtime plumbing centralized into a shared `_shared/proxy-runtime` module so Anthropic and OpenAI integration proxies share consistent lifecycle and error handling (AC-611).
+- TypeScript scenario family designers now share response parsing across agent-task, artifact-editing, and tool-fragility families so generated specs preserve family-specific semantics (AC-612).
 - Install salt identity invariant preserved across process restarts (AC-609).
 - Cross-runtime migration ledger reconciliation so Python and TypeScript DBs stay aligned after schema divergence (AC-608).
 - CLI dispatch moved into a command registry so mission routes resolve correctly (AC-610).

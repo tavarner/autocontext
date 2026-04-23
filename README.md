@@ -37,9 +37,11 @@ autocontext runs LLM agents through structured scenarios, evaluates their output
 <!-- autocontext-whats-new:start -->
 ## What's New
 
-- Anthropic integration (A2-III): `instrument_client` (Python) and `instrumentClient` (TypeScript) wrap Anthropic SDK calls and route production traces through the autocontext pipeline without changing call sites. Streaming, outcome classification, and cross-runtime parity are included. See `autocontext.integrations.anthropic` / `autoctx/integrations/anthropic`.
-- Investigation evidence improvements: hierarchical evidence, evidence cards cache, and artifact drill-down hardening across the investigation surface.
-- Secondary prompt reducers now preserve tail context across secondary prompt surfaces.
+- Browser integration now spans Python and TypeScript CDP backends, investigations, queued tasks, and policy-gated evidence.
+- Anthropic SDK instrumentation captures Python and TypeScript production traces, streaming outcomes, and cross-runtime parity.
+- Production trace datasets gained provider/app/env/outcome filters and shared OpenAI/Anthropic E2E coverage.
+- Scenario family designers now share parser logic across TypeScript families, preserving family-specific prompt semantics.
+- Investigation evidence, secondary prompt reducers, migration ledgers, CLI dispatch, and proxy runtime plumbing were hardened.
 <!-- autocontext-whats-new:end -->
 
 ## What actually is autocontext?
