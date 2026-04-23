@@ -6,6 +6,7 @@ flat workspace directory, and returns a manifest.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import hashlib
 import json
@@ -119,6 +120,7 @@ def materialize_workspace(
         total_size_bytes=total_size,
         materialized_at=datetime.datetime.now(datetime.UTC).isoformat(),
         source_signature=source_signature,
+        cache_hit=False,
     )
 
     # Write manifest
@@ -176,9 +178,10 @@ def _load_cached_workspace(workspace_dir: Path, *, source_signature: str) -> Evi
         if artifact_path is None or not artifact_path.exists():
             return None
     try:
-        return EvidenceWorkspace.from_dict(data)
+        workspace = EvidenceWorkspace.from_dict(data)
     except (KeyError, TypeError, ValueError):
         return None
+    return dataclasses.replace(workspace, cache_hit=True)
 
 
 def _refresh_cached_workspace_after_secret_scan(

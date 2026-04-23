@@ -42,7 +42,6 @@ from autocontext.loop.tournament_helpers import (
 )
 from autocontext.notebook.context_provider import NotebookContextProvider
 from autocontext.notebook.types import SessionNotebook
-from autocontext.prompts.templates import build_prompt_bundle
 from autocontext.providers.base import CompletionResult, LLMProvider
 from autocontext.storage.artifacts import EMPTY_PLAYBOOK_SENTINEL
 
@@ -101,6 +100,10 @@ from autocontext.loop.stage_helpers.persistence_helpers import (
     _revise_strategy_for_validity_failure,
     _run_curator_consolidation,
 )
+from autocontext.loop.stage_helpers.semantic_benchmark import (
+    materialize_evidence_manifests,
+    prepare_generation_prompts,
+)
 from autocontext.loop.stage_helpers.tournament_prep import (
     _build_empty_tournament,
     _build_live_opponent_pool,
@@ -111,40 +114,6 @@ from autocontext.loop.stage_helpers.tournament_prep import (
 logger = logging.getLogger(__name__)
 
 _NOTEBOOK_CONTEXT_PROVIDER = NotebookContextProvider()
-
-
-def _evidence_source_run_ids(ctx: GenerationContext, *, artifacts: ArtifactStore) -> list[str]:
-    """Return prior same-scenario run ids with persisted knowledge snapshots."""
-    snapshots_dir = artifacts.knowledge_root / ctx.scenario_name / "snapshots"
-    if not snapshots_dir.is_dir():
-        return []
-    try:
-        return sorted(
-            path.name
-            for path in snapshots_dir.iterdir()
-            if path.is_dir() and path.name != ctx.run_id
-        )
-    except OSError:
-        return []
-
-
-def _materialize_evidence_manifests(ctx: GenerationContext, *, artifacts: ArtifactStore) -> dict[str, str]:
-    """Build the evidence workspace and render role-specific prompt manifests."""
-    from autocontext.evidence import materialize_workspace, render_evidence_manifest
-
-    workspace = materialize_workspace(
-        knowledge_root=artifacts.knowledge_root,
-        runs_root=artifacts.runs_root,
-        source_run_ids=_evidence_source_run_ids(ctx, artifacts=artifacts),
-        workspace_dir=artifacts.knowledge_root / ctx.scenario_name / "_evidence",
-        budget_bytes=ctx.settings.evidence_workspace_budget_mb * 1024 * 1024,
-        scenario_name=ctx.scenario_name,
-        scan_for_secrets=True,
-    )
-    return {
-        "analyst": render_evidence_manifest(workspace, role="analyst"),
-        "architect": render_evidence_manifest(workspace, role="architect"),
-    }
 
 
 class _ClientAsProvider(LLMProvider):
@@ -301,6 +270,9 @@ def stage_knowledge_setup(
         if ablation or not ctx.settings.session_reports_enabled
         else artifacts.read_latest_session_reports(ctx.scenario_name)
     )
+    dead_ends = "" if ablation else artifacts.read_dead_ends(ctx.scenario_name)
+    if not isinstance(dead_ends, str):
+        dead_ends = ""
     score_trajectory = "" if ablation else trajectory_builder.build_trajectory(ctx.run_id)
     strategy_registry = "" if ablation else trajectory_builder.build_strategy_registry(ctx.run_id)
     coach_hints_for_prompt = "" if ablation else ctx.coach_competitor_hints
@@ -333,8 +305,12 @@ def stage_knowledge_setup(
                 logger.warning("Failed to parse tuning.json for %s", ctx.scenario_name)
 
     # #166 - Apply protocol tuning overrides when protocol_enabled
+    research_protocol = ""
     if ctx.settings.protocol_enabled:
-        raw_protocol = artifacts.read_research_protocol(ctx.scenario_name)
+        raw_protocol = "" if ablation else artifacts.read_research_protocol(ctx.scenario_name)
+        if not isinstance(raw_protocol, str):
+            raw_protocol = ""
+        research_protocol = raw_protocol
         if raw_protocol:
             protocol = parse_research_protocol(raw_protocol)
             # Apply exploration mode from protocol
@@ -376,6 +352,8 @@ def stage_knowledge_setup(
     strategy_interface = scenario.describe_strategy_interface()
     evidence_manifest = ""
     evidence_manifests: dict[str, str] | None = None
+    evidence_cache_hits = 0
+    evidence_cache_lookups = 0
     notebook_contexts: dict[str, str] | None = None
     active_harness_mutations = [] if ablation else load_active_harness_mutations(artifacts, ctx.scenario_name)
     if not ablation:
@@ -408,12 +386,15 @@ def stage_knowledge_setup(
         experiment_log = f"{experiment_log}\n\n{context_policy_block}".strip() if experiment_log else context_policy_block
     if not ablation and ctx.settings.evidence_workspace_enabled:
         try:
-            evidence_manifests = _materialize_evidence_manifests(ctx, artifacts=artifacts)
+            evidence_manifests, evidence_workspace = materialize_evidence_manifests(ctx, artifacts=artifacts)
             evidence_manifest = evidence_manifests.get("analyst", "")
+            evidence_cache_lookups = 1
+            evidence_cache_hits = int(bool(getattr(evidence_workspace, "cache_hit", False)))
         except Exception:
             logger.warning("failed to materialize evidence workspace for %s", ctx.scenario_name, exc_info=True)
-
-    prompts = build_prompt_bundle(
+    prompts, semantic_benchmark_payload = prepare_generation_prompts(
+        ctx,
+        artifacts=artifacts,
         scenario_rules=scenario.describe_rules(),
         strategy_interface=strategy_interface,
         evaluation_criteria=scenario.describe_evaluation_criteria(),
@@ -434,6 +415,8 @@ def stage_knowledge_setup(
         strategy_registry=strategy_registry,
         progress_json=progress_json_str,
         experiment_log=experiment_log,
+        dead_ends=dead_ends,
+        research_protocol=research_protocol,
         session_reports=session_reports,
         architect_tool_usage_report=tool_usage_report,
         constraint_mode=ctx.settings.constraint_prompts_enabled,
@@ -442,12 +425,15 @@ def stage_knowledge_setup(
         environment_snapshot="" if ablation else ctx.environment_snapshot,
         evidence_manifest=evidence_manifest,
         evidence_manifests=evidence_manifests,
+        evidence_cache_hits=evidence_cache_hits,
+        evidence_cache_lookups=evidence_cache_lookups,
     )
     prompts = apply_harness_mutations_to_prompts(prompts, active_harness_mutations)
 
     ctx.applied_competitor_hints = "" if ablation else coach_hints_for_prompt
     ctx.prompts = prompts
     ctx.evidence_manifest = evidence_manifest
+    ctx.semantic_compaction_benchmark = semantic_benchmark_payload
     ctx.strategy_interface = strategy_interface
     ctx.tool_context = tool_context
     ctx.base_playbook = playbook
