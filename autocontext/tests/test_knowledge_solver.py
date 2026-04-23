@@ -575,6 +575,23 @@ class TestSolveScenarioBuilder:
         assert "## Scenario Design" in compact
         assert "analytics/rubric_drift.py" in compact
 
+    def test_build_solve_agent_task_design_brief_preserves_long_freeform_descriptions(self) -> None:
+        from autocontext.knowledge.solver import (
+            _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS,
+            _build_solve_agent_task_design_brief,
+        )
+
+        description = "Babel reverse solve scenario\n\n" + "\n".join(
+            f"detail {idx}: preserve translation inversion requirement {idx}." for idx in range(40)
+        )
+
+        compact = _build_solve_agent_task_design_brief(description)
+
+        assert len(compact) <= _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS
+        assert "Babel reverse solve scenario" in compact
+        assert "detail 0: preserve translation inversion requirement 0" in compact
+        assert "detail 1: preserve translation inversion requirement 1" in compact
+
     def test_agent_task_creator_applies_description_transform_to_family_creators(
         self,
         tmp_path: Path,

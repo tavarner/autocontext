@@ -17,21 +17,21 @@ from autocontext.cli_role_runtime import resolve_role_runtime
 from autocontext.config.settings import AppSettings
 from autocontext.execution.improvement_loop import ImprovementLoop
 from autocontext.knowledge.export import SkillPackage, export_skill_package
+from autocontext.knowledge.solve_agent_task_design import (
+    _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS,  # noqa: F401 - re-exported for existing tests/imports
+    RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+    SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+    _build_solve_agent_task_design_brief,
+    _build_solve_description_brief,
+    _solve_task_spec_needs_compact_retry,
+)
 from autocontext.mcp.tools import MtsToolContext
 from autocontext.scenarios import SCENARIO_REGISTRY
 from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
 from autocontext.scenarios.artifact_editing import Artifact, ArtifactEditingInterface
-from autocontext.scenarios.custom.agent_task_designer import (
-    RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
-    SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
-)
-from autocontext.scenarios.custom.agent_task_spec import AgentTaskSpec
 from autocontext.scenarios.custom.classifier_cache import (
     ClassifierCache,
     default_classifier_cache_path,
-)
-from autocontext.scenarios.custom.classifier_input import (
-    build_family_classification_brief,
 )
 from autocontext.storage import artifact_store_from_settings
 from autocontext.storage.sqlite_store import SQLiteStore
@@ -58,22 +58,7 @@ _SIMULATION_INTERFACE_HINT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _AGENT_TASK_INTERFACE_HINT_RE = re.compile(r"\bagent[- ]task evaluation\b", re.IGNORECASE)
-_SOLVE_AGENT_TASK_DESIGN_KEEP_SECTIONS = frozenset(
-    {
-        "Objective",
-        "Description",
-        "Scenario Design",
-        "Evaluation Dimensions",
-        "Success Criteria",
-    }
-)
-_SOLVE_AGENT_TASK_DESIGN_MAX_CHARS = 1000
-_SOLVE_AGENT_TASK_DESIGN_MAX_SECTION_LINES = 5
 _SOLVE_CREATOR_PI_TIMEOUT_FLOOR_SECONDS = 600.0
-_SOLVE_RUNTIME_HEAVY_TASK_PROMPT_RE = re.compile(
-    r"\b(run|execute|inspect)\b.*\b(provider|repository|scenario|generations?|command|file|artifact)\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass
@@ -313,73 +298,6 @@ class _BudgetedAgentTask(AgentTaskInterface):
         result = self._task.verify_facts(output, state)
         self._budget.check("fact verification")
         return result
-
-
-def _build_solve_description_brief(description: str) -> str:
-    return build_family_classification_brief(description)
-
-
-def _build_solve_agent_task_design_brief(description: str) -> str:
-    brief = _build_solve_description_brief(description)
-    if len(brief) <= _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS:
-        return brief
-
-    lines: list[str] = []
-    current_section: str | None = None
-    current_section_lines = 0
-    title_captured = False
-
-    for raw_line in brief.splitlines():
-        heading_match = re.match(r"^\s*#{2,6}\s+(.+?)\s*$", raw_line)
-        if heading_match is not None:
-            title = heading_match.group(1).strip()
-            if title in _SOLVE_AGENT_TASK_DESIGN_KEEP_SECTIONS:
-                current_section = title
-                current_section_lines = 0
-                if lines and lines[-1] != "":
-                    lines.append("")
-                lines.append(raw_line)
-                lines.append("")
-            else:
-                current_section = None
-            continue
-
-        stripped = raw_line.strip()
-        if not title_captured and stripped:
-            lines.append(raw_line)
-            title_captured = True
-            continue
-        if current_section is None:
-            continue
-        if not stripped:
-            if lines and lines[-1] != "":
-                lines.append("")
-            continue
-        if stripped.startswith("```"):
-            continue
-        if current_section_lines >= _SOLVE_AGENT_TASK_DESIGN_MAX_SECTION_LINES:
-            continue
-        lines.append(raw_line)
-        current_section_lines += 1
-
-    compact = "\n".join(lines).strip()
-    compact = re.sub(r"\n{3,}", "\n\n", compact)
-    while len(compact) > _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS and "\n\n" in compact:
-        compact = compact.rsplit("\n\n", 1)[0].strip()
-    if len(compact) > _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS:
-        compact = compact[:_SOLVE_AGENT_TASK_DESIGN_MAX_CHARS].rsplit("\n", 1)[0].strip()
-    return compact or brief[:_SOLVE_AGENT_TASK_DESIGN_MAX_CHARS].strip()
-
-
-def _solve_task_spec_needs_compact_retry(spec: AgentTaskSpec) -> bool:
-    if spec.output_format != "json_schema":
-        return False
-    if spec.sample_input not in {None, ""}:
-        return False
-    prompt = spec.task_prompt.strip()
-    if "if available" in prompt.lower():
-        return True
-    return bool(_SOLVE_RUNTIME_HEAVY_TASK_PROMPT_RE.search(prompt))
 
 
 def _normalize_family_hint_token(token: str) -> str:

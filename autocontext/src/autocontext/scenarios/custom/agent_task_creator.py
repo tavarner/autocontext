@@ -16,7 +16,7 @@ from autocontext.scenarios.coordination import CoordinationInterface
 from autocontext.scenarios.custom.agent_task_codegen import generate_agent_task_class
 from autocontext.scenarios.custom.agent_task_designer import (
     AGENT_TASK_DESIGNER_SYSTEM,
-    design_agent_task,
+    design_validated_agent_task,
 )
 from autocontext.scenarios.custom.agent_task_revision import (
     patch_legacy_generated_evaluate_output,
@@ -136,33 +136,14 @@ class AgentTaskCreator:
 
         # 1. Design
         logger.info("designing agent task from description")
-        try:
-            spec = design_agent_task(
-                design_description,
-                self.llm_fn,
-                system_prompt=self._designer_system_prompt,
-            )
-        except Exception as exc:
-            retry_system_prompt = (
-                self._retry_designer_system_prompt
-                if _is_timeout_like_error(exc) and self._retry_designer_system_prompt is not None
-                else self._designer_system_prompt
-            )
-            logger.warning("agent task design failed on first attempt; retrying once", exc_info=True)
-            spec = design_agent_task(
-                design_description,
-                self.llm_fn,
-                system_prompt=retry_system_prompt,
-            )
-
-        if self._retry_spec_predicate is not None and self._retry_spec_predicate(spec):
-            retry_system_prompt = self._retry_designer_system_prompt or self._designer_system_prompt
-            logger.warning("agent task design produced a retryable spec; retrying once with fallback prompt")
-            spec = design_agent_task(
-                design_description,
-                self.llm_fn,
-                system_prompt=retry_system_prompt,
-            )
+        spec = design_validated_agent_task(
+            design_description,
+            self.llm_fn,
+            system_prompt=self._designer_system_prompt,
+            retry_system_prompt=self._retry_designer_system_prompt,
+            retry_spec_predicate=self._retry_spec_predicate,
+            intent_description=description,
+        )
 
         # 1.5 Auto-heal: generate synthetic sample_input if needed (AC-309),
         # drop unsatisfiable runtime context keys, and clamp quality_threshold

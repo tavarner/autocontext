@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 
 from autocontext.agents.types import LlmFn
 from autocontext.scenarios.custom.agent_task_spec import (
@@ -188,6 +189,10 @@ def design_validated_agent_task(
     llm_fn: LlmFn,
     *,
     max_retries: int = 2,
+    system_prompt: str = AGENT_TASK_DESIGNER_SYSTEM,
+    retry_system_prompt: str | None = None,
+    retry_spec_predicate: Callable[[AgentTaskSpec], bool] | None = None,
+    intent_description: str | None = None,
 ) -> AgentTaskSpec:
     """Design an agent task spec, retrying with validator feedback if intent drifts.
 
@@ -210,25 +215,27 @@ def design_validated_agent_task(
     total_attempts = max_retries + 1
     errors_per_attempt: list[list[str]] = []
     last_spec: AgentTaskSpec | None = None
+    validation_description = intent_description or description
+    effective_retry_system_prompt = retry_system_prompt or system_prompt
 
     for attempt in range(total_attempts):
         try:
             if attempt == 0:
-                spec = design_agent_task(description, llm_fn)
+                spec = design_agent_task(description, llm_fn, system_prompt=system_prompt)
             elif last_spec is None:
                 user_prompt = _build_parse_failure_retry_prompt(
                     description=description,
                     errors=errors_per_attempt[-1],
                 )
-                response = llm_fn(AGENT_TASK_DESIGNER_SYSTEM, user_prompt)
+                response = llm_fn(effective_retry_system_prompt, user_prompt)
                 spec = parse_agent_task_spec(response)
             else:
                 user_prompt = _build_correction_prompt(
-                    description=description,
+                    description=validation_description,
                     failed_spec=last_spec,
                     errors=errors_per_attempt[-1],
                 )
-                response = llm_fn(AGENT_TASK_DESIGNER_SYSTEM, user_prompt)
+                response = llm_fn(effective_retry_system_prompt, user_prompt)
                 spec = parse_agent_task_spec(response)
         except Exception as exc:
             errors = [f"designer response could not be parsed: {exc}"]
@@ -245,7 +252,15 @@ def design_validated_agent_task(
                 f"agent task design failed after {total_attempts} attempts. Errors per attempt: {errors_per_attempt}"
             ) from exc
 
-        errors = validate_intent(description, spec)
+        errors = validate_intent(validation_description, spec)
+        if (
+            not errors
+            and retry_spec_predicate is not None
+            and retry_spec_predicate(spec)
+            and attempt < total_attempts - 1
+        ):
+            errors = ["generated spec is too runtime-heavy for solve-on-demand; retry with a compact execution contract"]
+
         if not errors:
             return spec
 
