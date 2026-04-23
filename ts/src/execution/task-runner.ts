@@ -8,6 +8,7 @@ import type {
   AgentTaskInterface,
   AgentTaskResult,
 } from "../types/index.js";
+import type { AppSettings } from "../config/index.js";
 import { type DelegatedResult, type JudgeInterface } from "../judge/delegated.js";
 import type { SQLiteStore, TaskQueueRow } from "../storage/index.js";
 import { assertFamilyContract } from "../scenarios/family-interfaces.js";
@@ -22,6 +23,10 @@ import {
 } from "./task-runner-config.js";
 import type { TaskConfig } from "./task-runner-config.js";
 import { executeQueuedTaskWorkflow } from "./task-processing-workflow.js";
+import {
+  createQueuedTaskBrowserContextService,
+  type QueuedTaskBrowserContextService,
+} from "./queued-task-browser-context.js";
 import {
   evaluateSimpleAgentTaskOutput,
   generateSimpleAgentTaskOutput,
@@ -156,9 +161,18 @@ export interface TaskRunnerOpts {
   provider: LLMProvider;
   model?: string;
   knowledgeRoot?: string;
+  browserContextService?: QueuedTaskBrowserContextService;
   pollInterval?: number;
   maxConsecutiveEmpty?: number;
   concurrency?: number;
+}
+
+export interface TaskRunnerFromSettingsOpts
+  extends Omit<TaskRunnerOpts, "knowledgeRoot" | "browserContextService"> {
+  settings: AppSettings;
+  knowledgeRoot?: string;
+  browserContextService?: QueuedTaskBrowserContextService;
+  createBrowserContextService?: typeof createQueuedTaskBrowserContextService;
 }
 
 export class TaskRunner {
@@ -166,6 +180,7 @@ export class TaskRunner {
   #provider: LLMProvider;
   #model: string;
   #knowledgeRoot?: string;
+  #browserContextService?: QueuedTaskBrowserContextService;
   #pollInterval: number;
   #maxConsecutiveEmpty: number;
   #concurrency: number;
@@ -177,6 +192,7 @@ export class TaskRunner {
     this.#provider = opts.provider;
     this.#model = buildTaskRunnerModel(opts.provider.defaultModel(), opts.model);
     this.#knowledgeRoot = opts.knowledgeRoot;
+    this.#browserContextService = opts.browserContextService;
     this.#pollInterval = opts.pollInterval ?? 60;
     this.#maxConsecutiveEmpty = opts.maxConsecutiveEmpty ?? 0;
     this.#concurrency = Math.max(1, opts.concurrency ?? 1);
@@ -215,6 +231,7 @@ export class TaskRunner {
       provider: this.#provider,
       model: this.#model,
       knowledgeRoot: this.#knowledgeRoot,
+      browserContextService: this.#browserContextService,
       internals: {
         createAgentTask: ({
           taskPrompt,
@@ -244,4 +261,24 @@ export function enqueueTask(
   opts?: EnqueueTaskRequest,
 ): string {
   return enqueueConfiguredTask(store, specName, opts);
+}
+
+export function createTaskRunnerFromSettings(opts: TaskRunnerFromSettingsOpts): TaskRunner {
+  const createBrowserContextService =
+    opts.createBrowserContextService ?? createQueuedTaskBrowserContextService;
+  const browserContextService = opts.browserContextService
+    ?? (opts.settings.browserEnabled
+      ? createBrowserContextService(opts.settings)
+      : undefined);
+
+  return new TaskRunner({
+    store: opts.store,
+    provider: opts.provider,
+    model: opts.model,
+    knowledgeRoot: opts.knowledgeRoot ?? opts.settings.knowledgeRoot,
+    browserContextService,
+    pollInterval: opts.pollInterval,
+    maxConsecutiveEmpty: opts.maxConsecutiveEmpty,
+    concurrency: opts.concurrency,
+  });
 }
