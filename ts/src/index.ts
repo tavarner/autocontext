@@ -109,6 +109,33 @@ export type {
   ValidationResult as ApiKeyValidationResult,
 } from "./config/credentials.js";
 
+// Browser exploration
+export type {
+  BrowserAction,
+  BrowserActionType,
+  BrowserAuditEvent,
+  BrowserContractSchemaVersion,
+  BrowserFieldKind,
+  BrowserPolicyDecision,
+  BrowserPolicyReason,
+  BrowserProfileMode,
+  BrowserSessionConfig,
+  BrowserSettingsLike,
+  BrowserSnapshot,
+  BrowserSnapshotRef,
+  BrowserValidationResult,
+} from "./integrations/browser/index.js";
+export {
+  BROWSER_CONTRACT_SCHEMA_VERSION,
+  buildDefaultBrowserSessionConfig,
+  evaluateBrowserActionPolicy,
+  normalizeBrowserAllowedDomains,
+  resolveBrowserSessionConfig,
+  validateBrowserAction,
+  validateBrowserAuditEvent,
+  validateBrowserSessionConfig,
+  validateBrowserSnapshot,
+} from "./integrations/browser/index.js";
 
 // Execution
 export { ImprovementLoop, isParseFailure, isImproved } from "./execution/improvement-loop.js";

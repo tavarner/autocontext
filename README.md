@@ -248,6 +248,8 @@ Important:
 
 The Python package exposes the full `autoctx` control-plane CLI for scenario execution, API serving, exports, training, and operator workflows. The TypeScript package exposes the `autoctx` CLI and library surface for simulations, investigations, analysis, mission control, MCP serving, and Node integrations.
 
+Both packages share an optional, disabled-by-default browser exploration contract for thin browser control without bundling a heavyweight browser framework. See [docs/browser-exploration-contract.md](docs/browser-exploration-contract.md).
+
 ## Which Package Should You Use?
 
 | If you want to...                                                | Start here                                                                     | Why                                                                                                             |

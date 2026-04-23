@@ -15,6 +15,9 @@ describe("package root exports", () => {
     expect(pkg.createMcpServer).toBeDefined();
     expect(pkg.MissionManager).toBeDefined();
     expect(pkg.chooseModel).toBeDefined();
+    expect(pkg.resolveBrowserSessionConfig).toBeDefined();
+    expect(pkg.evaluateBrowserActionPolicy).toBeDefined();
+    expect(pkg.validateBrowserSessionConfig).toBeDefined();
   });
 
   it("avoids package catalog barrel hops in ts/src/index.ts", () => {

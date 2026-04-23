@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/browser-snapshot.json",
+  "title": "BrowserSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "capturedAt",
+    "url",
+    "title",
+    "refs",
+    "visibleText",
+    "htmlPath",
+    "screenshotPath"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SchemaVersion"
+    },
+    "sessionId": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/SessionId"
+    },
+    "capturedAt": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/IsoTimestamp"
+    },
+    "url": {
+      "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/UrlString"
+    },
+    "title": { "type": "string" },
+    "refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "$ref": "https://autocontext.dev/schema/browser/shared-defs.json#/$defs/RefId"
+          },
+          "role": { "type": "string" },
+          "name": { "type": "string" },
+          "text": { "type": "string" },
+          "selector": { "type": "string" },
+          "disabled": { "type": "boolean" }
+        }
+      }
+    },
+    "visibleText": { "type": "string" },
+    "htmlPath": {
+      "type": ["string", "null"]
+    },
+    "screenshotPath": {
+      "type": ["string", "null"]
+    }
+  }
+}

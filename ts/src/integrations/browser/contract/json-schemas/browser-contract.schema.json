@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/browser-contract.json",
+  "title": "BrowserContractBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sessionConfig": {
+      "$ref": "https://autocontext.dev/schema/browser/browser-session-config.json"
+    },
+    "action": {
+      "$ref": "https://autocontext.dev/schema/browser/browser-action.json"
+    },
+    "snapshot": {
+      "$ref": "https://autocontext.dev/schema/browser/browser-snapshot.json"
+    },
+    "auditEvent": {
+      "$ref": "https://autocontext.dev/schema/browser/browser-audit-event.json"
+    }
+  }
+}

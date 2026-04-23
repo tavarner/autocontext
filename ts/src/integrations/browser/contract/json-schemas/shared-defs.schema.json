@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autocontext.dev/schema/browser/shared-defs.json",
+  "title": "BrowserSharedDefs",
+  "$defs": {
+    "SchemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "SessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ActionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "EventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "IsoTimestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "UrlString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "RefId": {
+      "type": "string",
+      "pattern": "^@[A-Za-z0-9._:-]+$"
+    },
+    "ProfileMode": {
+      "type": "string",
+      "enum": ["ephemeral", "isolated", "user-profile"]
+    },
+    "AllowedDomain": {
+      "type": "string",
+      "pattern": "^(\\*\\.)?[A-Za-z0-9.-]+$"
+    },
+    "PathString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "FieldKind": {
+      "type": "string",
+      "enum": ["text", "email", "password", "search", "other"]
+    },
+    "PolicyReason": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "domain_not_allowed",
+        "auth_blocked",
+        "uploads_blocked",
+        "downloads_blocked",
+        "missing_uploads_root",
+        "missing_downloads_root",
+        "user_profile_requires_auth",
+        "invalid_url"
+      ]
+    }
+  }
+}

@@ -121,6 +121,21 @@ export const AppSettingsSchema = z.object({
   piRpcApiKey: z.string().default(""),
   piRpcSessionPersistence: z.boolean().default(true),
 
+  // Browser exploration
+  browserEnabled: z.boolean().default(false),
+  browserBackend: z.string().default("chrome-cdp"),
+  browserProfileMode: z.enum(["ephemeral", "isolated", "user-profile"]).default("ephemeral"),
+  browserAllowedDomains: z.string().default(""),
+  browserAllowAuth: z.boolean().default(false),
+  browserAllowUploads: z.boolean().default(false),
+  browserAllowDownloads: z.boolean().default(false),
+  browserCaptureScreenshots: z.boolean().default(true),
+  browserHeadless: z.boolean().default(true),
+  browserDebuggerUrl: z.string().default("http://127.0.0.1:9222"),
+  browserPreferredTargetUrl: z.string().default(""),
+  browserDownloadsRoot: z.string().default(""),
+  browserUploadsRoot: z.string().default(""),
+
   // Feature flags
   ablationNoFeedback: z.boolean().default(false),
   rlmEnabled: z.boolean().default(false),

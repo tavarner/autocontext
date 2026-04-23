@@ -617,6 +617,26 @@ class AppSettings(BaseModel):
         default=True,
         description="Persist Pi sessions across turns when launching pi --mode rpc",
     )
+    # Browser exploration (AC-598)
+    browser_enabled: bool = Field(default=False, description="Enable optional browser exploration surfaces")
+    browser_backend: str = Field(default="chrome-cdp", description="Browser backend name")
+    browser_profile_mode: str = Field(
+        default="ephemeral",
+        description="Browser profile mode: ephemeral, isolated, or user-profile",
+    )
+    browser_allowed_domains: str = Field(
+        default="",
+        description="Comma-separated browser navigation allowlist",
+    )
+    browser_allow_auth: bool = Field(default=False, description="Allow auth-sensitive browser actions")
+    browser_allow_uploads: bool = Field(default=False, description="Allow browser file uploads")
+    browser_allow_downloads: bool = Field(default=False, description="Allow browser downloads")
+    browser_capture_screenshots: bool = Field(default=True, description="Persist browser screenshots as evidence")
+    browser_headless: bool = Field(default=True, description="Launch browser sessions in headless mode")
+    browser_debugger_url: str = Field(default="http://127.0.0.1:9222", description="Chrome debugger base URL")
+    browser_preferred_target_url: str = Field(default="", description="Preferred page URL when selecting a debugger target")
+    browser_downloads_root: str = Field(default="", description="Root directory for permitted browser downloads")
+    browser_uploads_root: str = Field(default="", description="Root directory for permitted browser uploads")
     # Hermes CLI runtime (AC-351)
     hermes_command: str = Field(default="hermes", description="Path to Hermes CLI binary")
     hermes_model: str = Field(default="", description="Hermes model override")
