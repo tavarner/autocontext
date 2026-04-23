@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-04-23
+
 ### Added
 
 - **Browser integration surface** (AC-598–603): Chrome CDP backend for Python (`autocontext.integrations.browser`) and TypeScript (`autoctx/integrations/browser`), wired into investigations and the task queue. Includes a browser exploration contract, cross-runtime validation fixtures, parity enforcement, and selector generation for CDP element refs.
@@ -21,6 +23,10 @@ All notable changes to this project will be documented in this file.
 - Cross-runtime migration ledger reconciliation so Python and TypeScript DBs stay aligned after schema divergence (AC-608).
 - CLI dispatch moved into a command registry so mission routes resolve correctly (AC-610).
 - Babel reverse solve designer retries restored and scenario creation stabilized (AC-607).
+
+### Changed
+
+- Python and TypeScript package metadata are bumped to `0.4.6`.
 
 ## [0.4.5] - 2026-04-21
 
@@ -263,6 +269,8 @@ All notable changes to this project will be documented in this file.
 - FastAPI dashboard with WebSocket events.
 - CLI via Typer (Python) and `parseArgs` (TypeScript).
 
+[Unreleased]: https://github.com/greyhaven-ai/autocontext/compare/py-v0.4.6...HEAD
+[0.4.6]: https://github.com/greyhaven-ai/autocontext/compare/py-v0.4.5...py-v0.4.6
 [0.4.5]: https://github.com/greyhaven-ai/autocontext/compare/py-v0.4.4...py-v0.4.5
 [0.4.4]: https://github.com/greyhaven-ai/autocontext/compare/py-v0.4.3...py-v0.4.4
 [0.4.3]: https://github.com/greyhaven-ai/autocontext/compare/py-v0.4.2...py-v0.4.3
