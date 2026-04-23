@@ -17,6 +17,14 @@ from autocontext.cli_role_runtime import resolve_role_runtime
 from autocontext.config.settings import AppSettings
 from autocontext.execution.improvement_loop import ImprovementLoop
 from autocontext.knowledge.export import SkillPackage, export_skill_package
+from autocontext.knowledge.solve_agent_task_design import (
+    _SOLVE_AGENT_TASK_DESIGN_MAX_CHARS,  # noqa: F401 - re-exported for existing tests/imports
+    RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+    SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+    _build_solve_agent_task_design_brief,
+    _build_solve_description_brief,
+    _solve_task_spec_needs_compact_retry,
+)
 from autocontext.mcp.tools import MtsToolContext
 from autocontext.scenarios import SCENARIO_REGISTRY
 from autocontext.scenarios.agent_task import AgentTaskInterface, AgentTaskResult
@@ -24,9 +32,6 @@ from autocontext.scenarios.artifact_editing import Artifact, ArtifactEditingInte
 from autocontext.scenarios.custom.classifier_cache import (
     ClassifierCache,
     default_classifier_cache_path,
-)
-from autocontext.scenarios.custom.classifier_input import (
-    build_family_classification_brief,
 )
 from autocontext.storage import artifact_store_from_settings
 from autocontext.storage.sqlite_store import SQLiteStore
@@ -46,6 +51,7 @@ _SOLVE_FAMILY_ALIASES = {
     "alignment_stress_test": "agent_task",
     "meta_learning": "agent_task",
     "capability_bootstrapping": "agent_task",
+    "compositional_generalization": "agent_task",
 }
 _SIMULATION_INTERFACE_HINT_RE = re.compile(
     r"\bsimulationinterface\b.*\bworldstate\b|\bworldstate\b.*\bsimulationinterface\b",
@@ -53,6 +59,8 @@ _SIMULATION_INTERFACE_HINT_RE = re.compile(
 )
 _AGENT_TASK_INTERFACE_HINT_RE = re.compile(r"\bagent[- ]task evaluation\b", re.IGNORECASE)
 _SOLVE_CREATOR_PI_TIMEOUT_FLOOR_SECONDS = 600.0
+
+
 @dataclass
 class SolveJob:
     job_id: str
@@ -290,10 +298,6 @@ class _BudgetedAgentTask(AgentTaskInterface):
         result = self._task.verify_facts(output, state)
         self._budget.check("fact verification")
         return result
-
-
-def _build_solve_description_brief(description: str) -> str:
-    return build_family_classification_brief(description)
 
 
 def _normalize_family_hint_token(token: str) -> str:
@@ -595,6 +599,10 @@ class SolveScenarioBuilder:
         family_creator = AgentTaskCreator(
             llm_fn=self._llm_fn,
             knowledge_root=self._knowledge_root,
+            designer_system_prompt=SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+            retry_designer_system_prompt=RETRY_SOLVE_AGENT_TASK_DESIGNER_SYSTEM,
+            description_transform=_build_solve_agent_task_design_brief,
+            retry_spec_predicate=_solve_task_spec_needs_compact_retry,
         )
         scenario = family_creator.create(brief, family_name=family.name)
         scenario_name = str(cast(_NamedScenario, scenario).name)
@@ -611,8 +619,8 @@ def _llm_fn_from_client(client: Any, model: str) -> LlmFn:
         response = client.generate(
             model=model,
             prompt=f"{system}\n\n{user}",
-            max_tokens=1800,
-            temperature=0.3,
+            max_tokens=1200,
+            temperature=0.2,
             role="scenario_designer",
         )
         response_text: object = getattr(response, "text", "")

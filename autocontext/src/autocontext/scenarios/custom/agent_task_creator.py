@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from autocontext.scenarios.base import ScenarioInterface
 from autocontext.scenarios.coordination import CoordinationInterface
 from autocontext.scenarios.custom.agent_task_codegen import generate_agent_task_class
 from autocontext.scenarios.custom.agent_task_designer import (
+    AGENT_TASK_DESIGNER_SYSTEM,
     design_validated_agent_task,
 )
 from autocontext.scenarios.custom.agent_task_revision import (
@@ -55,6 +57,10 @@ from autocontext.util.json_io import write_json
 logger = logging.getLogger(__name__)
 
 
+def _is_timeout_like_error(exc: Exception) -> bool:
+    return "timeout" in str(exc).lower()
+
+
 class AgentTaskCreator:
     """Orchestrates the full agent task creation pipeline."""
 
@@ -62,9 +68,18 @@ class AgentTaskCreator:
         self,
         llm_fn: LlmFn,
         knowledge_root: Path,
+        *,
+        designer_system_prompt: str = AGENT_TASK_DESIGNER_SYSTEM,
+        retry_designer_system_prompt: str | None = None,
+        description_transform: Callable[[str], str] | None = None,
+        retry_spec_predicate: Callable[[Any], bool] | None = None,
     ) -> None:
         self.llm_fn = llm_fn
         self.knowledge_root = knowledge_root
+        self._designer_system_prompt = designer_system_prompt
+        self._retry_designer_system_prompt = retry_designer_system_prompt
+        self._description_transform = description_transform
+        self._retry_spec_predicate = retry_spec_predicate
 
     STOP_WORDS = SHARED_STOP_WORDS
 
@@ -94,6 +109,7 @@ class AgentTaskCreator:
             An instance of the generated scenario family implementation.
         """
         name = self.derive_name(description)
+        design_description = self._description_transform(description) if self._description_transform is not None else description
         if family_name:
             family = get_family(family_name)
         else:
@@ -108,13 +124,26 @@ class AgentTaskCreator:
         if family.name in FAMILY_CONFIGS:
             logger.info("routing description to %s creator", family.name)
             creator = create_for_family(family.name, self.llm_fn, self.knowledge_root)
-            return creator.create(description, name=name)
+            try:
+                return creator.create(design_description, name=name)
+            except Exception as exc:
+                if not _is_timeout_like_error(exc):
+                    raise
+                logger.warning("%s creator failed on first attempt; retrying once", family.name, exc_info=True)
+                return creator.create(design_description, name=name)
         if family.name != "agent_task":
             raise ValueError(f"Scenario family '{family.name}' is not yet supported for custom scaffolding")
 
         # 1. Design
         logger.info("designing agent task from description")
-        spec = design_validated_agent_task(description, self.llm_fn)
+        spec = design_validated_agent_task(
+            design_description,
+            self.llm_fn,
+            system_prompt=self._designer_system_prompt,
+            retry_system_prompt=self._retry_designer_system_prompt,
+            retry_spec_predicate=self._retry_spec_predicate,
+            intent_description=description,
+        )
 
         # 1.5 Auto-heal: generate synthetic sample_input if needed (AC-309),
         # drop unsatisfiable runtime context keys, and clamp quality_threshold
