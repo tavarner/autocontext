@@ -24,4 +24,37 @@ describe("DetectorPlugin.produce() widened return shape", () => {
     };
     expect(a.kind).toBe("factoryFunction");
   });
+
+  test("PluginAdvisory accepts deferred-sdk-variant kind (A2-III)", () => {
+    const a: PluginAdvisory = {
+      pluginId: "@autoctx/detector-anthropic-python",
+      sourceFilePath: "app.py",
+      range: { startByte: 0, endByte: 20, startLineCol: { line: 1, col: 0 }, endLineCol: { line: 1, col: 20 } },
+      kind: "deferred-sdk-variant",
+      reason: "AnthropicBedrock deferred to a2-iii-bedrock; wrap manually: instrument_client(AnthropicBedrock(...))",
+    };
+    expect(a.kind).toBe("deferred-sdk-variant");
+  });
+
+  test("PluginAdvisory accepts already-wrapped kind", () => {
+    const a: PluginAdvisory = {
+      pluginId: "@autoctx/detector-anthropic-ts",
+      sourceFilePath: "client.ts",
+      range: { startByte: 0, endByte: 10, startLineCol: { line: 1, col: 0 }, endLineCol: { line: 1, col: 10 } },
+      kind: "already-wrapped",
+      reason: "already wrapped by instrumentClient",
+    };
+    expect(a.kind).toBe("already-wrapped");
+  });
+
+  test("PluginAdvisory accepts unresolved-import kind", () => {
+    const a: PluginAdvisory = {
+      pluginId: "@autoctx/detector-anthropic-python",
+      sourceFilePath: "app.py",
+      range: { startByte: 0, endByte: 10, startLineCol: { line: 1, col: 0 }, endLineCol: { line: 1, col: 10 } },
+      kind: "unresolved-import",
+      reason: "Anthropic not imported from anthropic",
+    };
+    expect(a.kind).toBe("unresolved-import");
+  });
 });

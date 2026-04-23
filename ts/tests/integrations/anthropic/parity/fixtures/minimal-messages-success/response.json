@@ -1,0 +1,10 @@
+{
+  "id": "msg_p001",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "Hello there!"}],
+  "model": "claude-3-5-sonnet-20241022",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 5, "output_tokens": 4}
+}

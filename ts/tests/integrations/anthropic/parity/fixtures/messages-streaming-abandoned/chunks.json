@@ -1,0 +1,7 @@
+[
+  {"type": "message_start", "message": {"id": "msg_a001", "role": "assistant", "content": [], "model": "claude-3-5-sonnet-20241022", "stop_reason": null, "usage": {"input_tokens": 5, "output_tokens": 0}}},
+  {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+  {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Partial"}},
+  {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " response"}},
+  {"type": "content_block_stop", "index": 0}
+]
